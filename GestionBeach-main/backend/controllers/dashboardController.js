@@ -20,7 +20,7 @@ exports.getDashboardData = async (req, res) => {
     
     const sucursalesResult = await pool.request()
       .query(`
-        SELECT TOP 5 id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal
+        SELECT  id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal
         FROM sucursales
         WHERE tipo_sucursal IN ('SUPERMERCADO', 'FERRETERIA', 'MULTITIENDA')
         ORDER BY id

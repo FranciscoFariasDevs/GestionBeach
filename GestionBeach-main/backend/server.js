@@ -104,6 +104,7 @@ const optionalRoutes = [
   { path: './routes/perfilesRoutes', route: '/api/perfiles' },
   { path: './routes/remuneracionesRoutes', route: '/api/remuneraciones' },
   { path: './routes/modulosRoutes', route: '/api/modulos' },
+  { path: './routes/inventarioRoutes', route: '/api/inventario' }, // ← LÍNEA AGREGADA PARA INVENTARIO
   { path: './routes/losMasVendidosRoutes', route: '/api/losmasvendidos' },
   { path: './routes/razonesSocialesRoutes', route: '/api/razonessociales' },
   { path: './routes/facturaXMLRoutes', route: '/api/facturas-xml' },
@@ -243,6 +244,23 @@ app.get('/api/ping', (req, res) => {
   });
 });
 
+// ✅ NUEVA RUTA DE TEST PARA INVENTARIO
+app.get('/api/test-inventario', (req, res) => {
+  console.log('🧪 Test de inventario solicitado');
+  
+  res.json({
+    success: true,
+    message: 'Ruta de test de inventario funcionando',
+    timestamp: new Date().toISOString(),
+    rutas_inventario: [
+      '/api/inventario/test',
+      '/api/inventario/productos-recientes',
+      '/api/inventario/productos-extendidos',
+      '/api/inventario/estadisticas'
+    ]
+  });
+});
+
 // Servir el frontend en producción
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../frontend/build')));
@@ -283,6 +301,7 @@ const startServer = async () => {
       console.log(`🏓 Ping: http://190.102.248.163:${PORT}/api/ping`);
       console.log(`🔧 Diagnóstico BD: http://190.102.248.163:${PORT}/api/check-db`);
       console.log(`🏢 Test Sucursales: http://190.102.248.163:${PORT}/api/sucursales-quick-test`);
+      console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
       console.log('\n✅ === SERVIDOR LISTO ===\n');
       
       // ✅ CORS permitidos para referencia
