@@ -1,4 +1,4 @@
-// FacturasXMLPage.jsx - CON COMPONENTE DE FILTRO NUEVO
+// FacturasXMLPage.jsx - REFACTORIZADO PARA USAR API.JS
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -38,7 +38,10 @@ import {
   Fab,
   TextField,
   InputAdornment,
-  Divider
+  Divider,
+  Select,
+  MenuItem,
+  InputLabel
 } from '@mui/material';
 import {
   Receipt as ReceiptIcon,
@@ -58,48 +61,37 @@ import {
   NavigateNext as NextIcon,
   NavigateBefore as PrevIcon,
   FirstPage as FirstPageIcon,
-  LastPage as LastPageIcon
+  LastPage as LastPageIcon,
+  DateRange as DateRangeIcon,
+  Business as BusinessIcon,
+  CalendarToday as CalendarIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { es } from 'date-fns/locale';
+import api from '../api/api'; // ✅ USANDO API.JS COMPARTIDO
 
-// Configuración API
-const API_URL = process.env.NODE_ENV === 'production' 
-  ? 'http://190.102.248.163:5000/api'
-  : 'http://localhost:5000/api';
+// COMPONENTE DE FILTRO DE FECHAS Y BÚSQUEDA
+const DateRangeSearchFilter = ({ 
+  fechaInicio, 
+  fechaFin, 
+  onFechaInicioChange, 
+  onFechaFinChange,
+  onSearch, 
+  onClear, 
+  isLoading, 
+  activeFilter, 
+  totalResults,
+  searchText,
+  setSearchText,
+  empresaInfo 
+}) => {
+  const [filtrosAplicados, setFiltrosAplicados] = useState(false);
 
-const getAuthToken = () => localStorage.getItem('token');
-
-const axiosWithAuth = axios.create({
-  baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
-  timeout: 30000
-});
-
-axiosWithAuth.interceptors.request.use(config => {
-  const token = getAuthToken();
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
-
-axiosWithAuth.interceptors.response.use(
-  response => response,
-  error => {
-    if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
-      console.error('Error de conexión:', error.message);
-      return Promise.reject(new Error('No se puede conectar al servidor. Verifica que esté corriendo en puerto 5000.'));
-    }
-    
-    if (error.response?.status === 401) {
-      console.error('Error de autenticación:', error.message);
-    }
-    
-    return Promise.reject(error);
-  }
-);
-
-// COMPONENTE DE FILTRO SIMPLE - INDEPENDIENTE
-const SimpleSearchFilter = ({ onSearch, onClear, isLoading, activeFilter, totalResults }) => {
-  const [searchText, setSearchText] = useState('');
+  useEffect(() => {
+    setFiltrosAplicados(fechaInicio || fechaFin || activeFilter);
+  }, [fechaInicio, fechaFin, activeFilter]);
 
   const handleTextChange = (event) => {
     setSearchText(event.target.value);
@@ -120,15 +112,138 @@ const SimpleSearchFilter = ({ onSearch, onClear, isLoading, activeFilter, totalR
     }
   };
 
+  const formatDate = (date) => {
+    if (!date) return '';
+    return date.toLocaleDateString('es-CL');
+  };
+
   return (
-    <Paper elevation={1} sx={{ p: 2, mb: 2, backgroundColor: '#fafafa' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+    <Paper elevation={2} sx={{ p: 3, mb: 3, backgroundColor: '#fafafa' }}>
+      {/* Información de la empresa */}
+      {empresaInfo && (
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          mb: 3, 
+          p: 2, 
+          backgroundColor: '#e3f2fd',
+          borderRadius: 1,
+          border: '1px solid #2196f3'
+        }}>
+          <BusinessIcon sx={{ mr: 2, color: '#1976d2', fontSize: 30 }} />
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+              {empresaInfo.razon_social}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              RUT: {empresaInfo.rut} | Base de Datos: {empresaInfo.base_datos || 'Principal'}
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
         <FilterListIcon sx={{ mr: 1, color: '#f37d16' }} />
         <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#333' }}>
-          Filtro de Facturas
+          Filtros de Búsqueda
         </Typography>
+        {filtrosAplicados && (
+          <Chip 
+            label="Filtros activos" 
+            color="primary" 
+            size="small" 
+            sx={{ ml: 2 }}
+          />
+        )}
       </Box>
 
+      {/* Filtros de fecha */}
+      <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={4}>
+            <DatePicker
+              label="Fecha Inicio"
+              value={fechaInicio}
+              onChange={onFechaInicioChange}
+              disabled={isLoading}
+              slotProps={{
+                textField: {
+                  fullWidth: true,
+                  variant: 'outlined',
+                  InputProps: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <CalendarIcon color="action" />
+                      </InputAdornment>
+                    ),
+                  }
+                }
+              }}
+            />
+          </Grid>
+          
+          <Grid item xs={12} sm={4}>
+            <DatePicker
+              label="Fecha Fin"
+              value={fechaFin}
+              onChange={onFechaFinChange}
+              disabled={isLoading}
+              minDate={fechaInicio}
+              slotProps={{
+                textField: {
+                  fullWidth: true,
+                  variant: 'outlined',
+                  InputProps: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <CalendarIcon color="action" />
+                      </InputAdornment>
+                    ),
+                  }
+                }
+              }}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={4}>
+            <Box sx={{ display: 'flex', gap: 1, height: '100%', alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={handleSearch}
+                disabled={isLoading || (!fechaInicio && !fechaFin && !searchText.trim())}
+                startIcon={<DateRangeIcon />}
+                sx={{
+                  backgroundColor: '#f37d16',
+                  '&:hover': { backgroundColor: '#e06c00' },
+                  height: '56px',
+                  fontWeight: 'bold'
+                }}
+              >
+                {isLoading ? 'Aplicando...' : 'Aplicar Filtros'}
+              </Button>
+              
+              {filtrosAplicados && (
+                <Button
+                  variant="outlined"
+                  onClick={handleClear}
+                  disabled={isLoading}
+                  startIcon={<ClearIcon />}
+                  sx={{
+                    borderColor: '#999',
+                    color: '#666',
+                    height: '56px',
+                    '&:hover': { borderColor: '#666', backgroundColor: '#f5f5f5' }
+                  }}
+                >
+                  Limpiar
+                </Button>
+              )}
+            </Box>
+          </Grid>
+        </Grid>
+      </LocalizationProvider>
+
+      {/* Búsqueda por texto */}
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
@@ -159,59 +274,51 @@ const SimpleSearchFilter = ({ onSearch, onClear, isLoading, activeFilter, totalR
             sx: { backgroundColor: 'white' }
           }}
         />
-
-        <Button
-          variant="contained"
-          onClick={handleSearch}
-          disabled={isLoading || !searchText.trim()}
-          startIcon={<SearchIcon />}
-          sx={{
-            backgroundColor: '#f37d16',
-            '&:hover': { backgroundColor: '#e06c00' },
-            minWidth: 120,
-            fontWeight: 'bold'
-          }}
-        >
-          {isLoading ? 'Buscando...' : 'Buscar'}
-        </Button>
-
-        {activeFilter && (
-          <Button
-            variant="outlined"
-            onClick={handleClear}
-            disabled={isLoading}
-            startIcon={<ClearIcon />}
-            sx={{
-              borderColor: '#999',
-              color: '#666',
-              '&:hover': { borderColor: '#666', backgroundColor: '#f5f5f5' }
-            }}
-          >
-            Limpiar
-          </Button>
-        )}
       </Box>
 
-      {activeFilter && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Chip
-            label={`Filtro: "${activeFilter}"`}
-            onDelete={handleClear}
-            color="primary"
-            variant="filled"
-            size="small"
-            sx={{ fontWeight: 'bold' }}
-          />
-          <Typography variant="body2" color="text.secondary">
+      {/* Información de filtros aplicados */}
+      {filtrosAplicados && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+          {fechaInicio && (
+            <Chip
+              label={`Desde: ${formatDate(fechaInicio)}`}
+              onDelete={() => onFechaInicioChange(null)}
+              color="primary"
+              variant="outlined"
+              size="small"
+            />
+          )}
+          {fechaFin && (
+            <Chip
+              label={`Hasta: ${formatDate(fechaFin)}`}
+              onDelete={() => onFechaFinChange(null)}
+              color="primary"
+              variant="outlined"
+              size="small"
+            />
+          )}
+          {activeFilter && (
+            <Chip
+              label={`Texto: "${activeFilter}"`}
+              onDelete={handleClear}
+              color="secondary"
+              variant="outlined"
+              size="small"
+            />
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 1, alignSelf: 'center' }}>
             {totalResults} resultados encontrados
           </Typography>
         </Box>
       )}
 
-      {!activeFilter && (
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
-          💡 Puedes buscar por número de folio, nombre del emisor, RUT del emisor o receptor
-        </Typography>
+      {!filtrosAplicados && (
+        <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
+          <Typography variant="body2">
+            💡 <strong>Para optimizar el rendimiento:</strong> Selecciona un rango de fechas antes de cargar las facturas.
+            También puedes buscar por número de folio, nombre del emisor o RUT.
+          </Typography>
+        </Alert>
       )}
     </Paper>
   );
@@ -228,9 +335,16 @@ const FacturasXMLPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Estados para filtro SIMPLIFICADOS
+  // Estados para filtros de fecha
+  const [fechaInicio, setFechaInicio] = useState(null);
+  const [fechaFin, setFechaFin] = useState(null);
+  const [searchText, setSearchText] = useState('');
   const [filtroActivo, setFiltroActivo] = useState('');
   const [buscandoFacturas, setBuscandoFacturas] = useState(false);
+  const [datosInicializados, setDatosInicializados] = useState(false);
+
+  // Información de empresa
+  const [empresaInfo, setEmpresaInfo] = useState(null);
   
   // Estados para selección múltiple
   const [facturasSeleccionadas, setFacturasSeleccionadas] = useState([]);
@@ -262,67 +376,54 @@ const FacturasXMLPage = () => {
     severity: 'success'
   });
 
-  // ==================== FUNCIONES DE FILTRO SIMPLES ====================
-
-  // Función para buscar facturas
-  const buscarFacturas = async (textoBusqueda) => {
-    console.log('🔍 Iniciando búsqueda:', textoBusqueda);
-    setBuscandoFacturas(true);
-    setFiltroActivo(textoBusqueda);
-    
-    // Resetear selección y paginación
-    setFacturasSeleccionadas([]);
-    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
-    
-    try {
-      await cargarFacturasPendientes(1, paginationPendientes.rowsPerPage, textoBusqueda);
-    } catch (error) {
-      console.error('Error en búsqueda:', error);
-      showSnackbar('Error al buscar facturas', 'error');
-    } finally {
-      setBuscandoFacturas(false);
-    }
-  };
-
-  // Función para limpiar filtro
-  const limpiarFiltro = async () => {
-    console.log('🧹 Limpiando filtro');
-    setBuscandoFacturas(true);
-    setFiltroActivo('');
-    setFacturasSeleccionadas([]);
-    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
-    
-    try {
-      await cargarFacturasPendientes(1, paginationPendientes.rowsPerPage, '');
-    } catch (error) {
-      console.error('Error al limpiar filtro:', error);
-      showSnackbar('Error al cargar facturas', 'error');
-    } finally {
-      setBuscandoFacturas(false);
-    }
-  };
-
   // ==================== FUNCIONES DE CARGA DE DATOS ====================
 
-  const cargarFacturasPendientes = async (pagina = null, limite = null, busqueda = null) => {
-    setLoading(true);
+  const cargarInformacionEmpresa = async () => {
     try {
-      console.log('📄 Cargando facturas pendientes...');
-      
-      const page = pagina || (paginationPendientes.page + 1);
-      const limit = limite || paginationPendientes.rowsPerPage;
-      const search = busqueda !== null ? busqueda : filtroActivo;
+      // Simular carga de información de empresa
+      // En un caso real, esto vendría de la API
+      setEmpresaInfo({
+        razon_social: "Empresa Ejemplo S.A.",
+        rut: "76.123.456-7",
+        base_datos: "Sistema Principal"
+      });
+    } catch (error) {
+      console.error('Error cargando información de empresa:', error);
+    }
+  };
+
+  const cargarFacturasPendientes = async (aplicarFiltros = false) => {
+    if (!aplicarFiltros && !datosInicializados) {
+      // No cargar datos si no se han aplicado filtros inicialmente
+      return;
+    }
+
+    setLoading(true);
+    setBuscandoFacturas(true);
+    
+    try {
+      console.log('📄 Cargando facturas pendientes con filtros...');
       
       const params = {
-        page: page,
-        limit: limit
+        page: paginationPendientes.page + 1,
+        limit: paginationPendientes.rowsPerPage
       };
       
-      if (search && search.trim()) {
-        params.search = search.trim();
+      // Agregar filtros de fecha si están definidos
+      if (fechaInicio) {
+        params.fecha_desde = fechaInicio.toISOString().split('T')[0];
       }
       
-      const response = await axiosWithAuth.get('/facturas-xml/pendientes', { params });
+      if (fechaFin) {
+        params.fecha_hasta = fechaFin.toISOString().split('T')[0];
+      }
+      
+      // Agregar filtro de búsqueda si existe
+      if (filtroActivo && filtroActivo.trim()) {
+        params.search = filtroActivo.trim();
+      }
+      
+      const response = await api.get('/facturas-xml/pendientes', { params });
       
       if (response.data.success) {
         setFacturasPendientes(response.data.data || []);
@@ -335,6 +436,7 @@ const FacturasXMLPage = () => {
         
         console.log(`✅ ${response.data.data.length || 0} facturas pendientes cargadas`);
         setError(null);
+        setDatosInicializados(true);
       } else {
         setFacturasPendientes([]);
         setPaginationPendientes(prev => ({ ...prev, total: 0 }));
@@ -346,19 +448,34 @@ const FacturasXMLPage = () => {
       setPaginationPendientes(prev => ({ ...prev, total: 0 }));
     } finally {
       setLoading(false);
+      setBuscandoFacturas(false);
     }
   };
 
-  const cargarFacturasProcesadas = async () => {
+  const cargarFacturasProcesadas = async (aplicarFiltros = false) => {
+    if (!aplicarFiltros && !datosInicializados) {
+      return;
+    }
+
     setLoading(true);
+    
     try {
-      console.log('📄 Cargando facturas procesadas...');
-      const response = await axiosWithAuth.get('/facturas-xml', {
-        params: {
-          page: paginationProcesadas.page + 1,
-          limit: paginationProcesadas.rowsPerPage
-        }
-      });
+      console.log('📄 Cargando facturas procesadas con filtros...');
+      
+      const params = {
+        page: paginationProcesadas.page + 1,
+        limit: paginationProcesadas.rowsPerPage
+      };
+      
+      if (fechaInicio) {
+        params.fecha_desde = fechaInicio.toISOString().split('T')[0];
+      }
+      
+      if (fechaFin) {
+        params.fecha_hasta = fechaFin.toISOString().split('T')[0];
+      }
+      
+      const response = await api.get('/facturas-xml', { params });
       
       if (response.data.success) {
         setFacturasProcesadas(response.data.data || []);
@@ -376,9 +493,49 @@ const FacturasXMLPage = () => {
     }
   };
 
+  const aplicarFiltros = async () => {
+    console.log('🔍 Aplicando filtros de fecha y búsqueda');
+    setFacturasSeleccionadas([]);
+    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
+    setPaginationProcesadas(prev => ({ ...prev, page: 0 }));
+    
+    if (searchText.trim()) {
+      setFiltroActivo(searchText.trim());
+    }
+    
+    if (currentTab === 0) {
+      await cargarFacturasPendientes(true);
+    } else if (currentTab === 1) {
+      await cargarFacturasProcesadas(true);
+    }
+    
+    // Actualizar estadísticas con filtros
+    await cargarEstadisticas(true);
+  };
+
+  const limpiarFiltros = async () => {
+    console.log('🧹 Limpiando todos los filtros');
+    setFechaInicio(null);
+    setFechaFin(null);
+    setSearchText('');
+    setFiltroActivo('');
+    setFacturasSeleccionadas([]);
+    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
+    setPaginationProcesadas(prev => ({ ...prev, page: 0 }));
+    
+    // Recargar sin filtros
+    if (currentTab === 0) {
+      await cargarFacturasPendientes(true);
+    } else if (currentTab === 1) {
+      await cargarFacturasProcesadas(true);
+    }
+    
+    await cargarEstadisticas(true);
+  };
+
   const cargarDatosIniciales = async () => {
     await Promise.all([
-      cargarEstadisticas(),
+      cargarInformacionEmpresa(),
       cargarCentrosCostosYSucursales()
     ]);
   };
@@ -387,7 +544,7 @@ const FacturasXMLPage = () => {
     try {
       // Cargar centros de costos
       try {
-        const responseCentros = await axiosWithAuth.get('/facturas-xml/centros-costos/activos');
+        const responseCentros = await api.get('/facturas-xml/centros-costos/activos');
         
         if (responseCentros.data.success && responseCentros.data.data.length > 0) {
           setCentrosCostos(responseCentros.data.data);
@@ -403,7 +560,7 @@ const FacturasXMLPage = () => {
 
       // Cargar sucursales del usuario
       try {
-        const responseSucursales = await axiosWithAuth.get('/facturas-xml/lista/sucursales');
+        const responseSucursales = await api.get('/facturas-xml/lista/sucursales');
         
         if (responseSucursales.data.success && responseSucursales.data.data.length > 0) {
           setSucursales(responseSucursales.data.data);
@@ -422,9 +579,21 @@ const FacturasXMLPage = () => {
     }
   };
 
-  const cargarEstadisticas = async () => {
+  const cargarEstadisticas = async (conFiltros = false) => {
     try {
-      const response = await axiosWithAuth.get('/facturas-xml/estadisticas');
+      const params = {};
+      
+      if (conFiltros) {
+        if (fechaInicio) {
+          params.fecha_desde = fechaInicio.toISOString().split('T')[0];
+        }
+        
+        if (fechaFin) {
+          params.fecha_hasta = fechaFin.toISOString().split('T')[0];
+        }
+      }
+      
+      const response = await api.get('/facturas-xml/estadisticas', { params });
       
       if (response.data.success) {
         setEstadisticas(response.data.data);
@@ -486,7 +655,7 @@ const FacturasXMLPage = () => {
         sucursal: sucursalSeleccionada
       };
 
-      const response = await axiosWithAuth.post('/facturas-xml/procesar-seleccionadas', requestData, {
+      const response = await api.post('/facturas-xml/procesar-seleccionadas', requestData, {
         timeout: 30000
       });
 
@@ -502,8 +671,8 @@ const FacturasXMLPage = () => {
         }
 
         // Refrescar datos
-        cargarFacturasPendientes();
-        cargarEstadisticas();
+        cargarFacturasPendientes(true);
+        cargarEstadisticas(true);
         
         // Limpiar selección
         setFacturasSeleccionadas([]);
@@ -528,7 +697,7 @@ const FacturasXMLPage = () => {
         ? `/facturas-xml/${facturaId}`
         : `/facturas-xml/pendientes/${facturaId}`;
       
-      const response = await axiosWithAuth.get(endpoint);
+      const response = await api.get(endpoint);
       
       if (response.data.success) {
         setFacturaPreview(response.data.data);
@@ -550,22 +719,24 @@ const FacturasXMLPage = () => {
   }, []);
 
   useEffect(() => {
-    if (currentTab === 0) {
-      cargarFacturasPendientes();
-    } else if (currentTab === 1) {
-      cargarFacturasProcesadas();
+    if (datosInicializados) {
+      if (currentTab === 0) {
+        cargarFacturasPendientes(true);
+      } else if (currentTab === 1) {
+        cargarFacturasProcesadas(true);
+      }
     }
   }, [currentTab]);
 
   useEffect(() => {
-    if (currentTab === 0) {
-      cargarFacturasPendientes();
+    if (datosInicializados && currentTab === 0) {
+      cargarFacturasPendientes(true);
     }
   }, [paginationPendientes.page, paginationPendientes.rowsPerPage]);
 
   useEffect(() => {
-    if (currentTab === 1) {
-      cargarFacturasProcesadas();
+    if (datosInicializados && currentTab === 1) {
+      cargarFacturasProcesadas(true);
     }
   }, [paginationProcesadas.page, paginationProcesadas.rowsPerPage]);
 
@@ -607,6 +778,473 @@ const FacturasXMLPage = () => {
     });
   };
 
+  // ==================== COMPONENTE TABLA PENDIENTES ====================
+
+  const TablaPendientes = () => {
+    const handleChangePage = (event, newPage) => {
+      setPaginationPendientes(prev => ({ ...prev, page: newPage }));
+    };
+
+    const handleChangeRowsPerPage = (event) => {
+      setPaginationPendientes(prev => ({ 
+        ...prev, 
+        rowsPerPage: parseInt(event.target.value, 10),
+        page: 0 
+      }));
+    };
+
+    return (
+      <Box>
+        <DateRangeSearchFilter
+          fechaInicio={fechaInicio}
+          fechaFin={fechaFin}
+          onFechaInicioChange={setFechaInicio}
+          onFechaFinChange={setFechaFin}
+          onSearch={aplicarFiltros}
+          onClear={limpiarFiltros}
+          isLoading={buscandoFacturas || loading}
+          activeFilter={filtroActivo}
+          totalResults={facturasPendientes.length}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          empresaInfo={empresaInfo}
+        />
+        
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    indeterminate={isIndeterminate}
+                    checked={isAllSelected}
+                    onChange={handleSelectAll}
+                    color="primary"
+                  />
+                </TableCell>
+                <TableCell><strong>Folio</strong></TableCell>
+                <TableCell><strong>Emisor</strong></TableCell>
+                <TableCell><strong>RUT Emisor</strong></TableCell>
+                <TableCell><strong>Receptor</strong></TableCell>
+                <TableCell><strong>RUT Receptor</strong></TableCell>
+                <TableCell><strong>Fecha</strong></TableCell>
+                <TableCell align="right"><strong>Monto Total</strong></TableCell>
+                <TableCell><strong>Productos</strong></TableCell>
+                <TableCell align="center"><strong>Acciones</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(loading || buscandoFacturas) ? (
+                <TableRow>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <CircularProgress size={40} />
+                    <Typography variant="body2" sx={{ mt: 2 }}>
+                      {buscandoFacturas ? 'Aplicando filtros...' : 'Cargando facturas pendientes...'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : !datosInicializados ? (
+                <TableRow>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <DateRangeIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                    <Typography variant="h6" color="textSecondary" sx={{ mb: 1 }}>
+                      Selecciona un rango de fechas para comenzar
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Para optimizar el rendimiento, aplicar filtros de fecha antes de cargar los datos
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : facturasPendientes.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    {filtroActivo || fechaInicio || fechaFin ? (
+                      <>
+                        <SearchIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                        <Typography variant="h6" color="textSecondary">
+                          No se encontraron resultados
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          No hay facturas que coincidan con los filtros aplicados
+                        </Typography>
+                        <Button 
+                          onClick={limpiarFiltros} 
+                          sx={{ mt: 2 }}
+                          variant="outlined"
+                        >
+                          Limpiar filtros
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <PendingIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                        <Typography variant="h6" color="textSecondary">
+                          No hay facturas pendientes
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Todas las facturas en el rango seleccionado han sido procesadas
+                        </Typography>
+                      </>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                facturasPendientes.map((factura) => (
+                  <TableRow 
+                    key={factura.ID}
+                    hover
+                    selected={facturasSeleccionadas.includes(factura.ID)}
+                    sx={{ '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
+                  >
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={facturasSeleccionadas.includes(factura.ID)}
+                        onChange={() => handleSelectFactura(factura.ID)}
+                        color="primary"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                        {factura.FOLIO}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                        {factura.RZN_EMISOR}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {factura.RUT_EMISOR}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                        {factura.RZN_RECEPTOR}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {factura.RUT_RECEPTOR}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {formatDate(factura.FECHA_EMISION)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                        {formatMoney(factura.MONTO_TOTAL)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={`${factura.total_productos} items`}
+                        size="small"
+                        color="info"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Ver factura completa (PDF)">
+                        <IconButton
+                          size="small"
+                          onClick={() => verFacturaCompleta(factura.ID)}
+                          color="primary"
+                        >
+                          <PdfIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Ver detalles">
+                        <IconButton
+                          size="small"
+                          onClick={() => verFacturaCompleta(factura.ID)}
+                          color="info"
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+          
+          {datosInicializados && (
+            <TablePagination
+              component="div"
+              count={paginationPendientes.total}
+              page={paginationPendientes.page}
+              onPageChange={handleChangePage}
+              rowsPerPage={paginationPendientes.rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              labelRowsPerPage="Filas por página:"
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}${filtroActivo || fechaInicio || fechaFin ? ` (filtrados)` : ''}`}
+              rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
+              ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
+                <Box sx={{ display: 'flex', ml: 1 }}>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, 0)}
+                    disabled={page === 0}
+                    aria-label="primera página"
+                  >
+                    <FirstPageIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, page - 1)}
+                    disabled={page === 0}
+                    aria-label="página anterior"
+                  >
+                    <PrevIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, page + 1)}
+                    disabled={page >= Math.ceil(count / rowsPerPage) - 1}
+                    aria-label="página siguiente"
+                  >
+                    <NextIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, Math.max(0, Math.ceil(count / rowsPerPage) - 1))}
+                    disabled={page >= Math.ceil(count / rowsPerPage) - 1}
+                    aria-label="última página"
+                  >
+                    <LastPageIcon />
+                  </IconButton>
+                </Box>
+              )}
+            />
+          )}
+        </TableContainer>
+      </Box>
+    );
+  };
+
+  const TablaProcesadas = () => {
+    const handleChangePage = (event, newPage) => {
+      setPaginationProcesadas(prev => ({ ...prev, page: newPage }));
+    };
+
+    const handleChangeRowsPerPage = (event) => {
+      setPaginationProcesadas(prev => ({ 
+        ...prev, 
+        rowsPerPage: parseInt(event.target.value, 10),
+        page: 0 
+      }));
+    };
+
+    return (
+      <Box>
+        <DateRangeSearchFilter
+          fechaInicio={fechaInicio}
+          fechaFin={fechaFin}
+          onFechaInicioChange={setFechaInicio}
+          onFechaFinChange={setFechaFin}
+          onSearch={aplicarFiltros}
+          onClear={limpiarFiltros}
+          isLoading={loading}
+          activeFilter={filtroActivo}
+          totalResults={facturasProceadas.length}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          empresaInfo={empresaInfo}
+        />
+
+        <TableContainer component={Paper} sx={{ mt: 2 }}>
+          <Table>
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                <TableCell><strong>Folio</strong></TableCell>
+                <TableCell><strong>Emisor</strong></TableCell>
+                <TableCell><strong>RUT Emisor</strong></TableCell>
+                <TableCell><strong>Receptor</strong></TableCell>
+                <TableCell><strong>RUT Receptor</strong></TableCell>
+                <TableCell><strong>Fecha</strong></TableCell>
+                <TableCell align="right"><strong>Monto</strong></TableCell>
+                <TableCell><strong>Centro Costo</strong></TableCell>
+                <TableCell><strong>Sucursal</strong></TableCell>
+                <TableCell><strong>Estado</strong></TableCell>
+                <TableCell align="center"><strong>Acciones</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                    <CircularProgress size={40} />
+                    <Typography variant="body2" sx={{ mt: 2 }}>
+                      Cargando facturas procesadas...
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : !datosInicializados ? (
+                <TableRow>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                    <DateRangeIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                    <Typography variant="h6" color="textSecondary" sx={{ mb: 1 }}>
+                      Selecciona un rango de fechas para comenzar
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Para optimizar el rendimiento, aplicar filtros de fecha antes de cargar los datos
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : facturasProceadas.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                    <ProcessedIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                    <Typography variant="h6" color="textSecondary">
+                      No hay facturas procesadas
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Las facturas procesadas en el rango seleccionado aparecerán aquí
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                facturasProceadas.map((factura) => (
+                  <TableRow key={factura.id} hover>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                        {factura.folio}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {factura.emisor_razon_social}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {formatearRUT(factura.emisor_rut)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {factura.receptor_razon_social}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {formatearRUT(factura.receptor_rut)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {formatDate(factura.fecha_emision)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                        {formatMoney(factura.monto_total)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={factura.centro_costo_nombre || 'Sin centro'}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={factura.sucursal_nombre || 'Sin sucursal'}
+                        size="small"
+                        color="secondary"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={factura.estado || 'PROCESADA'}
+                        size="small"
+                        color="success"
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Ver PDF de la factura">
+                        <IconButton 
+                          size="small" 
+                          color="primary"
+                          onClick={() => verFacturaCompleta(factura.id, true)}
+                        >
+                          <PdfIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Ver detalles">
+                        <IconButton 
+                          size="small" 
+                          color="info"
+                          onClick={() => verFacturaCompleta(factura.id, true)}
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Eliminar">
+                        <IconButton size="small" color="error">
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+          
+          {datosInicializados && (
+            <TablePagination
+              component="div"
+              count={paginationProcesadas.total}
+              page={paginationProcesadas.page}
+              onPageChange={handleChangePage}
+              rowsPerPage={paginationProcesadas.rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              labelRowsPerPage="Filas por página:"
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+              rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
+              ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
+                <Box sx={{ display: 'flex', ml: 1 }}>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, 0)}
+                    disabled={page === 0}
+                    aria-label="primera página"
+                  >
+                    <FirstPageIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, page - 1)}
+                    disabled={page === 0}
+                    aria-label="página anterior"
+                  >
+                    <PrevIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, page + 1)}
+                    disabled={page >= Math.ceil(count / rowsPerPage) - 1}
+                    aria-label="página siguiente"
+                  >
+                    <NextIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={(event) => onPageChange(event, Math.max(0, Math.ceil(count / rowsPerPage) - 1))}
+                    disabled={page >= Math.ceil(count / rowsPerPage) - 1}
+                    aria-label="última página"
+                  >
+                    <LastPageIcon />
+                  </IconButton>
+                </Box>
+              )}
+            />
+          )}
+        </TableContainer>
+      </Box>
+    );
+  };
+
   // ==================== FUNCIÓN PARA IMPRIMIR PDF ====================
   const imprimirFacturaPDF = () => {
     if (!facturaPreview) return;
@@ -638,8 +1276,10 @@ const FacturasXMLPage = () => {
             margin-bottom: 5px;
           }
           .empresa-info {
-            font-size: 10px;
-            color: #666;
+            font-size: 12px;
+            color: #1976d2;
+            font-weight: bold;
+            margin-bottom: 10px;
           }
           .datos-factura {
             display: flex;
@@ -735,7 +1375,11 @@ const FacturasXMLPage = () => {
       <body>
         <div class="header">
           <div class="factura-numero">FACTURA ELECTRÓNICA N° ${facturaPreview.FOLIO || facturaPreview.folio}</div>
-          <div class="empresa-info">Documento Tributario Electrónico - Chile</div>
+          ${empresaInfo ? `
+          <div class="empresa-info">
+            ${empresaInfo.razon_social} - RUT: ${empresaInfo.rut}
+          </div>
+          ` : ''}
         </div>
 
         ${facturaPreview.centro_costo_nombre || facturaPreview.sucursal_nombre ? `
@@ -840,1094 +1484,726 @@ const FacturasXMLPage = () => {
     };
   };
 
-  // ==================== COMPONENTE TABLA PENDIENTES ====================
-
-  const TablaPendientes = () => {
-    const handleChangePage = (event, newPage) => {
-      setPaginationPendientes(prev => ({ ...prev, page: newPage }));
-    };
-
-    const handleChangeRowsPerPage = (event) => {
-      setPaginationPendientes(prev => ({ 
-        ...prev, 
-        rowsPerPage: parseInt(event.target.value, 10),
-        page: 0 
-      }));
-    };
-
-    return (
-      <Box>
-        {/* USAR EL NUEVO COMPONENTE DE FILTRO */}
-        <SimpleSearchFilter
-          onSearch={buscarFacturas}
-          onClear={limpiarFiltro}
-          isLoading={buscandoFacturas || loading}
-          activeFilter={filtroActivo}
-          totalResults={facturasPendientes.length}
-        />
-        
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    indeterminate={isIndeterminate}
-                    checked={isAllSelected}
-                    onChange={handleSelectAll}
-                    color="primary"
-                  />
-                </TableCell>
-                <TableCell><strong>Folio</strong></TableCell>
-                <TableCell><strong>Emisor</strong></TableCell>
-                <TableCell><strong>RUT Emisor</strong></TableCell>
-                <TableCell><strong>Fecha</strong></TableCell>
-                <TableCell align="right"><strong>Monto Total</strong></TableCell>
-                <TableCell><strong>Productos</strong></TableCell>
-                <TableCell align="center"><strong>Acciones</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(loading || buscandoFacturas) ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                    <CircularProgress size={40} />
-                    <Typography variant="body2" sx={{ mt: 2 }}>
-                      {buscandoFacturas ? 'Buscando facturas...' : 'Cargando facturas pendientes...'}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : facturasPendientes.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                    {filtroActivo ? (
-                      <>
-                        <SearchIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-                        <Typography variant="h6" color="textSecondary">
-                          No se encontraron resultados
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          No hay facturas que coincidan con "{filtroActivo}"
-                        </Typography>
-                        <Button 
-                          onClick={limpiarFiltro} 
-                          sx={{ mt: 2 }}
-                          variant="outlined"
-                        >
-                          Ver todas las facturas
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <PendingIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-                        <Typography variant="h6" color="textSecondary">
-                          No hay facturas pendientes
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          Todas las facturas descargadas por el bot han sido procesadas
-                        </Typography>
-                      </>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                facturasPendientes.map((factura) => (
-                  <TableRow 
-                    key={factura.ID}
-                    hover
-                    selected={facturasSeleccionadas.includes(factura.ID)}
-                    sx={{ '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
-                  >
-                    <TableCell padding="checkbox">
-                      <Checkbox
-                        checked={facturasSeleccionadas.includes(factura.ID)}
-                        onChange={() => handleSelectFactura(factura.ID)}
-                        color="primary"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                        {factura.FOLIO}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                        {factura.RZN_EMISOR}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                        {factura.RUT_EMISOR}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {formatDate(factura.FECHA_EMISION)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                        {formatMoney(factura.MONTO_TOTAL)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={`${factura.total_productos} items`}
-                        size="small"
-                        color="info"
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title="Ver factura completa (PDF)">
-                        <IconButton
-                          size="small"
-                          onClick={() => verFacturaCompleta(factura.ID)}
-                          color="primary"
-                        >
-                          <PdfIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Ver detalles">
-                        <IconButton
-                          size="small"
-                          onClick={() => verFacturaCompleta(factura.ID)}
-                          color="info"
-                        >
-                          <VisibilityIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-          
-          <TablePagination
-            component="div"
-            count={paginationPendientes.total}
-            page={paginationPendientes.page}
-            onPageChange={handleChangePage}
-            rowsPerPage={paginationPendientes.rowsPerPage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            labelRowsPerPage="Filas por página:"
-            labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}${filtroActivo ? ` (filtrados)` : ''}`}
-            rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
-            ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
-              <Box sx={{ display: 'flex', ml: 1 }}>
-                <IconButton
-                  onClick={(event) => onPageChange(event, 0)}
-                  disabled={page === 0}
-                  aria-label="primera página"
-                >
-                  <FirstPageIcon />
-                </IconButton>
-                <IconButton
-                  onClick={(event) => onPageChange(event, page - 1)}
-                  disabled={page === 0}
-                  aria-label="página anterior"
-                >
-                  <PrevIcon />
-                </IconButton>
-                <IconButton
-                  onClick={(event) => onPageChange(event, page + 1)}
-                  disabled={page >= Math.ceil(count / rowsPerPage) - 1}
-                  aria-label="página siguiente"
-                >
-                  <NextIcon />
-                </IconButton>
-                <IconButton
-                  onClick={(event) => onPageChange(event, Math.max(0, Math.ceil(count / rowsPerPage) - 1))}
-                  disabled={page >= Math.ceil(count / rowsPerPage) - 1}
-                  aria-label="última página"
-                >
-                  <LastPageIcon />
-                </IconButton>
-              </Box>
-            )}
-          />
-        </TableContainer>
-      </Box>
-    );
-  };
-
-  const TablaProcesadas = () => {
-    const handleChangePage = (event, newPage) => {
-      setPaginationProcesadas(prev => ({ ...prev, page: newPage }));
-    };
-
-    const handleChangeRowsPerPage = (event) => {
-      setPaginationProcesadas(prev => ({ 
-        ...prev, 
-        rowsPerPage: parseInt(event.target.value, 10),
-        page: 0 
-      }));
-    };
-
-    return (
-      <TableContainer component={Paper} sx={{ mt: 2 }}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-              <TableCell><strong>Folio</strong></TableCell>
-              <TableCell><strong>Emisor</strong></TableCell>
-              <TableCell><strong>Fecha</strong></TableCell>
-              <TableCell align="right"><strong>Monto</strong></TableCell>
-              <TableCell><strong>Centro Costo</strong></TableCell>
-              <TableCell><strong>Sucursal</strong></TableCell>
-              <TableCell><strong>Estado</strong></TableCell>
-              <TableCell align="center"><strong>Acciones</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={40} />
-                  <Typography variant="body2" sx={{ mt: 2 }}>
-                    Cargando facturas procesadas...
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : facturasProceadas.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <ProcessedIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-                  <Typography variant="h6" color="textSecondary">
-                    No hay facturas procesadas
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Las facturas procesadas aparecerán aquí
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              facturasProceadas.map((factura) => (
-                <TableRow key={factura.id} hover>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                      {factura.folio}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {factura.emisor_razon_social}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {formatDate(factura.fecha_emision)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                      {formatMoney(factura.monto_total)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={factura.centro_costo_nombre || 'Sin centro'}
-                      size="small"
-                      color="primary"
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={factura.sucursal_nombre || 'Sin sucursal'}
-                      size="small"
-                      color="secondary"
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={factura.estado || 'PROCESADA'}
-                      size="small"
-                      color="success"
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="Ver PDF de la factura">
-                      <IconButton 
-                        size="small" 
-                        color="primary"
-                        onClick={() => verFacturaCompleta(factura.id, true)}
-                      >
-                        <PdfIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Ver detalles">
-                      <IconButton 
-                        size="small" 
-                        color="info"
-                        onClick={() => verFacturaCompleta(factura.id, true)}
-                      >
-                        <VisibilityIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Eliminar">
-                      <IconButton size="small" color="error">
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        
-        <TablePagination
-          component="div"
-          count={paginationProcesadas.total}
-          page={paginationProcesadas.page}
-          onPageChange={handleChangePage}
-          rowsPerPage={paginationProcesadas.rowsPerPage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-          labelRowsPerPage="Filas por página:"
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
-          rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
-          ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
-            <Box sx={{ display: 'flex', ml: 1 }}>
-              <IconButton
-                onClick={(event) => onPageChange(event, 0)}
-                disabled={page === 0}
-                aria-label="primera página"
-              >
-                <FirstPageIcon />
-              </IconButton>
-              <IconButton
-                onClick={(event) => onPageChange(event, page - 1)}
-                disabled={page === 0}
-                aria-label="página anterior"
-              >
-                <PrevIcon />
-              </IconButton>
-              <IconButton
-                onClick={(event) => onPageChange(event, page + 1)}
-                disabled={page >= Math.ceil(count / rowsPerPage) - 1}
-                aria-label="página siguiente"
-              >
-                <NextIcon />
-              </IconButton>
-              <IconButton
-                onClick={(event) => onPageChange(event, Math.max(0, Math.ceil(count / rowsPerPage) - 1))}
-                disabled={page >= Math.ceil(count / rowsPerPage) - 1}
-                aria-label="última página"
-              >
-                <LastPageIcon />
-              </IconButton>
-            </Box>
-          )}
-        />
-      </TableContainer>
-    );
-  };
-
   // ==================== RENDER PRINCIPAL ====================
 
   return (
-    <Box sx={{ p: 3, minHeight: '100vh', bgcolor: '#f8f9fa' }}>
-      {/* Header */}
-      <Paper sx={{ 
-        p: 3, 
-        mb: 3, 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-        color: 'white'
-      }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', mb: 1 }}>
-              Sistema de Facturas Electrónicas
-            </Typography>
-            <Typography variant="subtitle1" sx={{ opacity: 0.9 }}>
-              Gestión completa de facturas con centros de costos y sucursales
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={cargarDatosIniciales}
-              disabled={loading}
-              sx={{ 
-                borderColor: 'white', 
-                color: 'white',
-                '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
-              }}
-            >
-              Actualizar
-            </Button>
-          </Box>
-        </Box>
-      </Paper>
-
-      {/* Error Alert */}
-      {error && (
-        <Alert 
-          severity="error" 
-          sx={{ mb: 3 }} 
-          onClose={() => setError(null)}
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* Alertas de configuración */}
-      {centrosCostos.length === 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <Typography variant="body2">
-            <strong>Sin centros de costos:</strong> No se encontraron centros de costos en la base de datos.
-            Es necesario configurar la tabla 'centros_costos' para poder procesar facturas.
-          </Typography>
-        </Alert>
-      )}
-
-      {sucursales.length === 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <Typography variant="body2">
-            <strong>Sin sucursales:</strong> No se encontraron sucursales asignadas al usuario.
-            Es necesario configurar la tabla 'sucursales' para poder procesar facturas.
-          </Typography>
-        </Alert>
-      )}
-
-      {/* Estadísticas */}
-      {estadisticas && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-            <AnalyticsIcon sx={{ mr: 1, color: '#f37d16' }} />
-            Resumen del Sistema
-          </Typography>
-          
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box>
-                      <Typography variant="h4" component="div">
-                        {estadisticas?.total_facturas || 0}
-                      </Typography>
-                      <Typography variant="body2">
-                        Facturas Totales
-                      </Typography>
-                    </Box>
-                    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                      <ReceiptIcon />
-                    </Avatar>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                color: 'white'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box>
-                      <Typography variant="h4" component="div">
-                        {estadisticas?.total_facturas_pendientes || 0}
-                      </Typography>
-                      <Typography variant="body2">
-                        Pendientes
-                      </Typography>
-                    </Box>
-                    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                      <PendingIcon />
-                    </Avatar>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                color: 'white'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box>
-                      <Typography variant="h4" component="div">
-                        {estadisticas?.total_facturas_procesadas || 0}
-                      </Typography>
-                      <Typography variant="body2">
-                        Procesadas
-                      </Typography>
-                    </Box>
-                    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                      <ProcessedIcon />
-                    </Avatar>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
-                background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                color: 'white'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box>
-                      <Typography variant="h5" component="div">
-                        {formatMoney(estadisticas?.monto_total)}
-                      </Typography>
-                      <Typography variant="body2">
-                        Monto Total
-                      </Typography>
-                    </Box>
-                    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                      <AttachMoneyIcon />
-                    </Avatar>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Box>
-      )}
-
-      {/* Tabs principales */}
-      <Paper sx={{ width: '100%', mb: 3 }}>
-        <Tabs 
-          value={currentTab} 
-          onChange={(_, newValue) => setCurrentTab(newValue)}
-          indicatorColor="primary"
-          textColor="primary"
-          variant="fullWidth"
-        >
-          <Tab 
-            icon={<Badge badgeContent={estadisticas?.total_facturas_pendientes || 0} color="error"><PendingIcon /></Badge>}
-            label="Facturas Pendientes" 
-            sx={{ fontWeight: 'bold' }}
-          />
-          <Tab 
-            icon={<Badge badgeContent={estadisticas?.total_facturas_procesadas || 0} color="success"><ProcessedIcon /></Badge>}
-            label="Facturas Procesadas" 
-            sx={{ fontWeight: 'bold' }}
-          />
-        </Tabs>
-      </Paper>
-
-      {/* Contenido de tabs */}
-      {currentTab === 0 && (
-        <Paper sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-              Facturas Pendientes de Procesamiento
-            </Typography>
-            {facturasSeleccionadas.length > 0 && (
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                <Chip 
-                  label={`${facturasSeleccionadas.length} seleccionadas`}
-                  color="primary"
-                  variant="outlined"
-                />
-                <Button
-                  variant="contained"
-                  startIcon={<ProcessIcon />}
-                  onClick={() => setOpenProcesamientoDialog(true)}
-                  disabled={loading || centrosCostos.length === 0 || sucursales.length === 0}
-                  sx={{ 
-                    bgcolor: '#f37d16', 
-                    '&:hover': { bgcolor: '#e06c00' }
-                  }}
-                >
-                  Procesar Seleccionadas
-                </Button>
-              </Box>
-            )}
-          </Box>
-          
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2">
-              <strong>Facturas descargadas automáticamente por el bot desde correos</strong><br/>
-              Selecciona una o varias facturas para asignarles centro de costos y sucursal.
-              Una vez procesadas, aparecerán en la pestaña "Facturas Procesadas".
-            </Typography>
-          </Alert>
-
-          <TablaPendientes />
-        </Paper>
-      )}
-
-      {currentTab === 1 && (
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3 }}>
-            Facturas Procesadas (Con Centro de Costos y Sucursal)
-          </Typography>
-          
-          <Alert severity="success" sx={{ mb: 2 }}>
-            <Typography variant="body2">
-              <strong>Facturas ya procesadas con centro de costos y sucursal asignados</strong><br/>
-              Estas facturas están listas para uso en reportes contables y análisis financieros.
-              Haz clic en el botón PDF para ver la factura profesional lista para imprimir.
-            </Typography>
-          </Alert>
-          
-          <TablaProcesadas />
-        </Paper>
-      )}
-
-      {/* Dialog para procesamiento de facturas seleccionadas */}
-      <Dialog 
-        open={openProcesamientoDialog} 
-        onClose={() => setOpenProcesamientoDialog(false)}
-        maxWidth="sm" 
-        fullWidth
-      >
-        <DialogTitle sx={{ 
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+      <Box sx={{ p: 3, minHeight: '100vh', bgcolor: '#f8f9fa' }}>
+        {/* Header */}
+        <Paper sx={{ 
+          p: 3, 
+          mb: 3, 
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
           color: 'white'
         }}>
-          <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-            Procesar Facturas Seleccionadas
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
-            {facturasSeleccionadas.length} facturas seleccionadas
-          </Typography>
-        </DialogTitle>
-        
-        <DialogContent sx={{ p: 3 }}>
-          {/* Selección de centro de costos */}
-          <FormControl component="fieldset" sx={{ width: '100%', mb: 3 }}>
-            <FormLabel component="legend" sx={{ mb: 2, fontWeight: 'bold' }}>
-              Centro de Costos:
-            </FormLabel>
-            {centrosCostos.length === 0 ? (
-              <Alert severity="error">
-                <Typography variant="body2">
-                  No hay centros de costos configurados en la base de datos.
-                  Es necesario configurar la tabla 'centros_costos' para continuar.
-                </Typography>
-              </Alert>
-            ) : (
-              <RadioGroup
-                value={centroCostoSeleccionado}
-                onChange={(e) => setCentroCostoSeleccionado(e.target.value)}
-              >
-                {centrosCostos.map((centro) => (
-                  <FormControlLabel
-                    key={centro.id}
-                    value={centro.id}
-                    control={<Radio color="primary" />}
-                    label={
-                      <Box>
-                        <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                          {centro.nombre} ({centro.id})
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {centro.descripcion}
-                        </Typography>
-                      </Box>
-                    }
-                    sx={{ mb: 1, p: 1, borderRadius: 1, '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
-                  />
-                ))}
-              </RadioGroup>
-            )}
-          </FormControl>
-
-          {/* Selección de sucursal */}
-          <FormControl component="fieldset" sx={{ width: '100%' }}>
-            <FormLabel component="legend" sx={{ mb: 2, fontWeight: 'bold' }}>
-              Sucursal:
-            </FormLabel>
-            {sucursales.length === 0 ? (
-              <Alert severity="error">
-                <Typography variant="body2">
-                  No hay sucursales configuradas para este usuario.
-                  Es necesario configurar la tabla 'sucursales' para continuar.
-                </Typography>
-              </Alert>
-            ) : (
-              <RadioGroup
-                value={sucursalSeleccionada}
-                onChange={(e) => setSucursalSeleccionada(e.target.value)}
-              >
-                {sucursales.map((sucursal) => (
-                  <FormControlLabel
-                    key={sucursal.id}
-                    value={sucursal.id.toString()}
-                    control={<Radio color="primary" />}
-                    label={
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                            {sucursal.nombre}
-                          </Typography>
-                          {sucursal.tipo_sucursal && (
-                            <Chip 
-                              label={sucursal.tipo_sucursal} 
-                              size="small" 
-                              variant="outlined" 
-                              color="primary"
-                              sx={{ fontSize: '0.7rem' }}
-                            />
-                          )}
-                        </Box>
-                      </Box>
-                    }
-                    sx={{ mb: 1, p: 1, borderRadius: 1, '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
-                  />
-                ))}
-              </RadioGroup>
-            )}
-          </FormControl>
-
-          {centroCostoSeleccionado && sucursalSeleccionada && (
-            <Alert severity="info" sx={{ mt: 3 }}>
-              <Typography variant="body2">
-                <strong>Resumen:</strong><br/>
-                • Facturas: {facturasSeleccionadas.length}<br/>
-                • Centro: {centrosCostos.find(c => c.id === centroCostoSeleccionado)?.nombre}<br/>
-                • Sucursal: {sucursales.find(s => s.id == sucursalSeleccionada)?.nombre}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                Sistema de Facturas Electrónicas
               </Typography>
-            </Alert>
-          )}
-        </DialogContent>
-        
-        <DialogActions sx={{ p: 3 }}>
-          <Button 
-            onClick={() => setOpenProcesamientoDialog(false)}
-            color="inherit"
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={procesarFacturasSeleccionadas}
-            variant="contained"
-            disabled={!centroCostoSeleccionado || !sucursalSeleccionada || loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <ProcessIcon />}
-            sx={{ 
-              bgcolor: '#f37d16', 
-              '&:hover': { bgcolor: '#e06c00' }
-            }}
-          >
-            {loading ? 'Procesando...' : `Procesar ${facturasSeleccionadas.length} Facturas`}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Dialog para PDF de factura */}
-      <Dialog 
-        open={openPDFDialog} 
-        onClose={() => setOpenPDFDialog(false)}
-        maxWidth="lg" 
-        fullWidth
-        PaperProps={{
-          sx: { minHeight: '90vh' }
-        }}
-      >
-        <DialogTitle sx={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <Box>
-            <Typography variant="h6">
-              Factura Electrónica N° {facturaPreview?.FOLIO || facturaPreview?.folio}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              {facturaPreview?.RZN_EMISOR || facturaPreview?.emisor_razon_social} - Lista para imprimir
-            </Typography>
+              <Typography variant="subtitle1" sx={{ opacity: 0.9 }}>
+                Gestión optimizada con filtros de fecha y búsqueda avanzada
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={cargarDatosIniciales}
+                disabled={loading}
+                sx={{ 
+                  borderColor: 'white', 
+                  color: 'white',
+                  '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
+                }}
+              >
+                Actualizar
+              </Button>
+            </Box>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<PrintIcon />}
-            onClick={imprimirFacturaPDF}
-            sx={{ 
-              bgcolor: 'rgba(255,255,255,0.2)', 
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
-            }}
+        </Paper>
+
+        {/* Error Alert */}
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ mb: 3 }} 
+            onClose={() => setError(null)}
           >
-            Imprimir PDF
-          </Button>
-        </DialogTitle>
-        
-        <DialogContent sx={{ p: 0 }}>
-          {facturaPreview && (
-            <Box sx={{ 
-              p: 3,
-              bgcolor: 'white',
-              minHeight: '600px',
-              fontFamily: 'Arial, sans-serif'
-            }}>
-              {/* Header de la factura */}
-              <Box sx={{ 
-                textAlign: 'center', 
-                mb: 3,
-                borderBottom: '2px solid #d32f2f',
-                pb: 2
-              }}>
-                <Typography variant="h4" sx={{ 
-                  color: '#d32f2f', 
-                  fontWeight: 'bold',
-                  mb: 1
-                }}>
-                  FACTURA ELECTRÓNICA N° {facturaPreview.FOLIO || facturaPreview.folio}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Documento Tributario Electrónico - Chile
-                </Typography>
-              </Box>
+            {error}
+          </Alert>
+        )}
 
-              {/* Centro de costos y sucursal */}
-              {(facturaPreview.centro_costo_nombre || facturaPreview.sucursal_nombre) && (
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  mb: 2,
-                  p: 2,
-                  bgcolor: '#f8f9fa',
-                  borderRadius: 1
-                }}>
-                  {facturaPreview.centro_costo_nombre && (
-                    <Chip 
-                      label={`Centro de Costo: ${facturaPreview.centro_costo_nombre}`}
-                      color="primary"
-                      variant="outlined"
-                      size="small"
-                    />
-                  )}
-                  {facturaPreview.sucursal_nombre && (
-                    <Chip 
-                      label={`Sucursal: ${facturaPreview.sucursal_nombre}`}
-                      color="secondary"
-                      variant="outlined"
-                      size="small"
-                    />
-                  )}
-                </Box>
+        {/* Alertas de configuración */}
+        {centrosCostos.length === 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Sin centros de costos:</strong> No se encontraron centros de costos en la base de datos.
+              Es necesario configurar la tabla 'centros_costos' para poder procesar facturas.
+            </Typography>
+          </Alert>
+        )}
+
+        {sucursales.length === 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Sin sucursales:</strong> No se encontraron sucursales asignadas al usuario.
+              Es necesario configurar la tabla 'sucursales' para poder procesar facturas.
+            </Typography>
+          </Alert>
+        )}
+
+        {/* Estadísticas */}
+        {estadisticas && datosInicializados && (
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+              <AnalyticsIcon sx={{ mr: 1, color: '#f37d16' }} />
+              Resumen del Sistema
+              {(fechaInicio || fechaFin) && (
+                <Chip 
+                  label="Con filtros aplicados" 
+                  size="small" 
+                  color="primary" 
+                  variant="outlined" 
+                  sx={{ ml: 2 }}
+                />
               )}
-
-              {/* Datos principales */}
-              <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={6}>
-                  <Paper sx={{ p: 2, bgcolor: '#f8f9fa' }}>
-                    <Typography variant="h6" sx={{ 
-                      fontWeight: 'bold', 
-                      mb: 2,
-                      color: '#d32f2f',
-                      borderBottom: '1px solid #eee',
-                      pb: 1
-                    }}>
-                      DATOS DEL EMISOR
-                    </Typography>
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>Razón Social:</strong><br/>
-                      {facturaPreview.RZN_EMISOR || facturaPreview.emisor_razon_social}
-                    </Typography>
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>RUT:</strong> {formatearRUT(facturaPreview.RUT_EMISOR || facturaPreview.emisor_rut)}
-                    </Typography>
-                    <Typography>
-                      <strong>Fecha Emisión:</strong> {formatDate(facturaPreview.FECHA_EMISION || facturaPreview.fecha_emision)}
-                    </Typography>
-                  </Paper>
-                </Grid>
-                
-                <Grid item xs={6}>
-                  <Paper sx={{ p: 2, bgcolor: '#f8f9fa' }}>
-                    <Typography variant="h6" sx={{ 
-                      fontWeight: 'bold', 
-                      mb: 2,
-                      color: '#d32f2f',
-                      borderBottom: '1px solid #eee',
-                      pb: 1
-                    }}>
-                      DATOS DEL RECEPTOR
-                    </Typography>
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>Razón Social:</strong><br/>
-                      {facturaPreview.RZN_RECEPTOR || facturaPreview.receptor_razon_social}
-                    </Typography>
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>RUT:</strong> {formatearRUT(facturaPreview.RUT_RECEPTOR || facturaPreview.receptor_rut)}
-                    </Typography>
-                    <Typography>
-                      <strong>Estado:</strong> 
-                      <Chip 
-                        label={facturaPreview.estado || 'PENDIENTE'} 
-                        size="small" 
-                        color={facturaPreview.estado === 'PROCESADA' ? 'success' : 'warning'}
-                        sx={{ ml: 1 }}
-                      />
-                    </Typography>
-                  </Paper>
-                </Grid>
+            </Typography>
+            
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white'
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box>
+                        <Typography variant="h4" component="div">
+                          {estadisticas?.total_facturas || 0}
+                        </Typography>
+                        <Typography variant="body2">
+                          Facturas Totales
+                        </Typography>
+                      </Box>
+                      <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                        <ReceiptIcon />
+                      </Avatar>
+                    </Box>
+                  </CardContent>
+                </Card>
               </Grid>
 
-              {/* Detalles de productos */}
-              {facturaPreview.detalles && facturaPreview.detalles.length > 0 && (
-                <Box sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                  color: 'white'
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box>
+                        <Typography variant="h4" component="div">
+                          {estadisticas?.total_facturas_pendientes || 0}
+                        </Typography>
+                        <Typography variant="body2">
+                          Pendientes
+                        </Typography>
+                      </Box>
+                      <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                        <PendingIcon />
+                      </Avatar>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                  color: 'white'
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box>
+                        <Typography variant="h4" component="div">
+                          {estadisticas?.total_facturas_procesadas || 0}
+                        </Typography>
+                        <Typography variant="body2">
+                          Procesadas
+                        </Typography>
+                      </Box>
+                      <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                        <ProcessedIcon />
+                      </Avatar>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                  color: 'white'
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box>
+                        <Typography variant="h5" component="div">
+                          {formatMoney(estadisticas?.monto_total)}
+                        </Typography>
+                        <Typography variant="body2">
+                          Monto Total
+                        </Typography>
+                      </Box>
+                      <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                        <AttachMoneyIcon />
+                      </Avatar>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Box>
+        )}
+
+        {/* Tabs principales */}
+        <Paper sx={{ width: '100%', mb: 3 }}>
+          <Tabs 
+            value={currentTab} 
+            onChange={(_, newValue) => setCurrentTab(newValue)}
+            indicatorColor="primary"
+            textColor="primary"
+            variant="fullWidth"
+          >
+            <Tab 
+              icon={<Badge badgeContent={estadisticas?.total_facturas_pendientes || 0} color="error"><PendingIcon /></Badge>}
+              label="Facturas Pendientes" 
+              sx={{ fontWeight: 'bold' }}
+            />
+            <Tab 
+              icon={<Badge badgeContent={estadisticas?.total_facturas_procesadas || 0} color="success"><ProcessedIcon /></Badge>}
+              label="Facturas Procesadas" 
+              sx={{ fontWeight: 'bold' }}
+            />
+          </Tabs>
+        </Paper>
+
+        {/* Contenido de tabs */}
+        {currentTab === 0 && (
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                Facturas Pendientes de Procesamiento
+              </Typography>
+              {facturasSeleccionadas.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <Chip 
+                    label={`${facturasSeleccionadas.length} seleccionadas`}
+                    color="primary"
+                    variant="outlined"
+                  />
+                  <Button
+                    variant="contained"
+                    startIcon={<ProcessIcon />}
+                    onClick={() => setOpenProcesamientoDialog(true)}
+                    disabled={loading || centrosCostos.length === 0 || sucursales.length === 0}
+                    sx={{ 
+                      bgcolor: '#f37d16', 
+                      '&:hover': { bgcolor: '#e06c00' }
+                    }}
+                  >
+                    Procesar Seleccionadas
+                  </Button>
+                </Box>
+              )}
+            </Box>
+            
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>Facturas descargadas automáticamente por el bot desde correos</strong><br/>
+                Usa los filtros de fecha para optimizar la carga de datos. Selecciona facturas para asignarles centro de costos y sucursal.
+              </Typography>
+            </Alert>
+
+            <TablaPendientes />
+          </Paper>
+        )}
+
+        {currentTab === 1 && (
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3 }}>
+              Facturas Procesadas (Con Centro de Costos y Sucursal)
+            </Typography>
+            
+            <Alert severity="success" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>Facturas ya procesadas con centro de costos y sucursal asignados</strong><br/>
+                Usa los filtros de fecha para encontrar facturas específicas. Estas facturas están listas para reportes contables.
+              </Typography>
+            </Alert>
+            
+            <TablaProcesadas />
+          </Paper>
+        )}
+
+        {/* Dialog para procesamiento de facturas seleccionadas */}
+        <Dialog 
+          open={openProcesamientoDialog} 
+          onClose={() => setOpenProcesamientoDialog(false)}
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle sx={{ 
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white'
+          }}>
+            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
+              Procesar Facturas Seleccionadas
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
+              {facturasSeleccionadas.length} facturas seleccionadas
+            </Typography>
+          </DialogTitle>
+          
+          <DialogContent sx={{ p: 3 }}>
+            {/* Selección de centro de costos */}
+            <FormControl component="fieldset" sx={{ width: '100%', mb: 3 }}>
+              <FormLabel component="legend" sx={{ mb: 2, fontWeight: 'bold' }}>
+                Centro de Costos:
+              </FormLabel>
+              {centrosCostos.length === 0 ? (
+                <Alert severity="error">
+                  <Typography variant="body2">
+                    No hay centros de costos configurados en la base de datos.
+                    Es necesario configurar la tabla 'centros_costos' para continuar.
+                  </Typography>
+                </Alert>
+              ) : (
+                <RadioGroup
+                  value={centroCostoSeleccionado}
+                  onChange={(e) => setCentroCostoSeleccionado(e.target.value)}
+                >
+                  {centrosCostos.map((centro) => (
+                    <FormControlLabel
+                      key={centro.id}
+                      value={centro.id}
+                      control={<Radio color="primary" />}
+                      label={
+                        <Box>
+                          <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                            {centro.nombre} ({centro.id})
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {centro.descripcion}
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ mb: 1, p: 1, borderRadius: 1, '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
+                    />
+                  ))}
+                </RadioGroup>
+              )}
+            </FormControl>
+
+            {/* Selección de sucursal */}
+            <FormControl component="fieldset" sx={{ width: '100%' }}>
+              <FormLabel component="legend" sx={{ mb: 2, fontWeight: 'bold' }}>
+                Sucursal:
+              </FormLabel>
+              {sucursales.length === 0 ? (
+                <Alert severity="error">
+                  <Typography variant="body2">
+                    No hay sucursales configuradas para este usuario.
+                    Es necesario configurar la tabla 'sucursales' para continuar.
+                  </Typography>
+                </Alert>
+              ) : (
+                <RadioGroup
+                  value={sucursalSeleccionada}
+                  onChange={(e) => setSucursalSeleccionada(e.target.value)}
+                >
+                  {sucursales.map((sucursal) => (
+                    <FormControlLabel
+                      key={sucursal.id}
+                      value={sucursal.id.toString()}
+                      control={<Radio color="primary" />}
+                      label={
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                              {sucursal.nombre}
+                            </Typography>
+                            {sucursal.tipo_sucursal && (
+                              <Chip 
+                                label={sucursal.tipo_sucursal} 
+                                size="small" 
+                                variant="outlined" 
+                                color="primary"
+                                sx={{ fontSize: '0.7rem' }}
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                      }
+                      sx={{ mb: 1, p: 1, borderRadius: 1, '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' } }}
+                    />
+                  ))}
+                </RadioGroup>
+              )}
+            </FormControl>
+
+            {centroCostoSeleccionado && sucursalSeleccionada && (
+              <Alert severity="info" sx={{ mt: 3 }}>
+                <Typography variant="body2">
+                  <strong>Resumen:</strong><br/>
+                  • Facturas: {facturasSeleccionadas.length}<br/>
+                  • Centro: {centrosCostos.find(c => c.id === centroCostoSeleccionado)?.nombre}<br/>
+                  • Sucursal: {sucursales.find(s => s.id == sucursalSeleccionada)?.nombre}
+                </Typography>
+              </Alert>
+            )}
+          </DialogContent>
+          
+          <DialogActions sx={{ p: 3 }}>
+            <Button 
+              onClick={() => setOpenProcesamientoDialog(false)}
+              color="inherit"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={procesarFacturasSeleccionadas}
+              variant="contained"
+              disabled={!centroCostoSeleccionado || !sucursalSeleccionada || loading}
+              startIcon={loading ? <CircularProgress size={20} /> : <ProcessIcon />}
+              sx={{ 
+                bgcolor: '#f37d16', 
+                '&:hover': { bgcolor: '#e06c00' }
+              }}
+            >
+              {loading ? 'Procesando...' : `Procesar ${facturasSeleccionadas.length} Facturas`}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Dialog para PDF de factura */}
+        <Dialog 
+          open={openPDFDialog} 
+          onClose={() => setOpenPDFDialog(false)}
+          maxWidth="lg" 
+          fullWidth
+          PaperProps={{
+            sx: { minHeight: '90vh' }
+          }}
+        >
+          <DialogTitle sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <Box>
+              <Typography variant="h6">
+                Factura Electrónica N° {facturaPreview?.FOLIO || facturaPreview?.folio}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                {facturaPreview?.RZN_EMISOR || facturaPreview?.emisor_razon_social} - Lista para imprimir
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              startIcon={<PrintIcon />}
+              onClick={imprimirFacturaPDF}
+              sx={{ 
+                bgcolor: 'rgba(255,255,255,0.2)', 
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+              }}
+            >
+              Imprimir PDF
+            </Button>
+          </DialogTitle>
+          
+          <DialogContent sx={{ p: 0 }}>
+            {facturaPreview && (
+              <Box sx={{ 
+                p: 3,
+                bgcolor: 'white',
+                minHeight: '600px',
+                fontFamily: 'Arial, sans-serif'
+              }}>
+                {/* Header de la factura */}
+                <Box sx={{ 
+                  textAlign: 'center', 
+                  mb: 3,
+                  borderBottom: '2px solid #d32f2f',
+                  pb: 2
+                }}>
+                  <Typography variant="h4" sx={{ 
+                    color: '#d32f2f', 
+                    fontWeight: 'bold',
+                    mb: 1
+                  }}>
+                    FACTURA ELECTRÓNICA N° {facturaPreview.FOLIO || facturaPreview.folio}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Documento Tributario Electrónico - Chile
+                  </Typography>
+                  {empresaInfo && (
+                    <Typography variant="body1" sx={{ 
+                      color: '#1976d2', 
+                      fontWeight: 'bold',
+                      mt: 1
+                    }}>
+                      {empresaInfo.razon_social} - RUT: {empresaInfo.rut}
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Centro de costos y sucursal */}
+                {(facturaPreview.centro_costo_nombre || facturaPreview.sucursal_nombre) && (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    mb: 2,
+                    p: 2,
+                    bgcolor: '#f8f9fa',
+                    borderRadius: 1
+                  }}>
+                    {facturaPreview.centro_costo_nombre && (
+                      <Chip 
+                        label={`Centro de Costo: ${facturaPreview.centro_costo_nombre}`}
+                        color="primary"
+                        variant="outlined"
+                        size="small"
+                      />
+                    )}
+                    {facturaPreview.sucursal_nombre && (
+                      <Chip 
+                        label={`Sucursal: ${facturaPreview.sucursal_nombre}`}
+                        color="secondary"
+                        variant="outlined"
+                        size="small"
+                      />
+                    )}
+                  </Box>
+                )}
+
+                {/* Datos principales */}
+                <Grid container spacing={3} sx={{ mb: 3 }}>
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, bgcolor: '#f8f9fa' }}>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 'bold', 
+                        mb: 2,
+                        color: '#d32f2f',
+                        borderBottom: '1px solid #eee',
+                        pb: 1
+                      }}>
+                        DATOS DEL EMISOR
+                      </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>Razón Social:</strong><br/>
+                        {facturaPreview.RZN_EMISOR || facturaPreview.emisor_razon_social}
+                      </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>RUT:</strong> {formatearRUT(facturaPreview.RUT_EMISOR || facturaPreview.emisor_rut)}
+                      </Typography>
+                      <Typography>
+                        <strong>Fecha Emisión:</strong> {formatDate(facturaPreview.FECHA_EMISION || facturaPreview.fecha_emision)}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, bgcolor: '#f8f9fa' }}>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 'bold', 
+                        mb: 2,
+                        color: '#d32f2f',
+                        borderBottom: '1px solid #eee',
+                        pb: 1
+                      }}>
+                        DATOS DEL RECEPTOR
+                      </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>Razón Social:</strong><br/>
+                        {facturaPreview.RZN_RECEPTOR || facturaPreview.receptor_razon_social}
+                      </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>RUT:</strong> {formatearRUT(facturaPreview.RUT_RECEPTOR || facturaPreview.receptor_rut)}
+                      </Typography>
+                      <Typography>
+                        <strong>Estado:</strong> 
+                        <Chip 
+                          label={facturaPreview.estado || 'PENDIENTE'} 
+                          size="small" 
+                          color={facturaPreview.estado === 'PROCESADA' ? 'success' : 'warning'}
+                          sx={{ ml: 1 }}
+                        />
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Detalles de productos */}
+                {facturaPreview.detalles && facturaPreview.detalles.length > 0 && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" sx={{ 
+                      fontWeight: 'bold', 
+                      mb: 2,
+                      color: '#d32f2f',
+                      borderBottom: '1px solid #eee',
+                      pb: 1
+                    }}>
+                      DETALLE DE PRODUCTOS Y SERVICIOS
+                    </Typography>
+                    <TableContainer component={Paper} sx={{ mb: 2 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                            <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Código</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', width: '40%' }}>Descripción</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 'bold', width: '10%' }}>Cant.</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 'bold', width: '15%' }}>Precio Unit.</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 'bold', width: '20%' }}>Total</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {facturaPreview.detalles.map((detalle, index) => (
+                            <TableRow key={index}>
+                              <TableCell>{detalle.CODIGO_ITEM || detalle.codigo_item || ''}</TableCell>
+                              <TableCell>{detalle.NOMBRE_ITEM || detalle.nombre_item || 'Producto sin descripción'}</TableCell>
+                              <TableCell align="center">{formatNumber(detalle.CANTIDAD || detalle.cantidad || 1)}</TableCell>
+                              <TableCell align="right">{formatMoney(detalle.PRECIO || detalle.precio || 0)}</TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                                {formatMoney(detalle.MONTO || detalle.monto || 0)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                )}
+
+                {/* Totales */}
+                <Box sx={{ 
+                  borderTop: '2px solid #d32f2f',
+                  pt: 2,
+                  mt: 3
+                }}>
                   <Typography variant="h6" sx={{ 
                     fontWeight: 'bold', 
                     mb: 2,
-                    color: '#d32f2f',
-                    borderBottom: '1px solid #eee',
-                    pb: 1
+                    color: '#d32f2f'
                   }}>
-                    DETALLE DE PRODUCTOS Y SERVICIOS
+                    RESUMEN DE TOTALES
                   </Typography>
-                  <TableContainer component={Paper} sx={{ mb: 2 }}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                          <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Código</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', width: '40%' }}>Descripción</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 'bold', width: '10%' }}>Cant.</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold', width: '15%' }}>Precio Unit.</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold', width: '20%' }}>Total</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {facturaPreview.detalles.map((detalle, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{detalle.CODIGO_ITEM || detalle.codigo_item || ''}</TableCell>
-                            <TableCell>{detalle.NOMBRE_ITEM || detalle.nombre_item || 'Producto sin descripción'}</TableCell>
-                            <TableCell align="center">{formatNumber(detalle.CANTIDAD || detalle.cantidad || 1)}</TableCell>
-                            <TableCell align="right">{formatMoney(detalle.PRECIO || detalle.precio || 0)}</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                              {formatMoney(detalle.MONTO || detalle.monto || 0)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-              )}
-
-              {/* Totales */}
-              <Box sx={{ 
-                borderTop: '2px solid #d32f2f',
-                pt: 2,
-                mt: 3
-              }}>
-                <Typography variant="h6" sx={{ 
-                  fontWeight: 'bold', 
-                  mb: 2,
-                  color: '#d32f2f'
-                }}>
-                  RESUMEN DE TOTALES
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={8}></Grid>
-                  <Grid item xs={4}>
-                    <Box sx={{ p: 2, bgcolor: '#f8f9fa', borderRadius: 1 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography><strong>Monto Neto:</strong></Typography>
-                        <Typography>{formatMoney(facturaPreview.MONTO_NETO || facturaPreview.monto_neto || 0)}</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={8}></Grid>
+                    <Grid item xs={4}>
+                      <Box sx={{ p: 2, bgcolor: '#f8f9fa', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography><strong>Monto Neto:</strong></Typography>
+                          <Typography>{formatMoney(facturaPreview.MONTO_NETO || facturaPreview.monto_neto || 0)}</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography><strong>IVA (19%):</strong></Typography>
+                          <Typography>{formatMoney(facturaPreview.IVA || facturaPreview.iva || 0)}</Typography>
+                        </Box>
+                        <Divider sx={{ my: 1 }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#d32f2f' }}>
+                            <strong>TOTAL GENERAL:</strong>
+                          </Typography>
+                          <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#d32f2f' }}>
+                            <strong>{formatMoney(facturaPreview.MONTO_TOTAL || facturaPreview.monto_total || 0)}</strong>
+                          </Typography>
+                        </Box>
                       </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography><strong>IVA (19%):</strong></Typography>
-                        <Typography>{formatMoney(facturaPreview.IVA || facturaPreview.iva || 0)}</Typography>
-                      </Box>
-                      <Divider sx={{ my: 1 }} />
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#d32f2f' }}>
-                          <strong>TOTAL GENERAL:</strong>
-                        </Typography>
-                        <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#d32f2f' }}>
-                          <strong>{formatMoney(facturaPreview.MONTO_TOTAL || facturaPreview.monto_total || 0)}</strong>
-                        </Typography>
-                      </Box>
-                    </Box>
+                    </Grid>
                   </Grid>
-                </Grid>
-              </Box>
+                </Box>
 
-              {/* Footer */}
-              <Box sx={{ 
-                mt: 4,
-                pt: 2,
-                borderTop: '1px solid #eee',
-                textAlign: 'center',
-                color: 'text.secondary',
-                fontSize: '0.875rem'
-              }}>
-                <Typography variant="body2">
-                  Documento procesado digitalmente - Sistema de Gestión de Facturas
-                </Typography>
-                <Typography variant="body2">
-                  Fecha de procesamiento: {formatDate(facturaPreview.fecha_procesamiento || new Date())}
-                </Typography>
+                {/* Footer */}
+                <Box sx={{ 
+                  mt: 4,
+                  pt: 2,
+                  borderTop: '1px solid #eee',
+                  textAlign: 'center',
+                  color: 'text.secondary',
+                  fontSize: '0.875rem'
+                }}>
+                  <Typography variant="body2">
+                    Documento procesado digitalmente - Sistema de Gestión de Facturas
+                  </Typography>
+                  <Typography variant="body2">
+                    Fecha de procesamiento: {formatDate(facturaPreview.fecha_procesamiento || new Date())}
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
-          )}
-        </DialogContent>
-        
-        <DialogActions sx={{ p: 2, bgcolor: '#f8f9fa' }}>
-          <Button 
-            onClick={() => setOpenPDFDialog(false)}
-            color="inherit"
-          >
-            Cerrar
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<PdfIcon />}
-            onClick={imprimirFacturaPDF}
-            sx={{ 
-              bgcolor: '#d32f2f', 
-              '&:hover': { bgcolor: '#b71c1c' }
+            )}
+          </DialogContent>
+          
+          <DialogActions sx={{ p: 2, bgcolor: '#f8f9fa' }}>
+            <Button 
+              onClick={() => setOpenPDFDialog(false)}
+              color="inherit"
+            >
+              Cerrar
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<PdfIcon />}
+              onClick={imprimirFacturaPDF}
+              sx={{ 
+                bgcolor: '#d32f2f', 
+                '&:hover': { bgcolor: '#b71c1c' }
+              }}
+            >
+              Descargar/Imprimir PDF
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* FAB para acciones rápidas */}
+        {currentTab === 0 && facturasSeleccionadas.length > 0 && (
+          <Fab
+            color="primary"
+            sx={{
+              position: 'fixed',
+              bottom: 16,
+              right: 16,
+              bgcolor: '#f37d16',
+              '&:hover': { bgcolor: '#e06c00' }
             }}
+            onClick={() => setOpenProcesamientoDialog(true)}
           >
-            Descargar/Imprimir PDF
-          </Button>
-        </DialogActions>
-      </Dialog>
+            <Badge badgeContent={facturasSeleccionadas.length} color="error">
+              <ProcessIcon />
+            </Badge>
+          </Fab>
+        )}
 
-      {/* FAB para acciones rápidas */}
-      {currentTab === 0 && facturasSeleccionadas.length > 0 && (
-        <Fab
-          color="primary"
-          sx={{
-            position: 'fixed',
-            bottom: 16,
-            right: 16,
-            bgcolor: '#f37d16',
-            '&:hover': { bgcolor: '#e06c00' }
-          }}
-          onClick={() => setOpenProcesamientoDialog(true)}
-        >
-          <Badge badgeContent={facturasSeleccionadas.length} color="error">
-            <ProcessIcon />
-          </Badge>
-        </Fab>
-      )}
-
-      {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
+        {/* Snackbar */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={4000}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ width: '100%' }}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+          <Alert
+            onClose={() => setSnackbar({ ...snackbar, open: false })}
+            severity={snackbar.severity}
+            variant="filled"
+            sx={{ width: '100%' }}
+          >
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+      </Box>
+    </LocalizationProvider>
   );
 };
 

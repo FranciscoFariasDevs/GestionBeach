@@ -1,4 +1,4 @@
-// pages/CentrosCostosPage.jsx - Sistema de Gestión de Centros de Costos
+// pages/CentrosCostosPage.jsx - Sistema de Gestión de Centros de Costos - REFACTORIZADO
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -53,38 +53,7 @@ import {
   Cancel as CancelIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
-import axios from 'axios';
-
-// Configuración API - CORREGIDA
-const API_URL = process.env.NODE_ENV === 'production' 
-  ? 'http://190.102.248.163:5000/api'
-  : 'http://localhost:5000/api'; // Cambiado para desarrollo local
-
-const getAuthToken = () => localStorage.getItem('token');
-
-const axiosWithAuth = axios.create({
-  baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
-  timeout: 10000, // 10 segundos timeout
-});
-
-axiosWithAuth.interceptors.request.use(config => {
-  const token = getAuthToken();
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
-
-// Interceptor para manejar errores de red
-axiosWithAuth.interceptors.response.use(
-  response => response,
-  error => {
-    if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
-      console.error('Error de conexión:', error.message);
-      return Promise.reject(new Error('No se puede conectar al servidor. Verifica que esté corriendo.'));
-    }
-    return Promise.reject(error);
-  }
-);
+import api from '../api/api'; // ✅ USANDO API.JS COMPARTIDO
 
 const CentrosCostosPage = () => {
   // Estados principales
@@ -138,7 +107,7 @@ const CentrosCostosPage = () => {
     setLoading(true);
     try {
       console.log('🔄 Cargando centros de costos...');
-      const response = await axiosWithAuth.get(`/centros-costos?incluir_inactivos=${showInactive}`);
+      const response = await api.get(`/centros-costos?incluir_inactivos=${showInactive}`);
       
       console.log('📦 Respuesta recibida:', response.data);
       
@@ -171,7 +140,7 @@ const CentrosCostosPage = () => {
 
   const cargarEstadisticas = async () => {
     try {
-      const response = await axiosWithAuth.get('/centros-costos/estadisticas');
+      const response = await api.get('/centros-costos/estadisticas');
       if (response.data.success) {
         setEstadisticas(response.data.data);
       }
@@ -265,9 +234,9 @@ const CentrosCostosPage = () => {
       let response;
       
       if (dialogMode === 'create') {
-        response = await axiosWithAuth.post('/centros-costos', formData);
+        response = await api.post('/centros-costos', formData);
       } else if (dialogMode === 'edit') {
-        response = await axiosWithAuth.put(`/centros-costos/${formData.id}`, {
+        response = await api.put(`/centros-costos/${formData.id}`, {
           nombre: formData.nombre,
           descripcion: formData.descripcion,
           activo: formData.activo
@@ -303,7 +272,7 @@ const CentrosCostosPage = () => {
     
     setLoading(true);
     try {
-      const response = await axiosWithAuth.delete(`/centros-costos/${selectedCentro.id}`);
+      const response = await api.delete(`/centros-costos/${selectedCentro.id}`);
       
       if (response.data.success) {
         showSnackbar('Centro de costos eliminado exitosamente', 'success');
@@ -328,7 +297,7 @@ const CentrosCostosPage = () => {
   const handleToggleStatus = async (centro) => {
     setLoading(true);
     try {
-      const response = await axiosWithAuth.put(`/centros-costos/${centro.id}/toggle-status`, {
+      const response = await api.put(`/centros-costos/${centro.id}/toggle-status`, {
         activo: !centro.activo
       });
       

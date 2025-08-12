@@ -1,4 +1,4 @@
-// controllers/facturaXMLController.js - VERSIÓN CORREGIDA PARA USAR SOLO TABLAS EXISTENTES CON BÚSQUEDA
+// controllers/facturaXMLController.js - VERSIÓN OPTIMIZADA CON FILTROS DE FECHA
 const { sql, poolPromise } = require('../config/db');
 const xml2js = require('xml2js');
 
@@ -47,6 +47,44 @@ const validarRUT = (rut) => {
   const dvCalculado = resto === 0 ? '0' : resto === 1 ? 'K' : (11 - resto).toString();
   
   return dv === dvCalculado;
+};
+
+// Construir WHERE clause para filtros de fecha y búsqueda
+const construirFiltros = (params) => {
+  let whereClause = '';
+  let sqlParams = [];
+  
+  const conditions = [];
+  
+  // Filtro de fecha desde
+  if (params.fecha_desde) {
+    conditions.push('fe.FECHA_EMISION >= @fecha_desde');
+    sqlParams.push({ name: 'fecha_desde', type: sql.Date, value: new Date(params.fecha_desde) });
+  }
+  
+  // Filtro de fecha hasta
+  if (params.fecha_hasta) {
+    conditions.push('fe.FECHA_EMISION <= @fecha_hasta');
+    sqlParams.push({ name: 'fecha_hasta', type: sql.Date, value: new Date(params.fecha_hasta) });
+  }
+  
+  // Filtro de búsqueda de texto
+  if (params.search && params.search.trim()) {
+    conditions.push(`(
+      fe.FOLIO LIKE @busqueda OR 
+      fe.RZN_EMISOR LIKE @busqueda OR 
+      fe.RUT_EMISOR LIKE @busqueda OR
+      fe.RZN_RECEPTOR LIKE @busqueda OR
+      fe.RUT_RECEPTOR LIKE @busqueda
+    )`);
+    sqlParams.push({ name: 'busqueda', type: sql.VarChar, value: `%${params.search.trim()}%` });
+  }
+  
+  if (conditions.length > 0) {
+    whereClause = 'AND ' + conditions.join(' AND ');
+  }
+  
+  return { whereClause, sqlParams };
 };
 
 // Convertir XML a objeto JavaScript
@@ -156,39 +194,52 @@ exports.test = async (req, res) => {
 
 // ==================== FACTURAS PENDIENTES ====================
 
-// FUNCIÓN CORREGIDA: Obtener facturas pendientes CON BÚSQUEDA EN BD
+// FUNCIÓN OPTIMIZADA: Obtener facturas pendientes CON FILTROS DE FECHA
 exports.obtenerFacturasPendientes = async (req, res) => {
   try {
-    console.log('📄 Obteniendo facturas pendientes desde TB_FACTURA_ENCABEZADO...');
+    console.log('📄 === OBTENIENDO FACTURAS PENDIENTES CON FILTROS ===');
     
     const pool = await poolPromise;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 1000; // CAMBIADO: Ahora por defecto 1000
-    const busqueda = req.query.search || ''; // NUEVO: parámetro de búsqueda
+    const limit = parseInt(req.query.limit) || 1000;
+    const { fecha_desde, fecha_hasta, search } = req.query;
+    
+    console.log('📋 Parámetros recibidos:', { 
+      page, 
+      limit, 
+      fecha_desde, 
+      fecha_hasta, 
+      search: search ? `"${search}"` : 'sin búsqueda'
+    });
+    
+    // Validar que al menos venga un filtro para evitar consultas muy grandes
+    if (!fecha_desde && !fecha_hasta && !search) {
+      console.log('⚠️ Sin filtros aplicados - retornando array vacío para optimización');
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalRecords: 0,
+          recordsPerPage: limit,
+          hasNextPage: false,
+          hasPrevPage: false
+        },
+        message: 'Aplica filtros de fecha o búsqueda para cargar los datos',
+        optimizacion: true
+      });
+    }
+    
     const startRow = ((page - 1) * limit) + 1;
     const endRow = page * limit;
     
-    console.log('📋 Parámetros:', { page, limit, startRow, endRow, busqueda });
+    // Construir filtros
+    const { whereClause, sqlParams } = construirFiltros({ fecha_desde, fecha_hasta, search });
     
-    // CONSTRUIR CONDICIÓN DE BÚSQUEDA
-    let whereBusqueda = '';
-    let parametrosBusqueda = {};
+    console.log('🔍 Filtros construidos:', whereClause || 'sin filtros adicionales');
     
-    if (busqueda.trim()) {
-      whereBusqueda = `
-        AND (
-          fe.FOLIO LIKE @busqueda OR 
-          fe.RZN_EMISOR LIKE @busqueda OR 
-          fe.RUT_EMISOR LIKE @busqueda OR
-          fe.RZN_RECEPTOR LIKE @busqueda OR
-          fe.RUT_RECEPTOR LIKE @busqueda
-        )
-      `;
-      parametrosBusqueda.busqueda = `%${busqueda.trim()}%`;
-      console.log('🔍 Aplicando filtro de búsqueda:', busqueda);
-    }
-    
-    // Consulta para facturas pendientes CON BÚSQUEDA
+    // Consulta optimizada para facturas pendientes CON FILTROS
     const consulta = `
       WITH FacturasPaginadas AS (
         SELECT 
@@ -207,10 +258,10 @@ exports.obtenerFacturasPendientes = async (req, res) => {
           ISNULL(fe.estado, 'PENDIENTE') as estado,
           fe.id_centro_costo,
           fe.id_sucursal,
-          ROW_NUMBER() OVER (ORDER BY fe.FECHA_EMISION DESC) as RowNum
+          ROW_NUMBER() OVER (ORDER BY fe.FECHA_EMISION DESC, fe.ID DESC) as RowNum
         FROM TB_FACTURA_ENCABEZADO fe
         WHERE ISNULL(fe.estado, 'PENDIENTE') = 'PENDIENTE'
-        ${whereBusqueda}
+        ${whereClause}
       )
       SELECT 
         ID, NOMBRE_ARCHIVO, RUT_EMISOR, RZN_EMISOR, RUT_RECEPTOR, RZN_RECEPTOR,
@@ -224,27 +275,28 @@ exports.obtenerFacturasPendientes = async (req, res) => {
       SELECT COUNT(*) as total 
       FROM TB_FACTURA_ENCABEZADO fe
       WHERE ISNULL(estado, 'PENDIENTE') = 'PENDIENTE'
-      ${whereBusqueda}
+      ${whereClause}
     `;
     
-    console.log('🔍 Ejecutando consulta principal con búsqueda...');
+    console.log('🔍 Ejecutando consulta principal con filtros...');
     
     // Ejecutar consulta principal
     const requestPrincipal = pool.request()
       .input('startRow', sql.Int, startRow)
       .input('endRow', sql.Int, endRow);
     
-    if (busqueda.trim()) {
-      requestPrincipal.input('busqueda', sql.VarChar, parametrosBusqueda.busqueda);
-    }
+    // Agregar parámetros de filtros
+    sqlParams.forEach(param => {
+      requestPrincipal.input(param.name, param.type, param.value);
+    });
     
     const facturas = await requestPrincipal.query(consulta);
     
     // Ejecutar consulta de total
     const requestTotal = pool.request();
-    if (busqueda.trim()) {
-      requestTotal.input('busqueda', sql.VarChar, parametrosBusqueda.busqueda);
-    }
+    sqlParams.forEach(param => {
+      requestTotal.input(param.name, param.type, param.value);
+    });
     
     const totalResult = await requestTotal.query(consultaTotal);
     
@@ -258,11 +310,16 @@ exports.obtenerFacturasPendientes = async (req, res) => {
       RUT_RECEPTOR: formatearRUT(factura.RUT_RECEPTOR)
     }));
     
-    const mensajeBusqueda = busqueda.trim() 
-      ? ` (filtradas por: "${busqueda}")` 
+    const filtrosAplicados = [];
+    if (fecha_desde) filtrosAplicados.push(`desde ${fecha_desde}`);
+    if (fecha_hasta) filtrosAplicados.push(`hasta ${fecha_hasta}`);
+    if (search) filtrosAplicados.push(`texto "${search}"`);
+    
+    const mensajeFiltros = filtrosAplicados.length > 0 
+      ? ` (filtros: ${filtrosAplicados.join(', ')})` 
       : '';
     
-    console.log(`✅ ${facturas.recordset.length} facturas pendientes obtenidas de ${total} total${mensajeBusqueda}`);
+    console.log(`✅ ${facturas.recordset.length} facturas pendientes obtenidas de ${total} total${mensajeFiltros}`);
     
     return res.json({ 
       success: true, 
@@ -275,8 +332,12 @@ exports.obtenerFacturasPendientes = async (req, res) => {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1
       },
-      busqueda: busqueda.trim(),
-      message: `${facturas.recordset.length} facturas pendientes encontradas${mensajeBusqueda}`
+      filtros_aplicados: {
+        fecha_desde: fecha_desde || null,
+        fecha_hasta: fecha_hasta || null,
+        busqueda: search || null
+      },
+      message: `${facturas.recordset.length} facturas pendientes encontradas${mensajeFiltros}`
     });
     
   } catch (error) {
@@ -483,18 +544,50 @@ exports.procesarFacturasSeleccionadas = async (req, res) => {
 
 // ==================== FACTURAS PROCESADAS ====================
 
-// Obtener facturas procesadas (desde TB_FACTURA_ENCABEZADO con estado = 'PROCESADA')
+// FUNCIÓN OPTIMIZADA: Obtener facturas procesadas CON FILTROS DE FECHA
 exports.obtenerFacturas = async (req, res) => {
   try {
-    console.log('📄 Obteniendo facturas procesadas desde TB_FACTURA_ENCABEZADO...');
+    console.log('📄 === OBTENIENDO FACTURAS PROCESADAS CON FILTROS ===');
     
     const pool = await poolPromise;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 1000;
+    const { fecha_desde, fecha_hasta, search } = req.query;
+    
+    console.log('📋 Parámetros recibidos:', { 
+      page, 
+      limit, 
+      fecha_desde, 
+      fecha_hasta, 
+      search: search ? `"${search}"` : 'sin búsqueda'
+    });
+    
+    // Validar que al menos venga un filtro para evitar consultas muy grandes
+    if (!fecha_desde && !fecha_hasta && !search) {
+      console.log('⚠️ Sin filtros aplicados - retornando array vacío para optimización');
+      return res.json({
+        success: true,
+        data: [],
+        pagination: {
+          currentPage: page,
+          totalPages: 0,
+          totalRecords: 0,
+          recordsPerPage: limit,
+          hasNextPage: false,
+          hasPrevPage: false
+        },
+        message: 'Aplica filtros de fecha o búsqueda para cargar los datos',
+        optimizacion: true
+      });
+    }
+    
     const startRow = ((page - 1) * limit) + 1;
     const endRow = page * limit;
     
-    console.log('📋 Parámetros:', { page, limit, startRow, endRow });
+    // Construir filtros
+    const { whereClause, sqlParams } = construirFiltros({ fecha_desde, fecha_hasta, search });
+    
+    console.log('🔍 Filtros construidos:', whereClause || 'sin filtros adicionales');
     
     // Intentar consulta con JOINs primero
     try {
@@ -524,6 +617,7 @@ exports.obtenerFacturas = async (req, res) => {
           LEFT JOIN sucursales s ON fe.id_sucursal = s.id
           LEFT JOIN centros_costos cc ON fe.id_centro_costo = cc.id
           WHERE fe.estado = 'PROCESADA'
+          ${whereClause}
         )
         SELECT 
           id, archivo_nombre, emisor_rut, emisor_razon_social, receptor_rut, receptor_razon_social,
@@ -535,24 +629,53 @@ exports.obtenerFacturas = async (req, res) => {
       
       const consultaTotal = `
         SELECT COUNT(*) as total 
-        FROM TB_FACTURA_ENCABEZADO 
-        WHERE estado = 'PROCESADA'
+        FROM TB_FACTURA_ENCABEZADO fe
+        LEFT JOIN sucursales s ON fe.id_sucursal = s.id
+        LEFT JOIN centros_costos cc ON fe.id_centro_costo = cc.id
+        WHERE fe.estado = 'PROCESADA'
+        ${whereClause}
       `;
       
-      const facturas = await pool.request()
+      const requestPrincipal = pool.request()
         .input('startRow', sql.Int, startRow)
-        .input('endRow', sql.Int, endRow)
-        .query(consulta);
+        .input('endRow', sql.Int, endRow);
       
-      const totalResult = await pool.request().query(consultaTotal);
+      sqlParams.forEach(param => {
+        requestPrincipal.input(param.name, param.type, param.value);
+      });
+      
+      const facturas = await requestPrincipal.query(consulta);
+      
+      const requestTotal = pool.request();
+      sqlParams.forEach(param => {
+        requestTotal.input(param.name, param.type, param.value);
+      });
+      
+      const totalResult = await requestTotal.query(consultaTotal);
       const total = totalResult.recordset[0].total;
       const totalPages = Math.ceil(total / limit);
       
-      console.log(`✅ ${facturas.recordset.length} facturas procesadas obtenidas de ${total} total (con JOINs)`);
+      // Formatear RUTs
+      const facturasFormateadas = facturas.recordset.map(factura => ({
+        ...factura,
+        emisor_rut: formatearRUT(factura.emisor_rut),
+        receptor_rut: formatearRUT(factura.receptor_rut)
+      }));
+      
+      const filtrosAplicados = [];
+      if (fecha_desde) filtrosAplicados.push(`desde ${fecha_desde}`);
+      if (fecha_hasta) filtrosAplicados.push(`hasta ${fecha_hasta}`);
+      if (search) filtrosAplicados.push(`texto "${search}"`);
+      
+      const mensajeFiltros = filtrosAplicados.length > 0 
+        ? ` (filtros: ${filtrosAplicados.join(', ')})` 
+        : '';
+      
+      console.log(`✅ ${facturas.recordset.length} facturas procesadas obtenidas de ${total} total (con JOINs)${mensajeFiltros}`);
       
       return res.json({ 
         success: true, 
-        data: facturas.recordset,
+        data: facturasFormateadas,
         pagination: {
           currentPage: page,
           totalPages: totalPages,
@@ -561,7 +684,12 @@ exports.obtenerFacturas = async (req, res) => {
           hasNextPage: page < totalPages,
           hasPrevPage: page > 1
         },
-        message: `${facturas.recordset.length} facturas procesadas cargadas`
+        filtros_aplicados: {
+          fecha_desde: fecha_desde || null,
+          fecha_hasta: fecha_hasta || null,
+          busqueda: search || null
+        },
+        message: `${facturas.recordset.length} facturas procesadas cargadas${mensajeFiltros}`
       });
       
     } catch (joinError) {
@@ -590,6 +718,7 @@ exports.obtenerFacturas = async (req, res) => {
             ROW_NUMBER() OVER (ORDER BY fe.fecha_procesamiento DESC, fe.FECHA_EMISION DESC) as RowNum
           FROM TB_FACTURA_ENCABEZADO fe
           WHERE fe.estado = 'PROCESADA'
+          ${whereClause}
         )
         SELECT 
           id, archivo_nombre, emisor_rut, emisor_razon_social, receptor_rut, receptor_razon_social,
@@ -601,24 +730,51 @@ exports.obtenerFacturas = async (req, res) => {
       
       const consultaTotalSimple = `
         SELECT COUNT(*) as total 
-        FROM TB_FACTURA_ENCABEZADO 
-        WHERE estado = 'PROCESADA'
+        FROM TB_FACTURA_ENCABEZADO fe
+        WHERE fe.estado = 'PROCESADA'
+        ${whereClause}
       `;
       
-      const facturasSimple = await pool.request()
+      const requestSimple = pool.request()
         .input('startRow', sql.Int, startRow)
-        .input('endRow', sql.Int, endRow)
-        .query(consultaSimple);
+        .input('endRow', sql.Int, endRow);
       
-      const totalSimple = await pool.request().query(consultaTotalSimple);
+      sqlParams.forEach(param => {
+        requestSimple.input(param.name, param.type, param.value);
+      });
+      
+      const facturasSimple = await requestSimple.query(consultaSimple);
+      
+      const requestTotalSimple = pool.request();
+      sqlParams.forEach(param => {
+        requestTotalSimple.input(param.name, param.type, param.value);
+      });
+      
+      const totalSimple = await requestTotalSimple.query(consultaTotalSimple);
       const totalRecordsSimple = totalSimple.recordset[0].total;
       const totalPagesSimple = Math.ceil(totalRecordsSimple / limit);
       
-      console.log(`✅ ${facturasSimple.recordset.length} facturas procesadas obtenidas de ${totalRecordsSimple} total (consulta simple)`);
+      // Formatear RUTs
+      const facturasSimpleFormateadas = facturasSimple.recordset.map(factura => ({
+        ...factura,
+        emisor_rut: formatearRUT(factura.emisor_rut),
+        receptor_rut: formatearRUT(factura.receptor_rut)
+      }));
+      
+      const filtrosAplicados = [];
+      if (fecha_desde) filtrosAplicados.push(`desde ${fecha_desde}`);
+      if (fecha_hasta) filtrosAplicados.push(`hasta ${fecha_hasta}`);
+      if (search) filtrosAplicados.push(`texto "${search}"`);
+      
+      const mensajeFiltros = filtrosAplicados.length > 0 
+        ? ` (filtros: ${filtrosAplicados.join(', ')})` 
+        : '';
+      
+      console.log(`✅ ${facturasSimple.recordset.length} facturas procesadas obtenidas de ${totalRecordsSimple} total (consulta simple)${mensajeFiltros}`);
       
       return res.json({ 
         success: true, 
-        data: facturasSimple.recordset,
+        data: facturasSimpleFormateadas,
         pagination: {
           currentPage: page,
           totalPages: totalPagesSimple,
@@ -627,7 +783,12 @@ exports.obtenerFacturas = async (req, res) => {
           hasNextPage: page < totalPagesSimple,
           hasPrevPage: page > 1
         },
-        message: `${facturasSimple.recordset.length} facturas procesadas (modo simplificado)`,
+        filtros_aplicados: {
+          fecha_desde: fecha_desde || null,
+          fecha_hasta: fecha_hasta || null,
+          busqueda: search || null
+        },
+        message: `${facturasSimple.recordset.length} facturas procesadas (modo simplificado)${mensajeFiltros}`,
         advertencia: 'Tablas relacionadas no disponibles'
       });
     }
@@ -665,7 +826,8 @@ exports.obtenerFacturaPorId = async (req, res) => {
             f.*,
             ISNULL(s.nombre, 'Sucursal no encontrada') as sucursal_nombre,
             ISNULL(s.tipo_sucursal, 'N/A') as tipo_sucursal,
-            ISNULL(cc.nombre, 'Centro no encontrado') as centro_costo_nombre
+            ISNULL(cc.nombre, 'Centro no encontrado') as centro_costo_nombre,
+            ISNULL(cc.descripcion, 'Sin descripción') as centro_costo_descripcion
           FROM TB_FACTURA_ENCABEZADO f
           LEFT JOIN sucursales s ON f.id_sucursal = s.id
           LEFT JOIN centros_costos cc ON f.id_centro_costo = cc.id
@@ -685,6 +847,8 @@ exports.obtenerFacturaPorId = async (req, res) => {
         .query('SELECT * FROM TB_FACTURA_DETALLE WHERE ID_FACTURA = @facturaId ORDER BY ID');
       
       const factura = facturaResult.recordset[0];
+      factura.RUT_EMISOR = formatearRUT(factura.RUT_EMISOR);
+      factura.RUT_RECEPTOR = formatearRUT(factura.RUT_RECEPTOR);
       factura.detalles = detallesResult.recordset;
       
       return res.json({
@@ -708,9 +872,12 @@ exports.obtenerFacturaPorId = async (req, res) => {
       }
       
       const factura = facturaSimple.recordset[0];
+      factura.RUT_EMISOR = formatearRUT(factura.RUT_EMISOR);
+      factura.RUT_RECEPTOR = formatearRUT(factura.RUT_RECEPTOR);
       factura.sucursal_nombre = 'Consultar manualmente';
       factura.tipo_sucursal = 'N/A';
       factura.centro_costo_nombre = 'Consultar manualmente';
+      factura.centro_costo_descripcion = 'Sin descripción';
       
       // Obtener detalles
       try {
@@ -741,15 +908,28 @@ exports.obtenerFacturaPorId = async (req, res) => {
 
 // ==================== ESTADÍSTICAS ====================
 
-// Estadísticas usando solo TB_FACTURA_ENCABEZADO
+// FUNCIÓN OPTIMIZADA: Estadísticas CON FILTROS DE FECHA
 exports.estadisticas = async (req, res) => {
   try {
-    console.log('📊 === OBTENIENDO ESTADÍSTICAS (TABLAS EXISTENTES) ===');
+    console.log('📊 === OBTENIENDO ESTADÍSTICAS CON FILTROS ===');
     
     const pool = await poolPromise;
+    const { fecha_desde, fecha_hasta, search } = req.query;
     
-    // ESTADÍSTICAS GENERALES desde TB_FACTURA_ENCABEZADO
-    const estadisticasGenerales = await pool.request().query(`
+    console.log('📋 Filtros para estadísticas:', { 
+      fecha_desde, 
+      fecha_hasta, 
+      search: search ? `"${search}"` : 'sin búsqueda'
+    });
+    
+    // Construir filtros
+    const { whereClause, sqlParams } = construirFiltros({ fecha_desde, fecha_hasta, search });
+    const whereCondition = whereClause ? `WHERE 1=1 ${whereClause}` : '';
+    
+    console.log('🔍 WHERE clause para estadísticas:', whereCondition || 'sin filtros');
+    
+    // ESTADÍSTICAS GENERALES CON FILTROS
+    const consultaEstadisticas = `
       SELECT 
         COUNT(*) as total_facturas,
         COUNT(CASE WHEN ISNULL(estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 END) as total_facturas_pendientes,
@@ -760,15 +940,22 @@ exports.estadisticas = async (req, res) => {
         ISNULL(SUM(CASE WHEN estado = 'PROCESADA' THEN MONTO_TOTAL END), 0) as monto_total_procesadas,
         ISNULL(SUM(MONTO_NETO), 0) as monto_neto_total,
         ISNULL(SUM(IVA), 0) as monto_iva_total
-      FROM TB_FACTURA_ENCABEZADO
-    `);
+      FROM TB_FACTURA_ENCABEZADO fe
+      ${whereCondition}
+    `;
     
+    const requestEstadisticas = pool.request();
+    sqlParams.forEach(param => {
+      requestEstadisticas.input(param.name, param.type, param.value);
+    });
+    
+    const estadisticasGenerales = await requestEstadisticas.query(consultaEstadisticas);
     const stats = estadisticasGenerales.recordset[0];
     
-    // ESTADÍSTICAS POR SUCURSAL (solo facturas procesadas)
+    // ESTADÍSTICAS POR SUCURSAL (solo facturas procesadas) CON FILTROS
     let estadisticasSucursal = [];
     try {
-      const sucursalResult = await pool.request().query(`
+      const consultaSucursal = `
         SELECT 
           ISNULL(s.nombre, CAST(fe.id_sucursal AS VARCHAR)) as sucursal,
           ISNULL(s.tipo_sucursal, 'N/A') as tipo_sucursal,
@@ -779,15 +966,23 @@ exports.estadisticas = async (req, res) => {
         FROM TB_FACTURA_ENCABEZADO fe
         LEFT JOIN sucursales s ON fe.id_sucursal = s.id
         WHERE fe.estado = 'PROCESADA' AND fe.id_sucursal IS NOT NULL
+        ${whereClause}
         GROUP BY fe.id_sucursal, s.nombre, s.tipo_sucursal
         ORDER BY monto_total DESC
-      `);
+      `;
+      
+      const requestSucursal = pool.request();
+      sqlParams.forEach(param => {
+        requestSucursal.input(param.name, param.type, param.value);
+      });
+      
+      const sucursalResult = await requestSucursal.query(consultaSucursal);
       estadisticasSucursal = sucursalResult.recordset;
     } catch (sucursalError) {
       console.log('⚠️ Error en estadísticas por sucursal:', sucursalError.message);
       // Consulta simple sin JOIN
       try {
-        const sucursalSimple = await pool.request().query(`
+        const consultaSucursalSimple = `
           SELECT 
             CAST(fe.id_sucursal AS VARCHAR) as sucursal,
             'Consultar manualmente' as tipo_sucursal,
@@ -797,19 +992,27 @@ exports.estadisticas = async (req, res) => {
             MAX(fe.fecha_procesamiento) as ultima_factura
           FROM TB_FACTURA_ENCABEZADO fe
           WHERE fe.estado = 'PROCESADA' AND fe.id_sucursal IS NOT NULL
+          ${whereClause}
           GROUP BY fe.id_sucursal
           ORDER BY monto_total DESC
-        `);
+        `;
+        
+        const requestSucursalSimple = pool.request();
+        sqlParams.forEach(param => {
+          requestSucursalSimple.input(param.name, param.type, param.value);
+        });
+        
+        const sucursalSimple = await requestSucursalSimple.query(consultaSucursalSimple);
         estadisticasSucursal = sucursalSimple.recordset;
       } catch (simpleError) {
         console.log('⚠️ Error en estadísticas por sucursal simple');
       }
     }
     
-    // ESTADÍSTICAS POR CENTRO DE COSTO (solo facturas procesadas)
+    // ESTADÍSTICAS POR CENTRO DE COSTO (solo facturas procesadas) CON FILTROS
     let estadisticasCentroCosto = [];
     try {
-      const centroCostoResult = await pool.request().query(`
+      const consultaCentroCosto = `
         SELECT 
           ISNULL(cc.nombre, fe.id_centro_costo) as centro_costo,
           fe.id_centro_costo as centro_id,
@@ -819,15 +1022,23 @@ exports.estadisticas = async (req, res) => {
         FROM TB_FACTURA_ENCABEZADO fe
         LEFT JOIN centros_costos cc ON fe.id_centro_costo = cc.id
         WHERE fe.estado = 'PROCESADA' AND fe.id_centro_costo IS NOT NULL
+        ${whereClause}
         GROUP BY fe.id_centro_costo, cc.nombre
         ORDER BY monto_total DESC
-      `);
+      `;
+      
+      const requestCentroCosto = pool.request();
+      sqlParams.forEach(param => {
+        requestCentroCosto.input(param.name, param.type, param.value);
+      });
+      
+      const centroCostoResult = await requestCentroCosto.query(consultaCentroCosto);
       estadisticasCentroCosto = centroCostoResult.recordset;
     } catch (centroError) {
       console.log('⚠️ Error en estadísticas por centro de costo:', centroError.message);
       // Consulta simple sin JOIN
       try {
-        const centroSimple = await pool.request().query(`
+        const consultaCentroSimple = `
           SELECT 
             fe.id_centro_costo as centro_costo,
             fe.id_centro_costo as centro_id,
@@ -836,9 +1047,17 @@ exports.estadisticas = async (req, res) => {
             ISNULL(AVG(fe.MONTO_TOTAL), 0) as promedio_factura
           FROM TB_FACTURA_ENCABEZADO fe
           WHERE fe.estado = 'PROCESADA' AND fe.id_centro_costo IS NOT NULL
+          ${whereClause}
           GROUP BY fe.id_centro_costo
           ORDER BY monto_total DESC
-        `);
+        `;
+        
+        const requestCentroSimple = pool.request();
+        sqlParams.forEach(param => {
+          requestCentroSimple.input(param.name, param.type, param.value);
+        });
+        
+        const centroSimple = await requestCentroSimple.query(consultaCentroSimple);
         estadisticasCentroCosto = centroSimple.recordset;
       } catch (simpleError) {
         console.log('⚠️ Error en estadísticas por centro de costo simple');
@@ -858,12 +1077,26 @@ exports.estadisticas = async (req, res) => {
       por_centro_costo: estadisticasCentroCosto || []
     };
     
-    console.log('✅ Estadísticas completas construidas desde TB_FACTURA_ENCABEZADO');
+    const filtrosAplicados = [];
+    if (fecha_desde) filtrosAplicados.push(`desde ${fecha_desde}`);
+    if (fecha_hasta) filtrosAplicados.push(`hasta ${fecha_hasta}`);
+    if (search) filtrosAplicados.push(`texto "${search}"`);
+    
+    const mensajeFiltros = filtrosAplicados.length > 0 
+      ? ` (filtros: ${filtrosAplicados.join(', ')})` 
+      : '';
+    
+    console.log(`✅ Estadísticas completas construidas desde TB_FACTURA_ENCABEZADO${mensajeFiltros}`);
     
     return res.json({
       success: true,
       data: estadisticasCompletas,
-      message: 'Estadísticas obtenidas exitosamente desde tablas existentes',
+      filtros_aplicados: {
+        fecha_desde: fecha_desde || null,
+        fecha_hasta: fecha_hasta || null,
+        busqueda: search || null
+      },
+      message: `Estadísticas obtenidas exitosamente${mensajeFiltros}`,
       timestamp: new Date(),
       fuente: 'TB_FACTURA_ENCABEZADO'
     });
@@ -889,6 +1122,60 @@ exports.estadisticas = async (req, res) => {
       data: estadisticasVacias,
       message: 'Error al obtener estadísticas: ' + error.message,
       fuente: 'ERROR_FALLBACK'
+    });
+  }
+};
+
+// ==================== INFORMACIÓN DE EMPRESA ====================
+
+// Nueva función para obtener información de empresa
+exports.obtenerInformacionEmpresa = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    
+    // Intentar obtener información de empresa desde alguna tabla de configuración
+    // Si no existe, devolver información por defecto
+    try {
+      const empresaResult = await pool.request().query(`
+        SELECT TOP 1
+          razon_social,
+          rut,
+          base_datos,
+          created_at
+        FROM configuracion_empresa
+        ORDER BY created_at DESC
+      `);
+      
+      if (empresaResult.recordset.length > 0) {
+        return res.json({
+          success: true,
+          data: empresaResult.recordset[0]
+        });
+      }
+    } catch (empresaError) {
+      console.log('⚠️ Tabla configuracion_empresa no encontrada, usando datos por defecto');
+    }
+    
+    // Datos por defecto si no existe configuración
+    const empresaPorDefecto = {
+      razon_social: "Empresa Ejemplo S.A.",
+      rut: "76.123.456-7",
+      base_datos: "Sistema Principal",
+      created_at: new Date()
+    };
+    
+    return res.json({
+      success: true,
+      data: empresaPorDefecto,
+      message: 'Información por defecto - Configurar tabla configuracion_empresa para datos reales'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al obtener información de empresa:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener información de empresa',
+      error: error.message
     });
   }
 };

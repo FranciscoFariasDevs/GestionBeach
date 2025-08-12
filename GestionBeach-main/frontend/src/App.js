@@ -1,4 +1,4 @@
-// frontend/src/App.js
+// frontend/src/App.js - CON SISTEMA DE PERMISOS CASL.js
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
@@ -25,25 +25,17 @@ import PerfilPage from './pages/PerfilPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ConsultorPage from './pages/ConsultorPage';
 import SupermercadosPage from './pages/SupermercadosPage';
-//import FerreteriasProdPage from './pages/FerreteriasProdPage';
-//import MultitiendasProdPage from './pages/MultitiendasProdPage';
 import EstadoResultadosPage from './pages/EstadoResultados';
 import MonitoreoPage from './pages/MonitoreoPage';
-
-// Páginas existentes
 import EmpleadosPage from './pages/EmpleadosPage';
 import RemuneracionesPage from './pages/RemuneracionesPage';
-
-// Nuevas páginas de Compras
 import CentrosCostosPage from './pages/CentrosCostosPage';
 import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
-
-// Nueva página de Inventario
 import InventarioPage from './pages/InventarioPage';
 
 // Components
-import PrivateRoute from './components/PrivateRoute';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -62,32 +54,169 @@ function App() {
                 <Route path="/consultor" element={<ConsultorPage />} />
 
                 {/* Rutas privadas dentro del layout del dashboard */}
-                <Route path="/" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
+                <Route 
+                  path="/" 
+                  element={
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  {/* Redirect del root al dashboard */}
                   <Route index element={<Navigate to="/dashboard" replace />} />
-                  <Route path="dashboard" element={<DashboardPage />} />
-                  <Route path="estado-resultado" element={<EstadoResultadosPage />} />
-                  <Route path="monitoreo" element={<MonitoreoPage />} />
-                  <Route path="ventas" element={<VentasPage />} />
-                  <Route path="tarjeta-empleado" element={<TarjetaEmpleadoPage />} />
-                  <Route path="usuarios" element={<UsuarioPage />} />
-                  <Route path="modulos" element={<ModuloPage />} />
-                  <Route path="perfiles" element={<PerfilPage />} />
                   
-                  {/* Rutas de Empleados y Remuneraciones */}
-                  <Route path="empleados" element={<EmpleadosPage />} />
-                  <Route path="remuneraciones" element={<RemuneracionesPage />} />
-
-                  {/* NUEVA RUTA DE INVENTARIO */}
-                  <Route path="inventario" element={<InventarioPage />} />
-
-                  {/* Submenú de Productos */}
-                  <Route path="productos/supermercados" element={<SupermercadosPage />} />
-
-                  {/* RUTAS DE COMPRAS */}
-                  <Route path="compras/centros-costos" element={<CentrosCostosPage />} />
-                  <Route path="compras/facturas-xml" element={<FacturasXMLPage />} />
-                  <Route path="compras/registro-compras" element={<RegistroComprasPage />} />
-
+                  {/* Dashboard - Acceso básico para todos */}
+                  <Route 
+                    path="dashboard" 
+                    element={
+                      <ProtectedRoute requiredRoute="/dashboard">
+                        <DashboardPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Estado Resultado - Finanzas, Gerencia, Admin */}
+                  <Route 
+                    path="estado-resultado" 
+                    element={
+                      <ProtectedRoute requiredRoute="/estado-resultado">
+                        <EstadoResultadosPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Monitoreo - Gerencia, Jefe Local, Admin */}
+                  <Route 
+                    path="monitoreo" 
+                    element={
+                      <ProtectedRoute requiredRoute="/monitoreo">
+                        <MonitoreoPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Remuneraciones - RRHH, Finanzas, Gerencia, Admin */}
+                  <Route 
+                    path="remuneraciones" 
+                    element={
+                      <ProtectedRoute requiredRoute="/remuneraciones">
+                        <RemuneracionesPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Inventario - Jefe Local, Gerencia, Admin */}
+                  <Route 
+                    path="inventario" 
+                    element={
+                      <ProtectedRoute requiredRoute="/inventario">
+                        <InventarioPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Ventas - Jefe Local, Gerencia, Admin */}
+                  <Route 
+                    path="ventas" 
+                    element={
+                      <ProtectedRoute requiredRoute="/ventas">
+                        <VentasPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Productos - Jefe Local, Gerencia, Admin */}
+                  <Route 
+                    path="productos/supermercados" 
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/supermercados">
+                        <SupermercadosPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Compras - Finanzas, Gerencia, Admin */}
+                  <Route 
+                    path="compras/centros-costos" 
+                    element={
+                      <ProtectedRoute requiredRoute="/compras/centros-costos">
+                        <CentrosCostosPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="compras/facturas-xml" 
+                    element={
+                      <ProtectedRoute requiredRoute="/compras/facturas-xml">
+                        <FacturasXMLPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="compras/registro-compras" 
+                    element={
+                      <ProtectedRoute requiredRoute="/compras/registro-compras">
+                        <RegistroComprasPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Empleados - RRHH, Gerencia, Admin */}
+                  <Route 
+                    path="empleados" 
+                    element={
+                      <ProtectedRoute requiredRoute="/empleados">
+                        <EmpleadosPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Tarjeta Empleado - RRHH, Gerencia, Admin */}
+                  <Route 
+                    path="tarjeta-empleado" 
+                    element={
+                      <ProtectedRoute requiredRoute="/tarjeta-empleado">
+                        <TarjetaEmpleadoPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  
+                  {/* Gestión del Sistema - Solo Admin y Super Admin */}
+                  <Route 
+                    path="usuarios" 
+                    element={
+                      <ProtectedRoute requiredRoute="/usuarios">
+                        <UsuarioPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="perfiles" 
+                    element={
+                      <ProtectedRoute requiredRoute="/perfiles">
+                        <PerfilPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="modulos" 
+                    element={
+                      <ProtectedRoute requiredRoute="/modulos">
+                        <ModuloPage />
+                      </ProtectedRoute>
+                    } 
+                  />
+                  <Route 
+                    path="configuracion" 
+                    element={
+                      <ProtectedRoute requiredRoute="/configuracion">
+                        <div style={{ padding: '20px' }}>
+                          <h2>Configuración del Sistema</h2>
+                          <p>Módulo en desarrollo...</p>
+                        </div>
+                      </ProtectedRoute>
+                    } 
+                  />
                 </Route>
 
                 {/* Ruta 404 */}

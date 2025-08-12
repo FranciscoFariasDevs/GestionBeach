@@ -1,4 +1,4 @@
-// frontend/src/layouts/DashboardLayout.jsx
+// frontend/src/layouts/DashboardLayout.jsx - CON PERMISOS CASL.js
 import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
@@ -21,6 +21,7 @@ import {
   useMediaQuery,
   useTheme,
   Collapse,
+  Chip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -47,11 +48,13 @@ import {
   Receipt as FacturasIcon,
   Monitor as MonitorIcon,
   Inventory as InventoryIcon,
+  Security as SecurityIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
+import { filterMenuItems } from '../config/permissions';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Reducido el ancho del drawer aún más, ahora a 200px
 const drawerWidth = 200;
 
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
@@ -114,35 +117,27 @@ const orangeColors = {
   dark: '#F57C00',
 };
 
-// Componentes animados con framer-motion
 const MotionListItem = motion(ListItem);
 const MotionAvatar = motion(Avatar);
 
-// Variantes de animación para los elementos del menú
 const menuItemVariants = {
-  hidden: { 
-    opacity: 0, 
-    x: -20 
-  },
+  hidden: { opacity: 0, x: -20 },
   visible: (custom) => ({ 
     opacity: 1, 
     x: 0,
     transition: { 
       delay: custom * 0.04, 
       duration: 0.35,
-      ease: [0.43, 0.13, 0.23, 0.96] // easeOutExpo
+      ease: [0.43, 0.13, 0.23, 0.96]
     }
   }),
   exit: { 
     opacity: 0, 
     x: -15,
-    transition: { 
-      duration: 0.2 
-    }
+    transition: { duration: 0.2 }
   }
 };
 
-// Variantes para el avatar
 const avatarVariants = {
   hidden: { opacity: 0, scale: 0.8 },
   visible: { 
@@ -163,29 +158,23 @@ export default function DashboardLayout() {
   const [open, setOpen] = useState(!isMobile);
   const [anchorEl, setAnchorEl] = useState(null);
   const { user, logout } = useAuth();
+  const { ability, isSuperUser, hasProfile } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const [showEmail, setShowEmail] = useState(false);
   const [productosOpen, setProductosOpen] = useState(false);
   const [comprasOpen, setComprasOpen] = useState(false);
 
-  const handleDrawerOpen = () => {
-    setOpen(true);
-  };
-
+  const handleDrawerOpen = () => setOpen(true);
   const handleDrawerClose = () => {
     if (isMobile) {
       setOpen(false);
     } else {
-      // Para versión desktop, añadir delay para la animación
-      setTimeout(() => {
-        setOpen(false);
-      }, 200);
+      setTimeout(() => setOpen(false), 200);
     }
   };
 
   useEffect(() => {
-    // Actualizar estado del drawer cuando cambia el tamaño de la pantalla
     if (isMobile) {
       setOpen(false);
     } else {
@@ -208,18 +197,14 @@ export default function DashboardLayout() {
   const toggleProductos = () => setProductosOpen(!productosOpen);
   const toggleCompras = () => setComprasOpen(!comprasOpen);
 
-  const menuItems = [
+  // Definir todos los elementos del menú (ANTES del filtrado)
+  const allMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard', orangeType: 'light' },
     { text: 'Estado Resultado', icon: <AssessmentIcon />, path: '/estado-resultado', orangeType: 'dark' },
     { text: 'Monitoreo', icon: <MonitorIcon />, path: '/monitoreo', orangeType: 'light' },
     { text: 'Remuneraciones', icon: <RemuneracionesIcon />, path: '/remuneraciones', orangeType: 'dark' },
-    
-    // NUEVA ENTRADA DE INVENTARIO
     { text: 'Inventario', icon: <InventoryIcon />, path: '/inventario', orangeType: 'light' },
-    
     { text: 'Ventas', icon: <PointOfSaleIcon />, path: '/ventas', orangeType: 'dark' },
-
-    // Productos con submenú
     {
       text: 'Productos',
       icon: <TrendingUpIcon />,
@@ -233,8 +218,6 @@ export default function DashboardLayout() {
         { text: 'Multitiendas', path: '/productos/multitiendas', icon: <StoreIcon /> },
       ],
     },
-
-    // Compras con submenú
     {
       text: 'Compras',
       icon: <ComprasIcon />,
@@ -245,10 +228,8 @@ export default function DashboardLayout() {
       subItems: [
         { text: 'Gestión de Centros de Costos', path: '/compras/centros-costos', icon: <CentrosCostosIcon /> },
         { text: 'Facturas XML', path: '/compras/facturas-xml', icon: <FacturasIcon /> },
-        
       ],
     },
-
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'light' },
@@ -264,28 +245,48 @@ export default function DashboardLayout() {
     },
   ];
 
-  const currentTitle =
-    showEmail
-      ? 'Correo Electrónico'
-      : {
-          '/dashboard': 'Dashboard',
-          '/estado-resultado': 'Estado de Resultado',
-          '/monitoreo': 'Monitoreo de Sucursales',
-          '/remuneraciones': 'Sistema de Remuneraciones',
-          '/inventario': 'Sistema de Gestión de Inventario',
-          '/ventas': 'Ventas',
-          '/compras/centros-costos': 'Gestión de Centros de Costos',
-          '/compras/facturas-xml': 'Gestión de Facturas XML',
-          '/productos/supermercados': 'Productos - Supermercados',
-          '/productos/ferreterias': 'Productos - Ferreterías',
-          '/productos/multitiendas': 'Productos - Multitiendas',
-          '/tarjeta-empleado': 'Tarjeta de Empleado',
-          '/empleados': 'Gestión de Empleados',
-          '/usuarios': 'Gestión de Usuarios',
-          '/perfiles': 'Gestión de Perfiles',
-          '/modulos': 'Gestión de Módulos',
-          '/configuracion': 'Configuración',
-        }[location.pathname] || 'Beach Market';
+  // Filtrar elementos del menú basado en permisos
+  const menuItems = filterMenuItems(ability, allMenuItems);
+
+  // Obtener título de la página actual
+  const currentTitle = showEmail
+    ? 'Correo Electrónico'
+    : {
+        '/dashboard': 'Dashboard',
+        '/estado-resultado': 'Estado de Resultado',
+        '/monitoreo': 'Monitoreo de Sucursales',
+        '/remuneraciones': 'Sistema de Remuneraciones',
+        '/inventario': 'Sistema de Gestión de Inventario',
+        '/ventas': 'Ventas',
+        '/compras/centros-costos': 'Gestión de Centros de Costos',
+        '/compras/facturas-xml': 'Gestión de Facturas XML',
+        '/productos/supermercados': 'Productos - Supermercados',
+        '/productos/ferreterias': 'Productos - Ferreterías',
+        '/productos/multitiendas': 'Productos - Multitiendas',
+        '/tarjeta-empleado': 'Tarjeta de Empleado',
+        '/empleados': 'Gestión de Empleados',
+        '/usuarios': 'Gestión de Usuarios',
+        '/perfiles': 'Gestión de Perfiles',
+        '/modulos': 'Gestión de Módulos',
+        '/configuracion': 'Configuración',
+      }[location.pathname] || 'Beach Market';
+
+  // Obtener el perfil del usuario para mostrar
+  const getUserProfileName = () => {
+    if (!user?.perfilId) return 'Sin perfil';
+    
+    const profileNames = {
+      10: 'Super Admin',
+      11: 'Gerencia',
+      12: 'Finanzas',
+      13: 'Recursos Humanos',
+      14: 'Jefe de Local',
+      15: 'Solo Lectura',
+      16: 'Administrador'
+    };
+    
+    return profileNames[user.perfilId] || `Perfil ${user.perfilId}`;
+  };
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -302,10 +303,28 @@ export default function DashboardLayout() {
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             {currentTitle}
           </Typography>
+          
+          {/* Mostrar perfil del usuario si es Super User */}
+          {isSuperUser() && (
+            <Chip 
+              label={getUserProfileName()}
+              icon={<SecurityIcon />}
+              size="small"
+              color="warning"
+              sx={{ mr: 2, fontSize: '0.75rem' }}
+            />
+          )}
+          
           <IconButton size="large" onClick={handleMenu} color="inherit">
             <AccountCircle />
           </IconButton>
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
+            <MenuItem onClick={handleClose}>
+              <Typography variant="body2">
+                {user?.username} - {getUserProfileName()}
+              </Typography>
+            </MenuItem>
+            <Divider />
             <MenuItem onClick={handleClose}>Perfil</MenuItem>
             <MenuItem onClick={handleLogout}>Cerrar Sesión</MenuItem>
           </Menu>
@@ -319,7 +338,7 @@ export default function DashboardLayout() {
           '& .MuiDrawer-paper': { 
             width: drawerWidth, 
             boxSizing: 'border-box',
-            overflowX: 'hidden' // Para evitar desplazamiento horizontal
+            overflowX: 'hidden'
           },
         }}
         variant={isMobile ? 'temporary' : 'persistent'}
@@ -333,19 +352,39 @@ export default function DashboardLayout() {
               variants={avatarVariants}
               initial="hidden"
               animate="visible"
-              sx={{ bgcolor: 'primary.main', mr: 1.5, width: 36, height: 36 }}
+              sx={{ 
+                bgcolor: isSuperUser() ? 'error.main' : 'primary.main', 
+                mr: 1.5, 
+                width: 36, 
+                height: 36 
+              }}
             >
               {user?.username?.charAt(0).toUpperCase() || 'U'}
             </MotionAvatar>
-            <Typography variant="subtitle2" noWrap sx={{ fontSize: '0.875rem' }}>
-              {user?.username || 'Usuario'}
-            </Typography>
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography variant="subtitle2" noWrap sx={{ fontSize: '0.875rem' }}>
+                {user?.username || 'Usuario'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: '0.7rem' }}>
+                {getUserProfileName()}
+              </Typography>
+            </Box>
           </Box>
           <IconButton onClick={handleDrawerClose} size="small">
             <ChevronLeftIcon />
           </IconButton>
         </DrawerHeader>
         <Divider />
+        
+        {/* Mostrar información de permisos para Super Users */}
+        {isSuperUser() && (
+          <Box sx={{ p: 1, bgcolor: 'warning.lighter' }}>
+            <Typography variant="caption" color="warning.dark" align="center" display="block">
+              🔓 Acceso Total
+            </Typography>
+          </Box>
+        )}
+        
         <List sx={{ py: 0.5 }}>
           <AnimatePresence>
             {menuItems.map((item, index) => {
@@ -382,7 +421,7 @@ export default function DashboardLayout() {
                     
                     <Collapse in={item.isOpen} timeout="auto" unmountOnExit>
                       <AnimatePresence>
-                        {item.subItems.map((sub, idx) => (
+                        {item.subItems?.map((sub, idx) => (
                           <MotionListItem
                             key={sub.text}
                             disablePadding
@@ -467,7 +506,6 @@ export default function DashboardLayout() {
                           backgroundColor: 'rgba(255, 152, 0, 0.2)',
                         },
                       },
-                      // Reducir aún más el padding para hacerlo más compacto
                       py: 0.5,
                       px: 1.5,
                       minHeight: 38
@@ -487,6 +525,19 @@ export default function DashboardLayout() {
           </AnimatePresence>
         </List>
         <Divider />
+        
+        {/* Información de debugging para desarrollo */}
+        {process.env.NODE_ENV === 'development' && (
+          <Box sx={{ p: 1 }}>
+            <Typography variant="caption" color="text.disabled" display="block">
+              Módulos accesibles: {menuItems.length}
+            </Typography>
+            <Typography variant="caption" color="text.disabled" display="block">
+              Perfil ID: {user?.perfilId}
+            </Typography>
+          </Box>
+        )}
+        
         <List sx={{ py: 0.5 }}>
           <MotionListItem
             disablePadding
