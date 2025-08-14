@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/index.jsx - Versión Mejorada con Integración Real
+// src/pages/EstadoResultados/index.jsx - Versión Corregida Completa con VENTAS ARREGLADO
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -48,6 +48,7 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import EditIcon from '@mui/icons-material/Edit';
+import BugReportIcon from '@mui/icons-material/BugReport';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
@@ -133,6 +134,267 @@ const EstadoResultadosPage = () => {
       loadResultadosData();
     }
   }, [selectedMonth, selectedSucursal]);
+
+  // ====================================
+  // FUNCIONES DE CARGA DE DATOS CORREGIDAS
+  // ====================================
+
+  // Función para debugging de APIs
+  const debugAPI = async () => {
+    console.group('🔧 Debug de APIs');
+    
+    try {
+      // Test básico de conectividad
+      const healthCheck = await api.get('/');
+      console.log('✅ API conectada:', healthCheck.status);
+      
+      // Test de endpoints individuales
+      const endpoints = [
+        '/facturas-xml',
+        '/remuneraciones', 
+        '/ventas',
+        '/sucursales'
+      ];
+      
+      for (const endpoint of endpoints) {
+        try {
+          const response = await api.get(endpoint, { params: { limit: 1 } });
+          console.log(`✅ ${endpoint}:`, response.status, typeof response.data);
+        } catch (error) {
+          console.error(`❌ ${endpoint}:`, error.message);
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error de conectividad:', error.message);
+    }
+    
+    console.groupEnd();
+  };
+
+  // Función corregida para cargar compras
+  const loadComprasData = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      console.log('🔍 Cargando compras para sucursal:', selectedSucursal);
+      
+      // Opción 1: Intentar con filtro de sucursal
+      let comprasResponse;
+      try {
+        comprasResponse = await api.get('/facturas-xml', {
+          params: {
+            fecha_desde: fechaDesde,
+            fecha_hasta: fechaHasta,
+            id_sucursal: selectedSucursal,
+            estado: 'PROCESADA',
+            page: 1,
+            limit: 1000
+          }
+        });
+        
+        console.log('📥 Respuesta compras con filtro:', comprasResponse.data);
+        
+      } catch (error) {
+        console.warn('⚠️ Error con filtro de sucursal, intentando sin filtro:', error.message);
+        
+        // Opción 2: Cargar todas y filtrar manualmente
+        comprasResponse = await api.get('/facturas-xml', {
+          params: {
+            fecha_desde: fechaDesde,
+            fecha_hasta: fechaHasta,
+            estado: 'PROCESADA',
+            page: 1,
+            limit: 1000
+          }
+        });
+      }
+
+      // Procesar respuesta de forma segura
+      let comprasData = [];
+      let totalCompras = 0;
+
+      if (comprasResponse?.data?.success && Array.isArray(comprasResponse.data.data)) {
+        // Filtrar por sucursal si es necesario
+        comprasData = comprasResponse.data.data.filter(factura => {
+          const sucursalFactura = factura.id_sucursal || factura.sucursal_id || factura.sucursal;
+          return sucursalFactura && sucursalFactura.toString() === selectedSucursal.toString();
+        });
+        
+        totalCompras = comprasData.reduce((sum, factura) => {
+          const monto = Number(factura.monto_total || factura.total || factura.monto || 0);
+          return sum + monto;
+        }, 0);
+        
+        console.log(`✅ Compras cargadas: ${comprasData.length} facturas, total: ${totalCompras}`);
+        
+      } else if (Array.isArray(comprasResponse?.data)) {
+        // Formato directo sin wrapper
+        comprasData = comprasResponse.data.filter(factura => {
+          const sucursalFactura = factura.id_sucursal || factura.sucursal_id || factura.sucursal;
+          return sucursalFactura && sucursalFactura.toString() === selectedSucursal.toString();
+        });
+        
+        totalCompras = comprasData.reduce((sum, factura) => {
+          const monto = Number(factura.monto_total || factura.total || factura.monto || 0);
+          return sum + monto;
+        }, 0);
+      }
+
+      return { data: comprasData, total: totalCompras };
+      
+    } catch (error) {
+      console.error('❌ Error crítico en compras:', error);
+      return { data: [], total: 0 };
+    }
+  };
+
+  // Función corregida para cargar remuneraciones
+  const loadRemuneracionesData = async () => {
+    try {
+      const mesSeleccionado = selectedMonth.getMonth() + 1;
+      const anioSeleccionado = selectedMonth.getFullYear();
+      
+      console.log('👥 Cargando remuneraciones para:', mesSeleccionado, anioSeleccionado);
+      
+      // Paso 1: Obtener períodos disponibles
+      const periodosResponse = await api.get('/remuneraciones');
+      console.log('📅 Períodos disponibles:', periodosResponse.data);
+      
+      let remuneracionesData = [];
+      let totalRemuneraciones = 0;
+
+      // Verificar estructura de respuesta
+      const periodos = periodosResponse.data?.success ? 
+        periodosResponse.data.data : 
+        Array.isArray(periodosResponse.data) ? periodosResponse.data : [];
+
+      if (periodos.length === 0) {
+        console.warn('⚠️ No hay períodos de remuneraciones disponibles');
+        return { data: [], total: 0 };
+      }
+
+      // Buscar período coincidente
+      const periodoCoincidente = periodos.find(periodo => {
+        const mesCoincide = Number(periodo.mes) === mesSeleccionado;
+        const anioCoincide = Number(periodo.anio || periodo.año) === anioSeleccionado;
+        return mesCoincide && anioCoincide;
+      });
+
+      if (!periodoCoincidente) {
+        console.log(`📅 No hay período de remuneraciones para ${mesSeleccionado}/${anioSeleccionado}`);
+        console.log('📋 Períodos disponibles:', periodos.map(p => `${p.mes}/${p.anio || p.año}`));
+        return { data: [], total: 0 };
+      }
+
+      console.log('✅ Período encontrado:', periodoCoincidente);
+
+      // Paso 2: Obtener datos detallados del período
+      try {
+        const detalleResponse = await api.get(`/remuneraciones/${periodoCoincidente.id_periodo || periodoCoincidente.id}/datos`);
+        
+        if (detalleResponse.data?.success && Array.isArray(detalleResponse.data.data)) {
+          remuneracionesData = detalleResponse.data.data;
+          
+          // Filtrar por sucursal si existe el campo
+          if (selectedSucursal) {
+            remuneracionesData = remuneracionesData.filter(empleado => {
+              const sucursalEmpleado = empleado.id_sucursal || empleado.sucursal_id || empleado.sucursal;
+              return !sucursalEmpleado || sucursalEmpleado.toString() === selectedSucursal.toString();
+            });
+          }
+          
+          // Calcular total
+          totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
+            const liquido = Number(empleado.liquido_pagar || empleado.liquido || empleado.total_liquido || 0);
+            return sum + liquido;
+          }, 0);
+          
+        } else if (Array.isArray(detalleResponse.data)) {
+          remuneracionesData = detalleResponse.data;
+          totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
+            const liquido = Number(empleado.liquido_pagar || empleado.liquido || empleado.total_liquido || 0);
+            return sum + liquido;
+          }, 0);
+        }
+        
+      } catch (detalleError) {
+        console.warn('⚠️ Error obteniendo detalle, usando total del período:', detalleError.message);
+        totalRemuneraciones = Number(periodoCoincidente.suma_liquidos || periodoCoincidente.total || 0);
+      }
+
+      console.log(`✅ Remuneraciones cargadas: ${remuneracionesData.length} empleados, total: ${totalRemuneraciones}`);
+      return { data: remuneracionesData, total: totalRemuneraciones };
+      
+    } catch (error) {
+      console.error('❌ Error crítico en remuneraciones:', error);
+      return { data: [], total: 0 };
+    }
+  };
+
+  // 🔧 FUNCIÓN CORREGIDA PARA CARGAR VENTAS - ARREGLADA PARA USAR EL CONTROLLER CORRECTO
+  const loadVentasData = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      console.log('🛒 Cargando ventas para sucursal:', selectedSucursal);
+      
+      // ✅ USAR LOS PARÁMETROS CORRECTOS QUE ESPERA EL CONTROLLER
+      const ventasBody = {
+        sucursal_id: parseInt(selectedSucursal), // ✅ Nombre correcto
+        start_date: fechaDesde,                  // ✅ Nombre correcto  
+        end_date: fechaHasta                     // ✅ Nombre correcto
+      };
+      
+      console.log('📤 Enviando datos a /ventas:', ventasBody);
+      
+      // ✅ EL CONTROLLER ESPERA POST, NO GET
+      const ventasResponse = await api.post('/ventas', ventasBody);
+      
+      console.log('📥 Respuesta ventas (POST):', ventasResponse.data);
+      
+      let ventasData = [];
+      let totalVentas = 0;
+
+      // ✅ PROCESAR RESPUESTA SEGÚN EL FORMATO DEL CONTROLLER
+      if (ventasResponse?.data?.success && Array.isArray(ventasResponse.data.ventas)) {
+        ventasData = ventasResponse.data.ventas;
+        
+        // Calcular total de las ventas
+        totalVentas = ventasData.reduce((sum, venta) => {
+          const monto = Number(venta.Total || venta.total || venta.monto_total || venta.valor_total || 0);
+          return sum + monto;
+        }, 0);
+        
+        console.log(`✅ Ventas cargadas: ${ventasData.length} registros, total: ${totalVentas}`);
+        
+      } else if (Array.isArray(ventasResponse?.data?.ventas)) {
+        // Formato directo con array de ventas
+        ventasData = ventasResponse.data.ventas;
+        
+        totalVentas = ventasData.reduce((sum, venta) => {
+          const monto = Number(venta.Total || venta.total || venta.monto_total || venta.valor_total || 0);
+          return sum + monto;
+        }, 0);
+        
+      } else {
+        console.warn('⚠️ Formato de respuesta de ventas inesperado:', ventasResponse.data);
+      }
+
+      console.log(`✅ Ventas procesadas: ${ventasData.length} registros, total: ${totalVentas}`);
+      return { data: ventasData, total: totalVentas };
+      
+    } catch (error) {
+      console.error('❌ Error crítico en ventas:', error);
+      
+      // Información específica del error para debugging
+      if (error.response?.status === 404) {
+        console.error('❌ Endpoint /ventas no encontrado - Verificar que el controlador esté registrado');
+      } else if (error.response?.status === 400) {
+        console.error('❌ Parámetros incorrectos enviados al endpoint /ventas');
+      }
+      
+      return { data: [], total: 0, source: 'error', error: error.message };
+    }
+  };
   
   // Cargar sucursales y centros de costos disponibles
   const cargarDatosIniciales = async () => {
@@ -220,9 +482,12 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  // Cargar datos del estado de resultados
+  // Función principal corregida para cargar datos del estado de resultados
   const loadResultadosData = async () => {
-    if (!selectedSucursal) return;
+    if (!selectedSucursal) {
+      console.warn('⚠️ No hay sucursal seleccionada');
+      return;
+    }
     
     setLoading(true);
     setError(null);
@@ -233,208 +498,57 @@ const EstadoResultadosPage = () => {
       console.log('🔍 Cargando datos para:', {
         sucursal: selectedSucursal,
         fechaDesde,
-        fechaHasta
+        fechaHasta,
+        mes: selectedMonth.getMonth() + 1,
+        año: selectedMonth.getFullYear()
       });
 
-      // 1. COMPRAS: Facturas XML procesadas CON FILTRO DE SUCURSAL
-      const comprasPromise = api.get('/facturas-xml', {
-        params: {
-          fecha_desde: fechaDesde,
-          fecha_hasta: fechaHasta,
-          id_sucursal: selectedSucursal, // CORRECCIÓN: Usar id_sucursal en lugar de sucursal
-          estado: 'PROCESADA',
-          page: 1,
-          limit: 1000
-        }
-      }).then(response => {
-        // VALIDACIÓN ADICIONAL: Filtrar en frontend por si el backend no filtra correctamente
-        if (response.data.success && Array.isArray(response.data.data)) {
-          const facturasFiltradas = response.data.data.filter(factura => 
-            factura.id_sucursal && factura.id_sucursal.toString() === selectedSucursal
-          );
-          
-          console.log(`🏢 Facturas filtradas por sucursal ${selectedSucursal}:`, facturasFiltradas.length);
-          
-          return {
-            data: {
-              success: true,
-              data: facturasFiltradas,
-              pagination: { totalRecords: facturasFiltradas.length }
-            }
-          };
-        }
-        return response;
-      }).catch(error => {
-        console.warn('⚠️ Error en compras:', error.message);
-        return { data: { success: true, data: [], pagination: { totalRecords: 0 } } };
+      // Cargar datos de forma secuencial para mejor debugging
+      const comprasResult = await loadComprasData();
+      const remuneracionesResult = await loadRemuneracionesData();
+      const ventasResult = await loadVentasData(); // ✅ Función corregida
+
+      console.log('📊 Resumen de datos cargados:', {
+        compras: { cantidad: comprasResult.data.length, total: comprasResult.total },
+        remuneraciones: { cantidad: remuneracionesResult.data.length, total: remuneracionesResult.total },
+        ventas: { cantidad: ventasResult.data.length, total: ventasResult.total }
       });
 
-      // 2. REMUNERACIONES: Solo del período específico (sin filtro de sucursal por ahora)
-      const mesSeleccionado = selectedMonth.getMonth() + 1;
-      const anioSeleccionado = selectedMonth.getFullYear();
-      
-      const remuneracionesPromise = api.get('/remuneraciones').then(async (periodosRes) => {
-        if (!periodosRes.data.success) return { data: { success: true, data: [] } };
-        
-        // Buscar período que coincida con mes/año seleccionado
-        const periodoCoincidente = periodosRes.data.data.find(periodo => 
-          periodo.mes === mesSeleccionado && periodo.anio === anioSeleccionado
-        );
-        
-        if (!periodoCoincidente) {
-          console.log('📅 No hay período de remuneraciones para:', mesSeleccionado, anioSeleccionado);
-          return { data: { success: true, data: [], total_periodo: 0 } };
-        }
-        
-        // Obtener datos detallados del período
-        try {
-          const datosRes = await api.get(`/remuneraciones/${periodoCoincidente.id_periodo}/datos`);
-          
-          // TODO: Si tienes campo sucursal en remuneraciones, filtrar aquí también
-          // const empleadosFiltrados = datosRes.data.data.filter(empleado => 
-          //   empleado.id_sucursal && empleado.id_sucursal.toString() === selectedSucursal
-          // );
-          
-          return { 
-            data: { 
-              success: true, 
-              data: datosRes.data.data, // Por ahora sin filtro de sucursal
-              total_periodo: periodoCoincidente.suma_liquidos || 0
-            } 
-          };
-        } catch (detailError) {
-          console.warn('⚠️ Error obteniendo detalles de remuneraciones:', detailError.message);
-          return { 
-            data: { 
-              success: true, 
-              data: [], 
-              total_periodo: periodoCoincidente.suma_liquidos || 0 
-            } 
-          };
-        }
-      }).catch(error => {
-        console.warn('⚠️ Error en remuneraciones:', error.message);
-        return { data: { success: true, data: [], total_periodo: 0 } };
-      });
-
-      // 3. VENTAS: CON FILTRO DE SUCURSAL EXPLÍCITO
-      const ventasPromise = api.post('/ventas', {
-        fecha_desde: fechaDesde,
-        fecha_hasta: fechaHasta,
-        sucursal: parseInt(selectedSucursal), // Asegurar que sea número
-        id_sucursal: parseInt(selectedSucursal) // Por si usa este campo
-      }).then(response => {
-        if (response.data.success && Array.isArray(response.data.data)) {
-          // VALIDACIÓN ADICIONAL: Filtrar en frontend por si el backend no filtra
-          const ventasFiltradas = response.data.data.filter(venta => {
-            // Verificar diferentes posibles campos de sucursal
-            const sucursalVenta = venta.id_sucursal || venta.sucursal || venta.sucursal_id;
-            return sucursalVenta && sucursalVenta.toString() === selectedSucursal;
-          });
-          
-          console.log(`🏢 Ventas filtradas por sucursal ${selectedSucursal}:`, ventasFiltradas.length);
-          
-          return {
-            data: {
-              success: true,
-              data: ventasFiltradas
-            }
-          };
-        }
-        return response;
-      }).catch(error => {
-        console.warn('⚠️ Error en ventas:', error.message);
-        return { data: { success: true, data: [] } };
-      });
-
-      // Ejecutar todas las consultas en paralelo
-      const [comprasRes, remuneracionesRes, ventasRes] = await Promise.allSettled([
-        comprasPromise,
-        remuneracionesPromise,
-        ventasPromise
-      ]);
-
-      // Procesar resultados de forma segura
-      let comprasData = [];
-      let totalCompras = 0;
-      if (comprasRes.status === 'fulfilled' && comprasRes.value?.data?.success) {
-        comprasData = comprasRes.value.data.data || [];
-        totalCompras = comprasData.reduce((sum, factura) => sum + (Number(factura.monto_total) || 0), 0);
-        
-        // LOG DE VALIDACIÓN: Verificar que todas las facturas son de la sucursal correcta
-        const facturasIncorrectas = comprasData.filter(f => f.id_sucursal && f.id_sucursal.toString() !== selectedSucursal);
-        if (facturasIncorrectas.length > 0) {
-          console.warn(`⚠️ ${facturasIncorrectas.length} facturas no corresponden a la sucursal ${selectedSucursal}`);
-        }
-      }
-      
-      let remuneracionesData = [];
-      let totalRemuneraciones = 0;
-      if (remuneracionesRes.status === 'fulfilled' && remuneracionesRes.value?.data?.success) {
-        remuneracionesData = remuneracionesRes.value.data.data || [];
-        totalRemuneraciones = remuneracionesRes.value.data.total_periodo || 
-                             remuneracionesData.reduce((sum, empleado) => sum + (Number(empleado.liquido_pagar) || 0), 0);
-      }
-      
-      let ventasData = [];
-      let totalVentas = 0;
-      if (ventasRes.status === 'fulfilled' && ventasRes.value?.data?.success) {
-        ventasData = ventasRes.value.data.data || [];
-        totalVentas = ventasData.reduce((sum, venta) => {
-          return sum + (Number(venta.total) || Number(venta.monto_total) || Number(venta.valor_total) || 0);
-        }, 0);
-        
-        // LOG DE VALIDACIÓN: Verificar que todas las ventas son de la sucursal correcta
-        const ventasIncorrectas = ventasData.filter(v => {
-          const sucursalVenta = v.id_sucursal || v.sucursal || v.sucursal_id;
-          return sucursalVenta && sucursalVenta.toString() !== selectedSucursal;
-        });
-        if (ventasIncorrectas.length > 0) {
-          console.warn(`⚠️ ${ventasIncorrectas.length} ventas no corresponden a la sucursal ${selectedSucursal}`);
-        }
-      }
-
-      console.log('📊 Datos procesados por sucursal:', {
-        sucursal: selectedSucursal,
-        compras: { total: totalCompras, cantidad: comprasData.length },
-        remuneraciones: { total: totalRemuneraciones, cantidad: remuneracionesData.length },
-        ventas: { total: totalVentas, cantidad: ventasData.length }
-      });
-
-      // Construir el estado de resultados con datos reales
+      // Construir estado de resultados
       const estadoResultados = construirEstadoResultados({
-        compras: { data: comprasData, total: totalCompras },
-        remuneraciones: { data: remuneracionesData, total: totalRemuneraciones },
-        ventas: { data: ventasData, total: totalVentas }
+        compras: comprasResult,
+        remuneraciones: remuneracionesResult,
+        ventas: ventasResult
       });
 
+      // Actualizar estados
       setDatosReales({
-        compras: comprasData,
-        remuneraciones: remuneracionesData,
-        ventas: ventasData
+        compras: comprasResult.data,
+        remuneraciones: remuneracionesResult.data,
+        ventas: ventasResult.data
       });
 
       setData(estadoResultados);
       initializeExpensesFromData(estadoResultados);
       setHasChanges(false);
       
-      // Mostrar mensaje específico por sucursal
+      // Mensaje informativo
       const sucursalNombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || selectedSucursal;
       
-      if (totalVentas === 0 && totalCompras === 0 && totalRemuneraciones === 0) {
+      if (ventasResult.total === 0 && comprasResult.total === 0 && remuneracionesResult.total === 0) {
         enqueueSnackbar(`Sin datos para ${sucursalNombre} en el período seleccionado`, { 
           variant: 'info',
           autoHideDuration: 4000 
         });
       } else {
-        const mensaje = `${sucursalNombre}: ${totalVentas > 0 ? 'Ventas ✓' : 'Sin ventas'} | ${totalCompras > 0 ? 'Compras ✓' : 'Sin compras'} | ${totalRemuneraciones > 0 ? 'Remuneraciones ✓' : 'Sin remuneraciones'}`;
+        const mensaje = `${sucursalNombre}: ${ventasResult.total > 0 ? 'Ventas ✓' : 'Sin ventas'} | ${comprasResult.total > 0 ? 'Compras ✓' : 'Sin compras'} | ${remuneracionesResult.total > 0 ? 'Remuneraciones ✓' : 'Sin remuneraciones'}`;
         enqueueSnackbar(mensaje, { variant: 'success' });
       }
       
     } catch (err) {
       console.error('❌ Error crítico al cargar datos:', err);
-      setError('Error al cargar los datos del sistema. Verifique la conexión.');
-      enqueueSnackbar('Error al conectar con el servidor', { 
+      setError(`Error al cargar los datos: ${err.message}`);
+      enqueueSnackbar(`Error al conectar con el servidor: ${err.message}`, { 
         variant: 'error',
         autoHideDuration: 5000 
       });
@@ -474,7 +588,7 @@ const EstadoResultadosPage = () => {
       }
     };
     
-    console.log('🏗️ Construyendo estado de resultados con:', datosReales);
+    console.log('🗏️ Construyendo estado de resultados con:', datosReales);
     
     const estadoResultados = crearEstadoResultadosConDatosReales(datosReales);
     
@@ -825,6 +939,11 @@ const EstadoResultadosPage = () => {
                 }
                 variant="outlined"
               />
+              <Tooltip title="Debug APIs">
+                <IconButton onClick={debugAPI}>
+                  <BugReportIcon />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Exportar a Excel">
                 <IconButton onClick={handleExportExcel}>
                   <GetAppIcon />
