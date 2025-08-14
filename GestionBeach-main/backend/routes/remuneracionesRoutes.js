@@ -1,4 +1,4 @@
-// routes/remuneracionesRoutes.js - Versión Corregida para Nueva Estructura
+// routes/remuneracionesRoutes.js - Versión con Filtros y Validaciones
 const express = require('express');
 const router = express.Router();
 const remuneracionesController = require('../controllers/remuneracionesController');
@@ -12,6 +12,11 @@ router.use(authMiddleware);
 // Test y estadísticas
 router.get('/test', remuneracionesController.test);
 router.get('/estadisticas', remuneracionesController.estadisticas);
+
+// 🆕 NUEVAS RUTAS PARA FILTROS Y VALIDACIONES
+router.get('/opciones-filtros', remuneracionesController.obtenerOpcionesFiltros);
+router.post('/validar-empleados-sin-asignacion', remuneracionesController.validarEmpleadosSinAsignacion);
+router.post('/asignar-razon-social-sucursal', remuneracionesController.asignarRazonSocialYSucursal);
 
 // Validación y procesamiento de Excel
 router.post('/validar-excel', remuneracionesController.validarExcel);
@@ -28,7 +33,7 @@ router.get('/:id/analisis', remuneracionesController.generarReporteAnalisis);
 
 // ========== RUTAS CRUD GENÉRICAS ==========
 
-// Listar todos los períodos
+// Listar todos los períodos (con filtros opcionales via query params)
 router.get('/', remuneracionesController.obtenerPeriodos);
 router.get('/:id', remuneracionesController.obtenerPeriodoPorId);
 router.put('/:id', remuneracionesController.actualizarPeriodo);

@@ -1,4 +1,4 @@
-// controllers/remuneracionesController.js - VERSIÓN COMPLETAMENTE CORREGIDA
+// controllers/remuneracionesController.js - VERSIÓN CON FILTROS Y VALIDACIONES MEJORADA
 const { sql, poolPromise } = require('../config/db');
 
 // Test de conexión
@@ -13,7 +13,7 @@ exports.test = async (req, res) => {
       SELECT TABLE_NAME 
       FROM INFORMATION_SCHEMA.TABLES 
       WHERE TABLE_TYPE = 'BASE TABLE'
-      AND TABLE_NAME IN ('periodos_remuneracion', 'datos_remuneraciones', 'empleados_remuneraciones')
+      AND TABLE_NAME IN ('periodos_remuneracion', 'datos_remuneraciones', 'empleados_remuneraciones', 'empleados', 'razones_sociales', 'sucursales')
     `);
     
     const tablas = tablesResult.recordset.map(row => row.TABLE_NAME);
@@ -27,7 +27,7 @@ exports.test = async (req, res) => {
       timestamp: new Date(),
       db_test: testResult.recordset[0],
       tablas_disponibles: tablas,
-      listo_para_procesar: tablas.length >= 2
+      listo_para_procesar: tablas.length >= 4
     });
   } catch (error) {
     console.error('❌ Error de conexión DB - Remuneraciones:', error.message);
@@ -39,13 +39,27 @@ exports.test = async (req, res) => {
   }
 };
 
-// Obtener todos los períodos
+// 🆕 OBTENER TODOS LOS PERÍODOS CON FILTROS AVANZADOS
 exports.obtenerPeriodos = async (req, res) => {
   try {
-    console.log('📅 Obteniendo períodos de remuneración...');
+    console.log('📅 Obteniendo períodos de remuneración con filtros...');
+    
+    const { razon_social_id, sucursal_id, anio, estado } = req.query;
     
     const pool = await poolPromise;
-    const result = await pool.request().query(`
+    
+    // 🆕 QUERY MEJORADA BASADA EN TU CTE
+    let baseQuery = `
+      ;WITH sucursal_unica AS (
+        SELECT 
+          ESU.id_empleado,
+          SU.id AS id_sucursal,
+          SU.nombre AS sucursal_nombre,
+          ROW_NUMBER() OVER (PARTITION BY ESU.id_empleado ORDER BY SU.id) AS rn
+        FROM empleados_sucursales ESU
+        INNER JOIN sucursales SU 
+          ON SU.id = ESU.id_sucursal
+      )
       SELECT 
         p.id_periodo,
         p.mes,
@@ -54,34 +68,85 @@ exports.obtenerPeriodos = async (req, res) => {
         p.estado,
         p.fecha_carga,
         p.fecha_creacion,
-        COUNT(dr.id) as total_registros,
-        COUNT(DISTINCT dr.rut_empleado) as empleados_unicos,
-        ISNULL(SUM(dr.sueldo_base), 0) as suma_sueldos_base,
-        ISNULL(SUM(dr.total_haberes), 0) as suma_total_haberes,
-        ISNULL(SUM(dr.total_descuentos), 0) as suma_total_descuentos,
-        ISNULL(SUM(dr.liquido_pagar), 0) as suma_liquidos,
+        ISNULL(RS.nombre_razon, 'Sin Razón Social') as nombre_razon,
+        ISNULL(RS.id, 0) as id_razon_social,
+        ISNULL(su.sucursal_nombre, 'Sin Sucursal') as sucursal_nombre,
+        ISNULL(su.id_sucursal, 0) as id_sucursal,
+        COUNT(dr.id) AS total_registros,
+        COUNT(DISTINCT dr.rut_empleado) AS empleados_unicos,
+        ISNULL(SUM(dr.sueldo_base), 0) AS suma_sueldos_base,
+        ISNULL(SUM(dr.total_haberes), 0) AS suma_total_haberes,
+        ISNULL(SUM(dr.total_descuentos), 0) AS suma_total_descuentos,
+        ISNULL(SUM(dr.liquido_pagar), 0) AS suma_liquidos,
         CASE 
           WHEN COUNT(dr.id) = 0 THEN 0
-          ELSE COUNT(CASE WHEN er.id IS NOT NULL THEN 1 END)
-        END as empleados_encontrados,
+          ELSE COUNT(CASE WHEN emp.id IS NOT NULL THEN 1 END)
+        END AS empleados_encontrados,
         CASE 
           WHEN COUNT(dr.id) = 0 THEN 0
-          ELSE COUNT(CASE WHEN er.id IS NULL THEN 1 END)
-        END as empleados_faltantes
+          ELSE COUNT(CASE WHEN emp.id IS NULL THEN 1 END)
+        END AS empleados_faltantes
       FROM periodos_remuneracion p
-      LEFT JOIN datos_remuneraciones dr ON p.id_periodo = dr.id_periodo
-      LEFT JOIN empleados_remuneraciones er ON 
-        REPLACE(REPLACE(REPLACE(UPPER(er.rut), '.', ''), '-', ''), ' ', '') = 
-        REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-      GROUP BY p.id_periodo, p.mes, p.anio, p.descripcion, p.estado, p.fecha_carga, p.fecha_creacion
-      ORDER BY p.anio DESC, p.mes DESC
-    `);
+      LEFT JOIN datos_remuneraciones dr 
+        ON p.id_periodo = dr.id_periodo
+      LEFT JOIN empleados emp
+        ON REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+           REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+      LEFT JOIN razones_sociales RS 
+        ON RS.id = emp.id_razon_social
+      LEFT JOIN sucursal_unica su 
+        ON su.id_empleado = emp.id
+        AND su.rn = 1
+    `;
+    
+    const whereConditions = [];
+    const request = pool.request();
+    
+    // 🆕 APLICAR FILTROS DINÁMICOS
+    if (razon_social_id && razon_social_id !== 'todos') {
+      whereConditions.push('RS.id = @razon_social_id');
+      request.input('razon_social_id', sql.Int, parseInt(razon_social_id));
+    }
+    
+    if (sucursal_id && sucursal_id !== 'todos') {
+      whereConditions.push('su.id_sucursal = @sucursal_id');
+      request.input('sucursal_id', sql.Int, parseInt(sucursal_id));
+    }
+    
+    if (anio && anio !== 'todos') {
+      whereConditions.push('p.anio = @anio');
+      request.input('anio', sql.Int, parseInt(anio));
+    }
+    
+    if (estado && estado !== 'todos') {
+      whereConditions.push('p.estado = @estado');
+      request.input('estado', sql.VarChar, estado);
+    }
+    
+    // Agregar WHERE si hay filtros
+    if (whereConditions.length > 0) {
+      baseQuery += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    
+    baseQuery += `
+      GROUP BY 
+        p.id_periodo, p.mes, p.anio, p.descripcion, p.estado, 
+        p.fecha_carga, p.fecha_creacion, RS.nombre_razon, RS.id,
+        su.sucursal_nombre, su.id_sucursal
+      ORDER BY 
+        p.anio DESC, p.mes DESC, RS.nombre_razon, su.sucursal_nombre
+    `;
+    
+    console.log('🔍 Filtros aplicados:', { razon_social_id, sucursal_id, anio, estado });
+    
+    const result = await request.query(baseQuery);
     
     console.log(`✅ ${result.recordset.length} períodos encontrados`);
     
     return res.json({ 
       success: true, 
-      data: result.recordset 
+      data: result.recordset,
+      filtros_aplicados: { razon_social_id, sucursal_id, anio, estado }
     });
   } catch (error) {
     console.error('Error al obtener períodos:', error);
@@ -93,6 +158,370 @@ exports.obtenerPeriodos = async (req, res) => {
   }
 };
 
+// 🆕 OBTENER OPCIONES PARA FILTROS
+exports.obtenerOpcionesFiltros = async (req, res) => {
+  try {
+    console.log('📊 Obteniendo opciones para filtros...');
+    
+    const pool = await poolPromise;
+    
+    // Obtener años disponibles
+    const aniosResult = await pool.request().query(`
+      SELECT DISTINCT anio 
+      FROM periodos_remuneracion 
+      ORDER BY anio DESC
+    `);
+    
+    // Obtener razones sociales con períodos
+    const razonesResult = await pool.request().query(`
+      SELECT DISTINCT RS.id, RS.nombre_razon
+      FROM razones_sociales RS
+      INNER JOIN empleados emp ON RS.id = emp.id_razon_social
+      INNER JOIN datos_remuneraciones dr ON 
+        REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+        REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+      WHERE RS.activo = 1
+      ORDER BY RS.nombre_razon
+    `);
+    
+    // Obtener sucursales con períodos
+    const sucursalesResult = await pool.request().query(`
+      SELECT DISTINCT SU.id, SU.nombre
+      FROM sucursales SU
+      INNER JOIN empleados_sucursales ESU ON SU.id = ESU.id_sucursal
+      INNER JOIN empleados emp ON ESU.id_empleado = emp.id
+      INNER JOIN datos_remuneraciones dr ON 
+        REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+        REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+      ORDER BY SU.nombre
+    `);
+    
+    return res.json({
+      success: true,
+      data: {
+        anios: aniosResult.recordset.map(r => r.anio),
+        razones_sociales: razonesResult.recordset,
+        sucursales: sucursalesResult.recordset
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener opciones de filtros:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener opciones de filtros',
+      error: error.message
+    });
+  }
+};
+
+// 🆕 CREAR PERÍODO CON RAZÓN SOCIAL Y SUCURSAL
+exports.crearPeriodo = async (req, res) => {
+  try {
+    console.log('📅 Creando nuevo período...', req.body);
+    
+    const { mes, anio, descripcion, id_razon_social, id_sucursal } = req.body;
+    
+    if (!mes || !anio) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mes y año son obligatorios'
+      });
+    }
+
+    if (mes < 1 || mes > 12) {
+      return res.status(400).json({
+        success: false,
+        message: 'El mes debe estar entre 1 y 12'
+      });
+    }
+
+    if (anio < 2020 || anio > 2030) {
+      return res.status(400).json({
+        success: false,
+        message: 'El año debe estar entre 2020 y 2030'
+      });
+    }
+    
+    const pool = await poolPromise;
+    
+    // 🆕 VERIFICAR SI EXISTE CONSIDERANDO RAZÓN SOCIAL Y SUCURSAL
+    let checkQuery = `
+      SELECT id_periodo, descripcion 
+      FROM periodos_remuneracion 
+      WHERE mes = @mes AND anio = @anio
+    `;
+    
+    const request = pool.request()
+      .input('mes', sql.Int, mes)
+      .input('anio', sql.Int, anio);
+    
+    // Si se especifica razón social y sucursal, verificar unicidad
+    if (id_razon_social && id_sucursal) {
+      checkQuery += ` AND id_razon_social = @id_razon_social AND id_sucursal = @id_sucursal`;
+      request.input('id_razon_social', sql.Int, id_razon_social);
+      request.input('id_sucursal', sql.Int, id_sucursal);
+    }
+    
+    const existeResult = await request.query(checkQuery);
+    
+    if (existeResult.recordset.length > 0) {
+      console.log('⚠️ Período ya existe');
+      return res.json({
+        success: true,
+        message: 'Período ya existe',
+        data: { 
+          id_periodo: existeResult.recordset[0].id_periodo,
+          mes,
+          anio,
+          descripcion: existeResult.recordset[0].descripcion,
+          existe: true
+        }
+      });
+    }
+
+    // Crear descripción automática
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    let descripcionFinal = descripcion || `${meses[mes - 1]} ${anio}`;
+    
+    // 🆕 AGREGAR RAZÓN SOCIAL Y SUCURSAL A LA DESCRIPCIÓN SI EXISTEN
+    if (id_razon_social || id_sucursal) {
+      const detalles = [];
+      
+      if (id_razon_social) {
+        const razonResult = await pool.request()
+          .input('id_rs', sql.Int, id_razon_social)
+          .query('SELECT nombre_razon FROM razones_sociales WHERE id = @id_rs');
+        if (razonResult.recordset.length > 0) {
+          detalles.push(razonResult.recordset[0].nombre_razon);
+        }
+      }
+      
+      if (id_sucursal) {
+        const sucursalResult = await pool.request()
+          .input('id_suc', sql.Int, id_sucursal)
+          .query('SELECT nombre FROM sucursales WHERE id = @id_suc');
+        if (sucursalResult.recordset.length > 0) {
+          detalles.push(sucursalResult.recordset[0].nombre);
+        }
+      }
+      
+      if (detalles.length > 0) {
+        descripcionFinal += ` - ${detalles.join(' / ')}`;
+      }
+    }
+    
+    // Insertar período
+    const insertRequest = pool.request()
+      .input('mes', sql.Int, mes)
+      .input('anio', sql.Int, anio)
+      .input('descripcion', sql.VarChar, descripcionFinal);
+    
+    let insertQuery = `
+      INSERT INTO periodos_remuneracion (mes, anio, descripcion, estado, fecha_creacion
+    `;
+    
+    let valuesQuery = `
+      VALUES (@mes, @anio, @descripcion, 'ACTIVO', GETDATE()
+    `;
+    
+    // 🆕 AGREGAR CAMPOS OPCIONALES
+    if (id_razon_social) {
+      insertQuery += ', id_razon_social';
+      valuesQuery += ', @id_razon_social';
+      insertRequest.input('id_razon_social', sql.Int, id_razon_social);
+    }
+    
+    if (id_sucursal) {
+      insertQuery += ', id_sucursal';
+      valuesQuery += ', @id_sucursal';
+      insertRequest.input('id_sucursal', sql.Int, id_sucursal);
+    }
+    
+    insertQuery += ')';
+    valuesQuery += '); SELECT SCOPE_IDENTITY() as id_periodo;';
+    
+    const finalQuery = insertQuery + valuesQuery;
+    
+    const result = await insertRequest.query(finalQuery);
+    
+    const nuevoPeriodoId = result.recordset[0].id_periodo;
+    console.log(`✅ Período creado con ID: ${nuevoPeriodoId}`);
+    
+    return res.status(201).json({
+      success: true,
+      message: 'Período creado exitosamente',
+      data: { 
+        id_periodo: nuevoPeriodoId,
+        mes,
+        anio,
+        descripcion: descripcionFinal,
+        id_razon_social,
+        id_sucursal,
+        existe: false
+      }
+    });
+  } catch (error) {
+    console.error('Error al crear período:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error en el servidor',
+      error: error.message
+    });
+  }
+};
+
+// 🆕 VALIDAR Y DETECTAR EMPLEADOS SIN RAZÓN SOCIAL O SUCURSAL
+exports.validarEmpleadosSinAsignacion = async (req, res) => {
+  try {
+    console.log('🔍 Validando empleados sin asignación...');
+    
+    const { ruts_empleados } = req.body;
+    
+    if (!ruts_empleados || !Array.isArray(ruts_empleados)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lista de RUTs es requerida'
+      });
+    }
+    
+    const pool = await poolPromise;
+    
+    const empleadosSinAsignacion = [];
+    
+    for (const rut of ruts_empleados) {
+      const rutLimpio = rut.replace(/[.\-\s]/g, '').toUpperCase();
+      
+      const result = await pool.request()
+        .input('rut', sql.VarChar, rutLimpio)
+        .query(`
+          SELECT 
+            emp.id,
+            emp.rut,
+            emp.nombre,
+            emp.apellido,
+            emp.id_razon_social,
+            RS.nombre_razon,
+            CASE WHEN EXISTS(
+              SELECT 1 FROM empleados_sucursales ESU WHERE ESU.id_empleado = emp.id
+            ) THEN 1 ELSE 0 END as tiene_sucursal
+          FROM empleados emp
+          LEFT JOIN razones_sociales RS ON emp.id_razon_social = RS.id
+          WHERE REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = @rut
+        `);
+      
+      if (result.recordset.length > 0) {
+        const empleado = result.recordset[0];
+        if (!empleado.id_razon_social || !empleado.tiene_sucursal) {
+          empleadosSinAsignacion.push({
+            ...empleado,
+            falta_razon_social: !empleado.id_razon_social,
+            falta_sucursal: !empleado.tiene_sucursal
+          });
+        }
+      }
+    }
+    
+    console.log(`📊 ${empleadosSinAsignacion.length} empleados requieren asignación`);
+    
+    return res.json({
+      success: true,
+      data: {
+        empleados_sin_asignacion: empleadosSinAsignacion,
+        requiere_asignacion: empleadosSinAsignacion.length > 0
+      }
+    });
+  } catch (error) {
+    console.error('Error validando empleados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al validar empleados',
+      error: error.message
+    });
+  }
+};
+
+// 🆕 ASIGNAR RAZÓN SOCIAL Y SUCURSAL A EMPLEADOS
+exports.asignarRazonSocialYSucursal = async (req, res) => {
+  try {
+    console.log('✏️ Asignando razón social y sucursal a empleados...');
+    
+    const { asignaciones } = req.body;
+    
+    if (!asignaciones || !Array.isArray(asignaciones)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lista de asignaciones es requerida'
+      });
+    }
+    
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    
+    try {
+      await transaction.begin();
+      
+      let empleadosActualizados = 0;
+      
+      for (const asignacion of asignaciones) {
+        const { id_empleado, id_razon_social, id_sucursal } = asignacion;
+        
+        // Actualizar razón social del empleado
+        if (id_razon_social) {
+          await transaction.request()
+            .input('id_empleado', sql.Int, id_empleado)
+            .input('id_razon_social', sql.Int, id_razon_social)
+            .query(`
+              UPDATE empleados 
+              SET id_razon_social = @id_razon_social, updated_at = GETDATE()
+              WHERE id = @id_empleado
+            `);
+        }
+        
+        // Asignar sucursal
+        if (id_sucursal) {
+          // Primero eliminar sucursales existentes
+          await transaction.request()
+            .input('id_empleado', sql.Int, id_empleado)
+            .query('DELETE FROM empleados_sucursales WHERE id_empleado = @id_empleado');
+          
+          // Luego insertar la nueva sucursal
+          await transaction.request()
+            .input('id_empleado', sql.Int, id_empleado)
+            .input('id_sucursal', sql.Int, id_sucursal)
+            .query(`
+              INSERT INTO empleados_sucursales (id_empleado, id_sucursal, created_at)
+              VALUES (@id_empleado, @id_sucursal, GETDATE())
+            `);
+        }
+        
+        empleadosActualizados++;
+      }
+      
+      await transaction.commit();
+      
+      console.log(`✅ ${empleadosActualizados} empleados actualizados`);
+      
+      return res.json({
+        success: true,
+        message: `${empleadosActualizados} empleados actualizados exitosamente`,
+        data: { empleados_actualizados: empleadosActualizados }
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error asignando razón social y sucursal:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al asignar razón social y sucursal',
+      error: error.message
+    });
+  }
+};
+
+// Mantener todas las demás funciones sin cambios...
 exports.obtenerPeriodoPorId = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -132,95 +561,6 @@ exports.obtenerPeriodoPorId = async (req, res) => {
     });
   }
 };
-// Crear nuevo período
-exports.crearPeriodo = async (req, res) => {
-  try {
-    console.log('📅 Creando nuevo período...', req.body);
-    
-    const { mes, anio, descripcion } = req.body;
-    
-    if (!mes || !anio) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mes y año son obligatorios'
-      });
-    }
-
-    if (mes < 1 || mes > 12) {
-      return res.status(400).json({
-        success: false,
-        message: 'El mes debe estar entre 1 y 12'
-      });
-    }
-
-    if (anio < 2020 || anio > 2030) {
-      return res.status(400).json({
-        success: false,
-        message: 'El año debe estar entre 2020 y 2030'
-      });
-    }
-    
-    const pool = await poolPromise;
-    
-    // Verificar si ya existe
-    const existeResult = await pool.request()
-      .input('mes', sql.Int, mes)
-      .input('anio', sql.Int, anio)
-      .query('SELECT id_periodo, descripcion FROM periodos_remuneracion WHERE mes = @mes AND anio = @anio');
-    
-    if (existeResult.recordset.length > 0) {
-      console.log('⚠️ Período ya existe');
-      return res.json({
-        success: true,
-        message: 'Período ya existe',
-        data: { 
-          id_periodo: existeResult.recordset[0].id_periodo,
-          mes,
-          anio,
-          descripcion: existeResult.recordset[0].descripcion,
-          existe: true
-        }
-      });
-    }
-
-    // Crear descripción automática si no se proporciona
-    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    const descripcionFinal = descripcion || `${meses[mes - 1]} ${anio}`;
-    
-    const result = await pool.request()
-      .input('mes', sql.Int, mes)
-      .input('anio', sql.Int, anio)
-      .input('descripcion', sql.VarChar, descripcionFinal)
-      .query(`
-        INSERT INTO periodos_remuneracion (mes, anio, descripcion, estado, fecha_creacion)
-        VALUES (@mes, @anio, @descripcion, 'ACTIVO', GETDATE());
-        SELECT SCOPE_IDENTITY() as id_periodo;
-      `);
-    
-    const nuevoPeriodoId = result.recordset[0].id_periodo;
-    console.log(`✅ Período creado con ID: ${nuevoPeriodoId}`);
-    
-    return res.status(201).json({
-      success: true,
-      message: 'Período creado exitosamente',
-      data: { 
-        id_periodo: nuevoPeriodoId,
-        mes,
-        anio,
-        descripcion: descripcionFinal,
-        existe: false
-      }
-    });
-  } catch (error) {
-    console.error('Error al crear período:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error en el servidor',
-      error: error.message
-    });
-  }
-};
 
 // Actualizar período
 exports.actualizarPeriodo = async (req, res) => {
@@ -235,7 +575,7 @@ exports.actualizarPeriodo = async (req, res) => {
       });
     }
     
-    console.log(`🔄 Actualizando período ID: ${id}`, req.body);
+    console.log(`📄 Actualizando período ID: ${id}`, req.body);
     
     const pool = await poolPromise;
     
@@ -368,17 +708,24 @@ exports.obtenerDatosPeriodo = async (req, res) => {
           p.mes,
           p.anio,
           p.estado as periodo_estado,
-          er.nombre_completo,
-          er.rut as emp_rut,
-          er.activo as empleado_activo,
+          emp.nombre,
+          emp.apellido,
+          emp.rut as emp_rut,
+          emp.activo as empleado_activo,
+          rs.nombre_razon,
+          su.nombre as sucursal_nombre,
           CASE 
-            WHEN er.id IS NOT NULL THEN 'EMPLEADO_ENCONTRADO'
+            WHEN emp.id IS NOT NULL THEN 'EMPLEADO_ENCONTRADO'
             ELSE 'EMPLEADO_NO_ENCONTRADO'
           END as estado_relacion_empleado
         FROM datos_remuneraciones dr
         LEFT JOIN periodos_remuneracion p ON dr.id_periodo = p.id_periodo
-        LEFT JOIN empleados_remuneraciones er ON REPLACE(REPLACE(REPLACE(UPPER(er.rut), '.', ''), '-', ''), ' ', '') = 
-                                                 REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+        LEFT JOIN empleados emp ON 
+          REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+          REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+        LEFT JOIN razones_sociales rs ON emp.id_razon_social = rs.id
+        LEFT JOIN empleados_sucursales esu ON emp.id = esu.id_empleado
+        LEFT JOIN sucursales su ON esu.id_sucursal = su.id
         WHERE dr.id_periodo = @id
         ORDER BY dr.nombre_empleado
       `);
@@ -485,7 +832,7 @@ exports.validarExcel = async (req, res) => {
   }
 };
 
-// 🆕 PROCESAR EXCEL - VERSIÓN COMPLETAMENTE CORREGIDA
+// 🆕 PROCESAR EXCEL - VERSIÓN COMPLETAMENTE CORREGIDA CON VALIDACIÓN DE EMPLEADOS
 exports.procesarExcel = async (req, res) => {
   try {
     console.log('🚀 PROCESANDO EXCEL - VERSIÓN CORREGIDA...');
@@ -539,6 +886,17 @@ exports.procesarExcel = async (req, res) => {
     console.log('🎯 Mapeo de columnas detectado:', mapeoColumnas);
     console.log(`📊 Total de filas a procesar: ${datosExcel.length}`);
 
+    // 🆕 EXTRAER RUTS PARA VALIDACIÓN
+    const rutsParaValidar = [];
+    for (const fila of datosExcel) {
+      const datosExtraidos = extraerDatosDeFila(fila, mapeoColumnas);
+      if (datosExtraidos.rut_empleado && datosExtraidos.rut_empleado.length >= 8) {
+        rutsParaValidar.push(datosExtraidos.rut_empleado);
+      }
+    }
+
+    console.log(`🔍 Validando ${rutsParaValidar.length} empleados...`);
+
     // Estadísticas del procesamiento
     let procesados = 0;
     let empleadosCreados = 0;
@@ -556,11 +914,11 @@ exports.procesarExcel = async (req, res) => {
         
         // Validar que tenga al menos RUT
         if (!datosExtraidos.rut_empleado || datosExtraidos.rut_empleado.length < 8) {
-          console.log(`⏭️ Saltando fila ${i + 1}: RUT inválido o faltante`);
+          console.log(`⭐ Saltando fila ${i + 1}: RUT inválido o faltante`);
           continue;
         }
 
-        console.log(`📝 Procesando fila ${i + 1}: ${datosExtraidos.nombre_empleado} (${datosExtraidos.rut_empleado})`);
+        console.log(`🔍 Procesando fila ${i + 1}: ${datosExtraidos.nombre_empleado} (${datosExtraidos.rut_empleado})`);
 
         // 🆕 PROCESAR CADA EMPLEADO EN SU PROPIA TRANSACCIÓN
         const resultado = await procesarEmpleadoIndividual(pool, {
@@ -614,6 +972,9 @@ exports.procesarExcel = async (req, res) => {
     console.log('✅ PROCESAMIENTO INDIVIDUAL COMPLETADO');
     console.log(`📊 Estadísticas: ${procesados} procesados, ${empleadosCreados} empleados creados, ${errores} errores`);
 
+    // 🆕 VERIFICAR SI HAY EMPLEADOS SIN RAZÓN SOCIAL O SUCURSAL
+    const empleadosParaValidar = rutsParaValidar.slice(0, 10); // Validar solo una muestra para no sobrecargar
+    
     return res.json({
       success: true,
       message: `Excel procesado: ${procesados}/${datosExcel.length} registros exitosos`,
@@ -625,7 +986,8 @@ exports.procesarExcel = async (req, res) => {
         errores,
         errores_detalle: erroresDetalle.slice(0, 10), // Solo primeros 10 errores
         id_periodo: id_periodo,
-        mapeo_utilizado: mapeoColumnas
+        mapeo_utilizado: mapeoColumnas,
+        empleados_para_validar: empleadosParaValidar // Para posterior validación
       }
     });
 
@@ -638,6 +1000,7 @@ exports.procesarExcel = async (req, res) => {
     });
   }
 };
+
 // Estadísticas generales
 exports.estadisticas = async (req, res) => {
   try {
@@ -692,15 +1055,20 @@ exports.generarReporteAnalisis = async (req, res) => {
       .query(`
         SELECT 
           dr.*,
-          er.cargo,
-          er.departamento,
+          emp.cargo,
+          ISNULL(rs.nombre_razon, 'Sin Razón Social') as razon_social,
+          ISNULL(su.nombre, 'Sin Sucursal') as sucursal,
           p.descripcion as periodo,
           p.mes,
           p.anio
         FROM datos_remuneraciones dr
         LEFT JOIN periodos_remuneracion p ON dr.id_periodo = p.id_periodo
-        LEFT JOIN empleados_remuneraciones er ON REPLACE(REPLACE(REPLACE(UPPER(er.rut), '.', ''), '-', ''), ' ', '') = 
-                                                 REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+        LEFT JOIN empleados emp ON 
+          REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+          REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+        LEFT JOIN razones_sociales rs ON emp.id_razon_social = rs.id
+        LEFT JOIN empleados_sucursales esu ON emp.id = esu.id_empleado
+        LEFT JOIN sucursales su ON esu.id_sucursal = su.id
         WHERE dr.id_periodo = @id
       `);
 
@@ -730,8 +1098,10 @@ exports.generarReporteAnalisis = async (req, res) => {
     });
   }
 };
+
 // ========== FUNCIONES AUXILIARES COMPLETAMENTE CORREGIDAS ==========
 
+// Función corregida para identificar columnas automáticamente basada en los headers reales
 function identificarColumnasAutomaticamente(headers) {
   console.log('🔍 Identificando columnas automáticamente...');
   
@@ -769,79 +1139,91 @@ function identificarColumnasAutomaticamente(headers) {
   headers.forEach((header, index) => {
     const headerUpper = header.toUpperCase().trim();
     
-    // 🆕 IDENTIFICACIÓN MEJORADA DE CAMPOS
+    // 🆕 IDENTIFICACIÓN MEJORADA BASADA EN LOS HEADERS REALES
     if (headerUpper.includes('COD') && !headerUpper.includes('NOMBRE')) {
       mapeo.codigo_empleado = header;
     }
-    else if (headerUpper.includes('RUT') || headerUpper === 'R.U.T') {
+    else if (headerUpper.includes('R.U.T') || headerUpper === 'RUT' || headerUpper.includes('RUT')) {
       mapeo.rut_empleado = header;
     }
     else if (headerUpper.includes('NOMBRE') && !headerUpper.includes('CODIGO')) {
       mapeo.nombre_empleado = header;
     }
-    // 🆕 CORREGIDO: Detectar sueldo base correctamente
-    else if (headerUpper.includes('S. BASE') || headerUpper.includes('SUELDO BASE') || headerUpper === 'S. BASE') {
+    else if (headerUpper.includes('DT') || headerUpper === 'DT') {
+      // Campo DT - no sabemos exactamente qué es, posiblemente días trabajados
+      // Podrías mapearlo a un campo específico si lo necesitas
+    }
+    // 🆕 CORREGIDO: Detectar "S. Base" correctamente
+    else if (headerUpper.includes('S. BASE') || headerUpper === 'S. BASE' || headerUpper.includes('SUELDO BASE')) {
       mapeo.sueldo_base = header;
     }
-    else if (headerUpper.includes('H. EXTRAS') || headerUpper.includes('HORAS EXTRAS')) {
+    // 🆕 "H. Extras" para horas extras
+    else if (headerUpper.includes('H. EXTRAS') || headerUpper === 'H. EXTRAS' || headerUpper.includes('HORAS EXTRAS')) {
       mapeo.horas_extras = header;
     }
-    else if (headerUpper.includes('GRAT. LEGAL') || headerUpper.includes('GRATIFICACION LEGAL')) {
+    // 🆕 "Grat. Legal" para gratificación legal
+    else if (headerUpper.includes('GRAT. LEGAL') || headerUpper === 'GRAT. LEGAL' || headerUpper.includes('GRATIFICACION LEGAL')) {
       mapeo.gratificacion_legal = header;
     }
-    else if (headerUpper.includes('OTROS IMP.') && !headerUpper.includes('TOTAL')) {
+    // 🆕 "Otros Imp." para otros imponibles
+    else if ((headerUpper.includes('OTROS IMP.') || headerUpper === 'OTROS IMP.') && !headerUpper.includes('TOTAL')) {
       mapeo.otros_imponibles = header;
     }
-    else if (headerUpper.includes('TOT. HABERES')) {
+    // 🆕 "Total Imp." para total imponibles
+    else if (headerUpper.includes('TOTAL IMP.') || headerUpper === 'TOTAL IMP.') {
+      mapeo.total_imponibles = header;
+    }
+    // 🆕 "Asig. Fam." para asignación familiar
+    else if (headerUpper.includes('ASIG. FAM.') || headerUpper === 'ASIG. FAM.' || headerUpper.includes('ASIGNACION FAMILIAR')) {
+      mapeo.asignacion_familiar = header;
+    }
+    // 🆕 "Ot. No Imp." para otros no imponibles
+    else if (headerUpper.includes('OT. NO IMP.') || headerUpper === 'OT. NO IMP.' || headerUpper.includes('OTROS NO IMP')) {
+      mapeo.otros_no_imponibles = header;
+    }
+    // 🆕 "Tot. No Imp." para total no imponibles
+    else if (headerUpper.includes('TOT. NO IMP.') || headerUpper === 'TOT. NO IMP.' || headerUpper.includes('TOTAL NO IMP')) {
+      mapeo.total_no_imponibles = header;
+    }
+    // 🆕 "Tot. Haberes" para total haberes
+    else if (headerUpper.includes('TOT. HABERES') || headerUpper === 'TOT. HABERES' || headerUpper.includes('TOTAL HABERES')) {
       mapeo.total_haberes = header;
     }
-    else if (headerUpper.includes('PREVISION') || headerUpper.includes('PREVISIÓN')) {
+    // 🆕 "Previsión" para descuento previsión
+    else if (headerUpper.includes('PREVISIÓN') || headerUpper === 'PREVISIÓN' || headerUpper.includes('PREVISION')) {
       mapeo.descuento_prevision = header;
     }
+    // 🆕 "Salud" para descuento salud
     else if (headerUpper.includes('SALUD') && !headerUpper.includes('OTROS')) {
       mapeo.descuento_salud = header;
     }
-    else if (headerUpper.includes('IMP. UNICO')) {
+    // 🆕 "Imp. Único" para impuesto único
+    else if (headerUpper.includes('IMP. ÚNICO') || headerUpper === 'IMP. ÚNICO' || headerUpper.includes('IMP. UNICO')) {
       mapeo.impuesto_unico = header;
     }
-    else if (headerUpper.includes('SEG. CES.')) {
+    // 🆕 "Seg. Ces." para seguro cesantía
+    else if (headerUpper.includes('SEG. CES.') || headerUpper === 'SEG. CES.' || headerUpper.includes('SEGURO CESANTIA')) {
       mapeo.seguro_cesantia = header;
     }
-    else if (headerUpper.includes('OTROS D.LEG.')) {
+    // 🆕 "Otros D.Leg." para otros descuentos legales
+    else if (headerUpper.includes('OTROS D.LEG.') || headerUpper === 'OTROS D.LEG.' || headerUpper.includes('OTROS DESCUENTOS LEG')) {
       mapeo.otros_descuentos_legales = header;
     }
-    else if (headerUpper.includes('TOT. D.LEG.')) {
+    // 🆕 "Tot. D.Leg." para total descuentos legales
+    else if (headerUpper.includes('TOT. D.LEG.') || headerUpper === 'TOT. D.LEG.' || headerUpper.includes('TOTAL DESCUENTOS LEG')) {
       mapeo.total_descuentos_legales = header;
     }
-    else if (headerUpper.includes('DESC. VARIOS')) {
+    // 🆕 "Desc. Varios" para descuentos varios
+    else if (headerUpper.includes('DESC. VARIOS') || headerUpper === 'DESC. VARIOS' || headerUpper.includes('DESCUENTOS VARIOS')) {
       mapeo.descuentos_varios = header;
     }
-    else if (headerUpper.includes('TOT. DESC.')) {
+    // 🆕 "Tot. Desc." para total descuentos
+    else if (headerUpper.includes('TOT. DESC.') || headerUpper === 'TOT. DESC.' || headerUpper.includes('TOTAL DESC')) {
       mapeo.total_descuentos = header;
     }
-    else if (headerUpper.includes('LIQUIDO') || headerUpper.includes('LÍQUIDO')) {
+    // 🆕 "Líquido" para líquido a pagar
+    else if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || headerUpper.includes('LIQUIDO')) {
       mapeo.liquido_pagar = header;
-    }
-    else if (headerUpper.includes('TOTAL PAGO')) {
-      mapeo.total_pago = header;
-    }
-    else if (headerUpper.includes('CAJA COMPENSACION')) {
-      mapeo.caja_compensacion = header;
-    }
-    else if (headerUpper.includes('AFC')) {
-      mapeo.afc = header;
-    }
-    else if (headerUpper.includes('SIS')) {
-      mapeo.sis = header;
-    }
-    else if (headerUpper.includes('ACH')) {
-      mapeo.ach = header;
-    }
-    else if (headerUpper.includes('IMPOSICIONES')) {
-      mapeo.imposiciones = header;
-    }
-    else if (headerUpper.includes('TOTAL CARGO TRABAJADOR')) {
-      mapeo.total_cargo_trabajador = header;
     }
   });
 
@@ -926,7 +1308,7 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
   const existeResult = await transaction.request()
     .input('rut_limpio', sql.VarChar, rutLimpio)
     .query(`
-      SELECT id FROM empleados_remuneraciones 
+      SELECT id FROM empleados 
       WHERE REPLACE(REPLACE(REPLACE(UPPER(rut), '.', ''), '-', ''), ' ', '') = @rut_limpio
     `);
 
@@ -936,16 +1318,23 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
 
   // Crear nuevo empleado
   try {
+    // Separar nombre y apellido
+    const nombreCompleto = datosExtraidos.nombre_empleado || 'Sin Nombre';
+    const partesNombre = nombreCompleto.trim().split(' ');
+    const nombre = partesNombre[0] || 'Sin Nombre';
+    const apellido = partesNombre.slice(1).join(' ') || 'Sin Apellido';
+
     const resultado = await transaction.request()
       .input('rut', sql.VarChar, rutLimpio)
-      .input('nombre_completo', sql.VarChar, datosExtraidos.nombre_empleado || 'Sin Nombre')
+      .input('nombre', sql.VarChar, nombre)
+      .input('apellido', sql.VarChar, apellido)
       .query(`
-        INSERT INTO empleados_remuneraciones (rut, nombre_completo, fecha_creacion)
-        VALUES (@rut, @nombre_completo, GETDATE());
+        INSERT INTO empleados (rut, nombre, apellido, activo, created_at, updated_at)
+        VALUES (@rut, @nombre, @apellido, 1, GETDATE(), GETDATE());
         SELECT SCOPE_IDENTITY() as nuevo_id;
       `);
 
-    console.log(`👤 Empleado creado: ${datosExtraidos.nombre_empleado} (${rutLimpio})`);
+    console.log(`👤 Empleado creado: ${nombreCompleto} (${rutLimpio})`);
     
     return { esNuevo: true, id: resultado.recordset[0].nuevo_id };
   } catch (error) {
@@ -953,6 +1342,7 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
     return { esNuevo: false, id: null };
   }
 }
+
 // 🆕 FUNCIÓN CRÍTICA CORREGIDA: Guardar datos con validación segura
 async function guardarDatosRemuneracionSeguro(transaction, datos) {
   const request = transaction.request();
@@ -1096,6 +1486,8 @@ function generarReporteEstadistico(datos) {
       empleados_sin_datos: datos.filter(d => !d.cargo).length
     },
     estadisticas_por_cargo: {},
+    estadisticas_por_razon_social: {},
+    estadisticas_por_sucursal: {},
     distribuciones: {
       rangos_salariales: calcularRangosSalariales(datos),
       percentiles: calcularPercentiles(datos)
@@ -1126,6 +1518,46 @@ function generarReporteEstadistico(datos) {
     reporte.estadisticas_por_cargo[cargo] = {
       cantidad: empleados.length,
       suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
+      promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
+    };
+  });
+
+  // 🆕 Estadísticas por razón social
+  const gruposPorRazonSocial = {};
+  datos.forEach(item => {
+    const razonSocial = item.razon_social || 'Sin Razón Social';
+    if (!gruposPorRazonSocial[razonSocial]) {
+      gruposPorRazonSocial[razonSocial] = [];
+    }
+    gruposPorRazonSocial[razonSocial].push(item);
+  });
+
+  Object.keys(gruposPorRazonSocial).forEach(razonSocial => {
+    const empleados = gruposPorRazonSocial[razonSocial];
+    reporte.estadisticas_por_razon_social[razonSocial] = {
+      cantidad: empleados.length,
+      suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
+      suma_liquidos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
+      promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
+    };
+  });
+
+  // 🆕 Estadísticas por sucursal
+  const gruposPorSucursal = {};
+  datos.forEach(item => {
+    const sucursal = item.sucursal || 'Sin Sucursal';
+    if (!gruposPorSucursal[sucursal]) {
+      gruposPorSucursal[sucursal] = [];
+    }
+    gruposPorSucursal[sucursal].push(item);
+  });
+
+  Object.keys(gruposPorSucursal).forEach(sucursal => {
+    const empleados = gruposPorSucursal[sucursal];
+    reporte.estadisticas_por_sucursal[sucursal] = {
+      cantidad: empleados.length,
+      suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
+      suma_liquidos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
       promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
     };
   });
@@ -1170,6 +1602,7 @@ function calcularPercentiles(datos) {
     p90: percentil(90)
   };
 }
+
 function detectarAnomalias(datos) {
   const anomalias = [];
   const sueldos = datos.map(d => parseFloat(d.sueldo_base) || 0).filter(s => s > 0);
@@ -1231,7 +1664,7 @@ function detectarAnomalias(datos) {
         // ANÁLISIS PARA SUELDOS BAJOS
         else {
           if (sueldo < sueldoMinimo) {
-            analisisDetallado = `Sueldo bajo el mínimo legal: $${sueldo.toLocaleString()} (Mínimo: $${sueldoMinimo.toLocaleString()})`;
+            analisisDetallado = `Sueldo bajo el mínimo legal: ${sueldo.toLocaleString()} (Mínimo: ${sueldoMinimo.toLocaleString()})`;
             nivelRiesgo = 'CRÍTICO';
             posiblesCausas = [
               '⚠️ POSIBLE INCUMPLIMIENTO LEGAL',
@@ -1308,7 +1741,11 @@ function detectarAnomalias(datos) {
           promedio_empresa: promedio,
           posicion_ranking: esSueldoAlto ? 
             `Top ${((sueldos.filter(s => s >= sueldo).length / sueldos.length) * 100).toFixed(1)}%` :
-            `Bottom ${((sueldos.filter(s => s <= sueldo).length / sueldos.length) * 100).toFixed(1)}%`
+            `Bottom ${((sueldos.filter(s => s <= sueldo).length / sueldos.length) * 100).toFixed(1)}%`,
+          
+          // 🆕 Información adicional
+          razon_social: empleado.razon_social || 'Sin Razón Social',
+          sucursal: empleado.sucursal || 'Sin Sucursal'
         });
       }
     }

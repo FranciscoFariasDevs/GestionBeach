@@ -1,4 +1,4 @@
-// RemuneracionesPage.jsx - VERSIÓN CORREGIDA COMPLETA
+// RemuneracionesPage.jsx - VERSIÓN COMPLETA CON FILTROS Y MODAL DE ASIGNACIÓN
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -45,7 +45,11 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  Collapse
+  Collapse,
+  Autocomplete,
+  Checkbox,
+  FormGroup,
+  TablePagination
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
@@ -73,16 +77,22 @@ import {
   BugReport as BugReportIcon,
   DataUsage as DataUsageIcon,
   PieChart as PieChartIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  FilterList as FilterListIcon,
+  ClearAll as ClearAllIcon,
+  Assignment as AssignmentIcon,
+  PersonAdd as PersonAddIcon,
+  Store as StoreIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
-import api from '../api/api'; // ✅ CORREGIDO: Usar la API centralizada
+import api from '../api/api';
 
-// 🔧 CONFIGURACIÓN CORREGIDA - Usar solo la API centralizada
+// 🔧 CONFIGURACIÓN COMPLETA - API centralizada con nuevos endpoints
 const remuneracionesAPI = {
   test: () => api.get('/remuneraciones/test'),
-  obtenerPeriodos: () => api.get('/remuneraciones'),
+  obtenerPeriodos: (filtros = {}) => api.get('/remuneraciones', { params: filtros }),
   obtenerPeriodoPorId: (id) => api.get(`/remuneraciones/${id}`),
+  obtenerOpcionesFiltros: () => api.get('/remuneraciones/opciones-filtros'),
   crearPeriodo: (datos) => api.post('/remuneraciones/periodo', datos),
   actualizarPeriodo: (id, datos) => api.put(`/remuneraciones/${id}`, datos),
   eliminarPeriodo: (id) => api.delete(`/remuneraciones/${id}`),
@@ -90,7 +100,15 @@ const remuneracionesAPI = {
   obtenerAnalisisPeriodo: (id) => api.get(`/remuneraciones/${id}/analisis`),
   obtenerEstadisticas: () => api.get('/remuneraciones/estadisticas'),
   validarExcel: (datos) => api.post('/remuneraciones/validar-excel', datos),
-  procesarExcel: (datos) => api.post('/remuneraciones/procesar-excel', datos)
+  procesarExcel: (datos) => api.post('/remuneraciones/procesar-excel', datos),
+  validarEmpleadosSinAsignacion: (ruts) => api.post('/remuneraciones/validar-empleados-sin-asignacion', { ruts_empleados: ruts }),
+  asignarRazonSocialYSucursal: (asignaciones) => api.post('/remuneraciones/asignar-razon-social-sucursal', { asignaciones })
+};
+
+// API para razones sociales y sucursales
+const catalogosAPI = {
+  getRazonesSociales: () => api.get('/razonessociales'),
+  getSucursales: () => api.get('/sucursales')
 };
 
 // Pasos del proceso de carga profesional
@@ -99,14 +117,29 @@ const pasosCarga = [
   'Cargar Archivo',
   'Análisis Automático',
   'Configurar Mapeo',
-  'Procesar Nómina'
+  'Procesar Nómina',
+  'Asignar Empleados'
 ];
+
 const RemuneracionesPage = () => {
-  // 🔧 ESTADOS PRINCIPALES CORREGIDOS
+  // 🔧 ESTADOS PRINCIPALES
   const [periodos, setPeriodos] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // 🆕 ESTADOS PARA FILTROS
+  const [filtros, setFiltros] = useState({
+    razon_social_id: 'todos',
+    sucursal_id: 'todos', 
+    anio: 'todos',
+    estado: 'todos'
+  });
+  const [opcionesFiltros, setOpcionesFiltros] = useState({
+    anios: [],
+    razones_sociales: [],
+    sucursales: []
+  });
   
   // Estados para Excel con mejor gestión
   const [openExcelDialog, setOpenExcelDialog] = useState(false);
@@ -125,6 +158,14 @@ const RemuneracionesPage = () => {
   const [columnasDetectadas, setColumnasDetectadas] = useState([]);
   const [periodoSeleccionado, setPeriodoSeleccionado] = useState('');
   
+  // 🆕 ESTADOS PARA MODAL DE ASIGNACIÓN
+  const [openAsignacionDialog, setOpenAsignacionDialog] = useState(false);
+  const [empleadosSinAsignacion, setEmpleadosSinAsignacion] = useState([]);
+  const [asignacionesTemporales, setAsignacionesTemporales] = useState({});
+  const [razonesSociales, setRazonesSociales] = useState([]);
+  const [sucursales, setSucursales] = useState([]);
+  const [resultadoProcesamiento, setResultadoProcesamiento] = useState(null);
+  
   // Estados para dialogs profesionales
   const [openViewDialog, setOpenViewDialog] = useState(false);
   const [openEditDialog, setOpenEditDialog] = useState(false);
@@ -138,7 +179,9 @@ const RemuneracionesPage = () => {
   const [nuevoPeriodo, setNuevoPeriodo] = useState({
     mes: new Date().getMonth() + 1,
     anio: new Date().getFullYear(),
-    descripcion: ''
+    descripcion: '',
+    id_razon_social: '',
+    id_sucursal: ''
   });
   
   // Estados para tabs y configuración avanzada
@@ -178,12 +221,44 @@ const RemuneracionesPage = () => {
     }
   }, []);
 
+  // 🆕 CARGAR OPCIONES PARA FILTROS
+  const cargarOpcionesFiltros = useCallback(async () => {
+    try {
+      console.log('📊 Cargando opciones para filtros...');
+      const response = await remuneracionesAPI.obtenerOpcionesFiltros();
+      
+      if (response.data.success) {
+        setOpcionesFiltros(response.data.data);
+        console.log('✅ Opciones de filtros cargadas:', response.data.data);
+      }
+    } catch (err) {
+      console.error('❌ Error al cargar opciones de filtros:', err);
+    }
+  }, []);
+
+  // 🆕 CARGAR CATÁLOGOS PARA MODAL DE ASIGNACIÓN
+  const cargarCatalogos = useCallback(async () => {
+    try {
+      console.log('📚 Cargando catálogos...');
+      const [razonesResponse, sucursalesResponse] = await Promise.all([
+        catalogosAPI.getRazonesSociales(),
+        catalogosAPI.getSucursales()
+      ]);
+      
+      setRazonesSociales(razonesResponse.data || []);
+      setSucursales(sucursalesResponse.data || []);
+      console.log('✅ Catálogos cargados');
+    } catch (err) {
+      console.error('❌ Error al cargar catálogos:', err);
+    }
+  }, []);
+
   const cargarPeriodos = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('📅 Cargando períodos...');
+      console.log('📅 Cargando períodos con filtros:', filtros);
       
-      const response = await remuneracionesAPI.obtenerPeriodos();
+      const response = await remuneracionesAPI.obtenerPeriodos(filtros);
       
       if (response.data.success) {
         setPeriodos(response.data.data || []);
@@ -199,7 +274,7 @@ const RemuneracionesPage = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filtros]);
 
   const cargarEstadisticas = useCallback(async () => {
     try {
@@ -214,7 +289,6 @@ const RemuneracionesPage = () => {
       }
     } catch (err) {
       console.error('❌ Error al cargar estadísticas:', err);
-      // No mostramos error crítico para estadísticas
     }
   }, []);
 
@@ -226,14 +300,38 @@ const RemuneracionesPage = () => {
       const conexionOk = await testConexion();
       if (conexionOk) {
         await Promise.all([
-          cargarPeriodos(),
+          cargarOpcionesFiltros(),
+          cargarCatalogos(),
           cargarEstadisticas()
         ]);
       }
     };
 
     inicializar();
-  }, [testConexion, cargarPeriodos, cargarEstadisticas]);
+  }, [testConexion, cargarOpcionesFiltros, cargarCatalogos, cargarEstadisticas]);
+
+  // 🆕 EFFECT PARA RECARGAR PERÍODOS CUANDO CAMBIAN LOS FILTROS
+  useEffect(() => {
+    cargarPeriodos();
+  }, [cargarPeriodos]);
+
+  // 🆕 FUNCIONES PARA MANEJO DE FILTROS
+  const handleFiltroChange = (campo, valor) => {
+    setFiltros(prev => ({
+      ...prev,
+      [campo]: valor
+    }));
+  };
+
+  const limpiarFiltros = () => {
+    setFiltros({
+      razon_social_id: 'todos',
+      sucursal_id: 'todos',
+      anio: 'todos', 
+      estado: 'todos'
+    });
+  };
+
   // 🔧 CREAR NUEVO PERÍODO MEJORADO
   const crearPeriodo = async () => {
     // Validaciones mejoradas
@@ -270,7 +368,10 @@ const RemuneracionesPage = () => {
           setPeriodoSeleccionado(response.data.data.id_periodo);
         }
         
-        await cargarPeriodos();
+        await Promise.all([
+          cargarPeriodos(),
+          cargarOpcionesFiltros()
+        ]);
         setOpenCreatePeriodoDialog(false);
         resetNuevoPeriodo();
       } else {
@@ -289,7 +390,9 @@ const RemuneracionesPage = () => {
     setNuevoPeriodo({
       mes: new Date().getMonth() + 1,
       anio: new Date().getFullYear(),
-      descripcion: ''
+      descripcion: '',
+      id_razon_social: '',
+      id_sucursal: ''
     });
   };
 
@@ -454,6 +557,7 @@ const RemuneracionesPage = () => {
       showSnackbar(errorMsg, 'error');
     }
   };
+
   // 🔧 PROCESAMIENTO DE EXCEL COMPLETAMENTE MEJORADO
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
@@ -663,7 +767,7 @@ const RemuneracionesPage = () => {
     }
   };
 
-  // 🔧 PROCESAR EXCEL COMPLETAMENTE MEJORADO
+  // 🆕 PROCESAR EXCEL CON VALIDACIÓN DE EMPLEADOS SIN ASIGNACIÓN
   const procesarExcel = async () => {
     if (!excelData.length) {
       showSnackbar('No hay datos para procesar', 'error');
@@ -719,6 +823,22 @@ const RemuneracionesPage = () => {
 
       if (response.data.success) {
         const resultado = response.data.data;
+        setResultadoProcesamiento(resultado);
+        
+        // 🆕 VALIDAR SI HAY EMPLEADOS SIN ASIGNACIÓN
+        if (resultado.empleados_para_validar && resultado.empleados_para_validar.length > 0) {
+          console.log('🔍 Validando empleados sin asignación...');
+          
+          const validacionResponse = await remuneracionesAPI.validarEmpleadosSinAsignacion(
+            resultado.empleados_para_validar
+          );
+          
+          if (validacionResponse.data.success && validacionResponse.data.data.requiere_asignacion) {
+            setEmpleadosSinAsignacion(validacionResponse.data.data.empleados_sin_asignacion);
+            setActiveStep(5); // Ir al paso de asignación
+            return; // No cerrar el dialog aún
+          }
+        }
         
         // 🆕 MENSAJE MEJORADO CON ESTADÍSTICAS DETALLADAS
         let mensaje = `✅ Procesamiento exitoso: ${resultado.procesados}/${resultado.total_filas} registros`;
@@ -783,6 +903,56 @@ const RemuneracionesPage = () => {
     }
   };
 
+  // 🆕 MANEJAR ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
+  const handleAsignacionChange = (empleadoId, campo, valor) => {
+    setAsignacionesTemporales(prev => ({
+      ...prev,
+      [empleadoId]: {
+        ...prev[empleadoId],
+        id_empleado: empleadoId,
+        [campo]: valor
+      }
+    }));
+  };
+
+  const procesarAsignaciones = async () => {
+    try {
+      setLoading(true);
+      
+      const asignaciones = Object.values(asignacionesTemporales).filter(asig => 
+        asig.id_razon_social || asig.id_sucursal
+      );
+      
+      if (asignaciones.length === 0) {
+        showSnackbar('Debe asignar al menos una razón social o sucursal', 'warning');
+        return;
+      }
+      
+      console.log('📝 Procesando asignaciones:', asignaciones);
+      
+      const response = await remuneracionesAPI.asignarRazonSocialYSucursal(asignaciones);
+      
+      if (response.data.success) {
+        showSnackbar(`✅ ${response.data.data.empleados_actualizados} empleados actualizados`, 'success');
+        
+        // Finalizar proceso
+        await Promise.all([
+          cargarPeriodos(),
+          cargarEstadisticas()
+        ]);
+        
+        handleCloseExcelDialog();
+      } else {
+        throw new Error(response.data.message || 'Error al asignar razón social y sucursal');
+      }
+    } catch (err) {
+      console.error('❌ Error en asignaciones:', err);
+      showSnackbar(err.response?.data?.message || 'Error al procesar asignaciones', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 🔧 FUNCIONES AUXILIARES MEJORADAS
   const resetExcelState = () => {
     setActiveStep(0);
@@ -794,6 +964,9 @@ const RemuneracionesPage = () => {
     setAnalisisExcel(null);
     setUploadProgress(0);
     setProcessingStatus('');
+    setEmpleadosSinAsignacion([]);
+    setAsignacionesTemporales({});
+    setResultadoProcesamiento(null);
   };
 
   const handleCloseExcelDialog = () => {
@@ -804,10 +977,8 @@ const RemuneracionesPage = () => {
 
   // 🔧 FUNCIONES DE UTILIDAD MEJORADAS
   const showSnackbar = useCallback((message, severity = 'success') => {
-    // Limpiar mensaje anterior
     setSnackbar({ open: false, message: '', severity: 'success' });
     
-    // Esperar un momento antes de mostrar el nuevo mensaje
     setTimeout(() => {
       setSnackbar({ 
         open: true, 
@@ -865,6 +1036,162 @@ const RemuneracionesPage = () => {
   }, [empleadosFiltrados, paginaActual, empleadosPorPagina]);
 
   // 🔧 COMPONENTES DE RENDERIZADO MEJORADOS
+  const renderFiltros = () => (
+    <Paper sx={{ 
+      p: 3, 
+      mb: 3,
+      background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+      border: '1px solid rgba(0,0,0,0.05)'
+    }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+          <FilterListIcon sx={{ mr: 1, color: '#f37d16' }} />
+          Filtros de Búsqueda
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<ClearAllIcon />}
+          onClick={limpiarFiltros}
+          size="small"
+          sx={{ 
+            borderColor: '#f37d16', 
+            color: '#f37d16',
+            '&:hover': { borderColor: '#e06c00', bgcolor: 'rgba(243, 125, 22, 0.1)' }
+          }}
+        >
+          Limpiar Filtros
+        </Button>
+      </Box>
+      
+      <Grid container spacing={3}>
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Razón Social</InputLabel>
+            <Select
+              value={filtros.razon_social_id}
+              onChange={(e) => handleFiltroChange('razon_social_id', e.target.value)}
+              label="Razón Social"
+            >
+              <MenuItem value="todos">Todas las razones sociales</MenuItem>
+              {opcionesFiltros.razones_sociales.map(razon => (
+                <MenuItem key={razon.id} value={razon.id}>
+                  {razon.nombre_razon}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Sucursal</InputLabel>
+            <Select
+              value={filtros.sucursal_id}
+              onChange={(e) => handleFiltroChange('sucursal_id', e.target.value)}
+              label="Sucursal"
+            >
+              <MenuItem value="todos">Todas las sucursales</MenuItem>
+              {opcionesFiltros.sucursales.map(sucursal => (
+                <MenuItem key={sucursal.id} value={sucursal.id}>
+                  {sucursal.nombre}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Año</InputLabel>
+            <Select
+              value={filtros.anio}
+              onChange={(e) => handleFiltroChange('anio', e.target.value)}
+              label="Año"
+            >
+              <MenuItem value="todos">Todos los años</MenuItem>
+              {opcionesFiltros.anios.map(anio => (
+                <MenuItem key={anio} value={anio}>
+                  {anio}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Estado</InputLabel>
+            <Select
+              value={filtros.estado}
+              onChange={(e) => handleFiltroChange('estado', e.target.value)}
+              label="Estado"
+            >
+              <MenuItem value="todos">Todos los estados</MenuItem>
+              <MenuItem value="ACTIVO">Activos</MenuItem>
+              <MenuItem value="INACTIVO">Inactivos</MenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={viewMode === 'cards'}
+                onChange={(e) => setViewMode(e.target.checked ? 'cards' : 'table')}
+                color="primary"
+              />
+            }
+            label="Vista Cards"
+          />
+        </Grid>
+      </Grid>
+      
+      {/* Mostrar filtros activos */}
+      {Object.values(filtros).some(f => f !== 'todos') && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Filtros activos:
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {filtros.razon_social_id !== 'todos' && (
+              <Chip 
+                label={`Razón Social: ${opcionesFiltros.razones_sociales.find(r => r.id == filtros.razon_social_id)?.nombre_razon || 'N/A'}`}
+                size="small"
+                color="primary"
+                onDelete={() => handleFiltroChange('razon_social_id', 'todos')}
+              />
+            )}
+            {filtros.sucursal_id !== 'todos' && (
+              <Chip 
+                label={`Sucursal: ${opcionesFiltros.sucursales.find(s => s.id == filtros.sucursal_id)?.nombre || 'N/A'}`}
+                size="small"
+                color="primary"
+                onDelete={() => handleFiltroChange('sucursal_id', 'todos')}
+              />
+            )}
+            {filtros.anio !== 'todos' && (
+              <Chip 
+                label={`Año: ${filtros.anio}`}
+                size="small"
+                color="primary"
+                onDelete={() => handleFiltroChange('anio', 'todos')}
+              />
+            )}
+            {filtros.estado !== 'todos' && (
+              <Chip 
+                label={`Estado: ${filtros.estado}`}
+                size="small"
+                color="primary"
+                onDelete={() => handleFiltroChange('estado', 'todos')}
+              />
+            )}
+          </Box>
+        </Box>
+      )}
+    </Paper>
+  );
+
   const renderEstadisticas = () => (
     <Box sx={{ mb: 4 }}>
       <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
@@ -1009,7 +1336,29 @@ const RemuneracionesPage = () => {
                   {periodo.descripcion}
                 </Typography>
               }
-              subheader={`${periodo.mes}/${periodo.anio}`}
+              subheader={
+                <Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {periodo.mes}/{periodo.anio}
+                  </Typography>
+                  {periodo.nombre_razon && periodo.nombre_razon !== 'Sin Razón Social' && (
+                    <Chip 
+                      label={periodo.nombre_razon} 
+                      size="small" 
+                      color="info"
+                      sx={{ mt: 0.5, mr: 0.5 }}
+                    />
+                  )}
+                  {periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' && (
+                    <Chip 
+                      label={periodo.sucursal_nombre} 
+                      size="small" 
+                      color="secondary"
+                      sx={{ mt: 0.5 }}
+                    />
+                  )}
+                </Box>
+              }
               action={
                 <Chip 
                   label={periodo.estado} 
@@ -1103,6 +1452,158 @@ const RemuneracionesPage = () => {
       ))}
     </Grid>
   );
+
+  // 🆕 MODAL DE ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
+  const renderModalAsignacion = () => (
+    <Dialog 
+      open={activeStep === 5 && empleadosSinAsignacion.length > 0} 
+      maxWidth="lg" 
+      fullWidth
+      PaperProps={{
+        sx: { 
+          borderRadius: 3,
+          background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+          minHeight: '70vh'
+        }      
+      }}
+    >
+      <DialogTitle sx={{ 
+        background: 'linear-gradient(135deg, #f37d16 0%, #e06c00 100%)',
+        color: 'white',
+        textAlign: 'center'
+      }}>
+        <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
+          Asignar Razón Social y Sucursal
+        </Typography>
+        <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
+          {empleadosSinAsignacion.length} empleados requieren asignación
+        </Typography>
+      </DialogTitle>
+      
+      <DialogContent sx={{ p: 3 }}>
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          <Typography variant="h6">Empleados sin asignación completa</Typography>
+          <Typography>
+            Los siguientes empleados no tienen razón social o sucursal asignada. 
+            Es necesario completar esta información antes de finalizar.
+          </Typography>
+        </Alert>
+
+        <TableContainer component={Paper} sx={{ maxHeight: 500 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Empleado</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>RUT</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Estado Actual</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Razón Social</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Sucursal</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {empleadosSinAsignacion.map((empleado) => (
+                <TableRow key={empleado.id} hover>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                        {empleado.nombre} {empleado.apellido}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>{empleado.rut}</TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexDirection: 'column' }}>
+                      {empleado.falta_razon_social && (
+                        <Chip label="Sin Razón Social" size="small" color="error" />
+                      )}
+                      {empleado.falta_sucursal && (
+                        <Chip label="Sin Sucursal" size="small" color="warning" />
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    {empleado.falta_razon_social ? (
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Seleccionar Razón Social</InputLabel>
+                        <Select
+                          value={asignacionesTemporales[empleado.id]?.id_razon_social || ''}
+                          onChange={(e) => handleAsignacionChange(empleado.id, 'id_razon_social', e.target.value)}
+                          label="Seleccionar Razón Social"
+                        >
+                          {razonesSociales.map(razon => (
+                            <MenuItem key={razon.id} value={razon.id}>
+                              {razon.nombre_razon}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    ) : (
+                      <Chip label={empleado.nombre_razon || 'N/A'} size="small" color="success" />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {empleado.falta_sucursal ? (
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Seleccionar Sucursal</InputLabel>
+                        <Select
+                          value={asignacionesTemporales[empleado.id]?.id_sucursal || ''}
+                          onChange={(e) => handleAsignacionChange(empleado.id, 'id_sucursal', e.target.value)}
+                          label="Seleccionar Sucursal"
+                        >
+                          {sucursales.map(sucursal => (
+                            <MenuItem key={sucursal.id} value={sucursal.id}>
+                              {sucursal.nombre}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    ) : (
+                      <Chip label="Asignada" size="small" color="success" />
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(243, 125, 22, 0.1)', borderRadius: 2 }}>
+          <Typography variant="body2" color="primary">
+            💡 Una vez asignadas las razones sociales y sucursales, los empleados podrán 
+            ser correctamente categorizados en futuros procesamientos.
+          </Typography>
+        </Box>
+      </DialogContent>
+      
+      <DialogActions sx={{ p: 3, pt: 0, justifyContent: 'space-between' }}>
+        <Button 
+          onClick={() => {
+            // Permitir continuar sin asignar
+            handleCloseExcelDialog();
+          }}
+          disabled={loading}
+          startIcon={<DeleteIcon />}
+        >
+          Continuar sin Asignar
+        </Button>
+        
+        <Button
+          onClick={procesarAsignaciones}
+          variant="contained"
+          disabled={loading || Object.keys(asignacionesTemporales).length === 0}
+          startIcon={loading ? <CircularProgress size={20} /> : <AssignmentIcon />}
+          sx={{ 
+            bgcolor: '#f37d16', 
+            '&:hover': { bgcolor: '#e06c00' },
+            minWidth: 160
+          }}
+        >
+          {loading ? 'Procesando...' : 'Asignar y Finalizar'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
   // 🔧 RENDER PRINCIPAL DEL COMPONENTE
   return (
     <Box sx={{ p: 3, minHeight: '100vh', bgcolor: '#f8f9fa' }}>
@@ -1124,7 +1625,7 @@ const RemuneracionesPage = () => {
               Sistema Profesional de Remuneraciones
             </Typography>
             <Typography variant="subtitle1" sx={{ opacity: 0.9 }}>
-              Gestión integral de nóminas y liquidaciones de sueldo
+              Gestión integral de nóminas y liquidaciones de sueldo con filtros avanzados
             </Typography>
             <Box sx={{ display: 'flex', gap: 2, mt: 2, flexWrap: 'wrap' }}>
               <Chip 
@@ -1221,50 +1722,8 @@ const RemuneracionesPage = () => {
       {/* Estadísticas */}
       {estadisticas && renderEstadisticas()}
 
-      {/* Controles y filtros profesionales mejorados */}
-      <Paper sx={{ 
-        p: 3, 
-        mb: 3,
-        background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)'
-      }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
-              <TimelineIcon sx={{ mr: 1, color: '#f37d16' }} />
-              Períodos de Remuneración
-            </Typography>
-            <Badge badgeContent={periodosFiltrados.length} color="primary">
-              <BusinessIcon color="action" />
-            </Badge>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Estado</InputLabel>
-              <Select
-                value={filtroEstado}
-                onChange={(e) => setFiltroEstado(e.target.value)}
-                label="Estado"
-              >
-                <MenuItem value="todos">Todos</MenuItem>
-                <MenuItem value="ACTIVO">Activos</MenuItem>
-                <MenuItem value="INACTIVO">Inactivos</MenuItem>
-              </Select>
-            </FormControl>
-            
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={viewMode === 'cards'}
-                  onChange={(e) => setViewMode(e.target.checked ? 'cards' : 'table')}
-                  color="primary"
-                />
-              }
-              label="Vista Cards"
-            />
-          </Box>
-        </Box>
-      </Paper>
+      {/* 🆕 Filtros mejorados */}
+      {renderFiltros()}
 
       {/* Contenido principal mejorado */}
       <Paper sx={{ overflow: 'hidden', minHeight: '400px', borderRadius: 3 }}>
@@ -1289,7 +1748,10 @@ const RemuneracionesPage = () => {
                   No hay períodos de remuneración
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                  Comience creando un período y luego cargue los archivos Excel con los datos de nómina
+                  {Object.values(filtros).some(f => f !== 'todos') ? 
+                    'No se encontraron períodos con los filtros aplicados. Intente modificar los criterios de búsqueda.' :
+                    'Comience creando un período y luego cargue los archivos Excel con los datos de nómina'
+                  }
                 </Typography>
                 <Button
                   variant="contained"
@@ -1302,7 +1764,7 @@ const RemuneracionesPage = () => {
                     mr: 2
                   }}
                 >
-                  Crear Primer Período
+                  Crear Período
                 </Button>
                 <Button
                   variant="outlined"
@@ -1328,11 +1790,11 @@ const RemuneracionesPage = () => {
                 <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                   <TableCell sx={{ fontWeight: 'bold' }}>Período</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Descripción</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Razón Social</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Sucursal</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Estado</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Registros</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Empleados</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Total Nómina</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Fecha Carga</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
@@ -1350,6 +1812,20 @@ const RemuneracionesPage = () => {
                     <TableCell>{periodo.descripcion}</TableCell>
                     <TableCell>
                       <Chip 
+                        label={periodo.nombre_razon || 'Sin Razón Social'} 
+                        size="small" 
+                        color={periodo.nombre_razon && periodo.nombre_razon !== 'Sin Razón Social' ? 'info' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={periodo.sucursal_nombre || 'Sin Sucursal'} 
+                        size="small" 
+                        color={periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' ? 'secondary' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
                         label={periodo.estado} 
                         color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
                         size="small"
@@ -1361,20 +1837,9 @@ const RemuneracionesPage = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                        {periodo.empleados_encontrados || 0}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.main' }}>
                         {formatMoney(periodo.suma_liquidos)}
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {periodo.fecha_carga ? 
-                        new Date(periodo.fecha_carga).toLocaleDateString('es-CL') : 
-                        'N/A'
-                      }
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -1412,11 +1877,15 @@ const RemuneracionesPage = () => {
           </TableContainer>
         )}
       </Paper>
-      {/* Dialog para crear nuevo período */}
+
+      {/* 🆕 Modal de asignación */}
+      {renderModalAsignacion()}
+
+      {/* Dialog para crear nuevo período con razón social y sucursal */}
       <Dialog 
         open={openCreatePeriodoDialog} 
         onClose={() => setOpenCreatePeriodoDialog(false)} 
-        maxWidth="sm" 
+        maxWidth="md" 
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', bgcolor: '#f8f9fa' }}>
@@ -1461,7 +1930,48 @@ const RemuneracionesPage = () => {
                   placeholder="Ej: Enero 2024, Aguinaldo Diciembre, etc."
                 />
               </Grid>
+              <Grid item xs={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Razón Social (opcional)</InputLabel>
+                  <Select
+                    value={nuevoPeriodo.id_razon_social}
+                    onChange={(e) => setNuevoPeriodo({...nuevoPeriodo, id_razon_social: e.target.value})}
+                    label="Razón Social (opcional)"
+                  >
+                    <MenuItem value="">-- Sin especificar --</MenuItem>
+                    {razonesSociales.map(razon => (
+                      <MenuItem key={razon.id} value={razon.id}>
+                        {razon.nombre_razon}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Sucursal (opcional)</InputLabel>
+                  <Select
+                    value={nuevoPeriodo.id_sucursal}
+                    onChange={(e) => setNuevoPeriodo({...nuevoPeriodo, id_sucursal: e.target.value})}
+                    label="Sucursal (opcional)"
+                  >
+                    <MenuItem value="">-- Sin especificar --</MenuItem>
+                    {sucursales.map(sucursal => (
+                      <MenuItem key={sucursal.id} value={sucursal.id}>
+                        {sucursal.nombre}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
             </Grid>
+            
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>Nota:</strong> La razón social y sucursal son opcionales pero ayudan a 
+                categorizar mejor los períodos. Si no se especifican, el período será general.
+              </Typography>
+            </Alert>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1955,7 +2465,7 @@ const RemuneracionesPage = () => {
                 Procesando Nómina
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                🔄 Guardando datos en la base de datos...
+                📄 Guardando datos en la base de datos...
               </Typography>
               
               {uploadProgress > 0 && (
@@ -2039,7 +2549,7 @@ const RemuneracionesPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog para Ver Detalles del Período (versión simplificada) */}
+      {/* Dialog para Ver Detalles del Período */}
       <Dialog 
         open={openViewDialog} 
         onClose={handleCloseViewDialog} 
@@ -2127,6 +2637,8 @@ const RemuneracionesPage = () => {
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>#</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>RUT</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Nombre</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Razón Social</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Sucursal</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Sueldo Base</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Total Haberes</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Total Descuentos</TableCell>
@@ -2158,6 +2670,20 @@ const RemuneracionesPage = () => {
                                     />
                                   )}
                                 </Box>
+                              </TableCell>
+                              <TableCell>
+                                <Chip 
+                                  label={empleado.nombre_razon || 'Sin Razón Social'} 
+                                  size="small" 
+                                  color={empleado.nombre_razon ? 'info' : 'default'}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Chip 
+                                  label={empleado.sucursal_nombre || 'Sin Sucursal'} 
+                                  size="small" 
+                                  color={empleado.sucursal_nombre ? 'secondary' : 'default'}
+                                />
                               </TableCell>
                               <TableCell>{formatMoney(empleado.sueldo_base)}</TableCell>
                               <TableCell>{formatMoney(empleado.total_haberes)}</TableCell>
@@ -2289,6 +2815,68 @@ const RemuneracionesPage = () => {
                   </Card>
                 </Grid>
 
+                {/* Estadísticas por razón social */}
+                {reporteAnalisis.estadisticas_por_razon_social && 
+                 Object.keys(reporteAnalisis.estadisticas_por_razon_social).length > 0 && (
+                  <Grid item xs={12} md={6}>
+                    <Card sx={{ p: 3 }}>
+                      <Typography variant="h6" gutterBottom>
+                        Distribución por Razón Social
+                      </Typography>
+                      <List>
+                        {Object.entries(reporteAnalisis.estadisticas_por_razon_social).map(([razon, stats]) => (
+                          <ListItem key={razon} sx={{ border: '1px solid #e0e0e0', mb: 1, borderRadius: 1 }}>
+                            <ListItemText 
+                              primary={razon}
+                              secondary={
+                                <Box>
+                                  <Typography variant="body2">
+                                    {stats.cantidad} empleados - {formatMoney(stats.suma_liquidos)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Promedio: {formatMoney(stats.promedio_sueldo)}
+                                  </Typography>
+                                </Box>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Card>
+                  </Grid>
+                )}
+
+                {/* Estadísticas por sucursal */}
+                {reporteAnalisis.estadisticas_por_sucursal && 
+                 Object.keys(reporteAnalisis.estadisticas_por_sucursal).length > 0 && (
+                  <Grid item xs={12} md={6}>
+                    <Card sx={{ p: 3 }}>
+                      <Typography variant="h6" gutterBottom>
+                        Distribución por Sucursal
+                      </Typography>
+                      <List>
+                        {Object.entries(reporteAnalisis.estadisticas_por_sucursal).map(([sucursal, stats]) => (
+                          <ListItem key={sucursal} sx={{ border: '1px solid #e0e0e0', mb: 1, borderRadius: 1 }}>
+                            <ListItemText 
+                              primary={sucursal}
+                              secondary={
+                                <Box>
+                                  <Typography variant="body2">
+                                    {stats.cantidad} empleados - {formatMoney(stats.suma_liquidos)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Promedio: {formatMoney(stats.promedio_sueldo)}
+                                  </Typography>
+                                </Box>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Card>
+                  </Grid>
+                )}
+
                 {/* Anomalías detalladas */}
                 <Grid item xs={12}>
                   <Card sx={{ p: 3 }}>
@@ -2314,6 +2902,16 @@ const RemuneracionesPage = () => {
                                     size="small" 
                                     color={anomalia.nivel_riesgo === 'CRÍTICO' ? 'error' : 
                                            anomalia.nivel_riesgo === 'ALTO' ? 'warning' : 'info'}
+                                  />
+                                  <Chip 
+                                    label={anomalia.razon_social} 
+                                    size="small" 
+                                    color="info"
+                                  />
+                                  <Chip 
+                                    label={anomalia.sucursal} 
+                                    size="small" 
+                                    color="secondary"
                                   />
                                 </Box>
                               }

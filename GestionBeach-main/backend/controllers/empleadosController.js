@@ -1,4 +1,4 @@
-// backend/controllers/empleadosController.js - VERSIÓN ACTUALIZADA CON TODOS LOS CAMPOS
+// backend/controllers/empleadosController.js - VERSIÓN COMPLETA MEJORADA
 const { sql, poolPromise } = require('../config/db');
 
 // ✅ FUNCIÓN: Obtener todos los empleados - CON DETECCIÓN AUTOMÁTICA Y TODOS LOS CAMPOS
@@ -75,7 +75,7 @@ exports.getEmpleados = async (req, res) => {
     
     // ✅ CARGAR DATOS RELACIONADOS
     try {
-      console.log('🏭 Detectando tabla de razones sociales...');
+      console.log('🛡 Detectando tabla de razones sociales...');
       
       const tablasRazones = await pool.request().query(`
         SELECT TABLE_NAME 
@@ -87,7 +87,7 @@ exports.getEmpleados = async (req, res) => {
       
       if (tablasRazones.recordset.length > 0) {
         const tablaRazones = tablasRazones.recordset[0].TABLE_NAME;
-        console.log('🏭 Tabla de razones sociales encontrada:', tablaRazones);
+        console.log('🛡 Tabla de razones sociales encontrada:', tablaRazones);
         
         const razonesFields = await pool.request().query(`
           SELECT COLUMN_NAME 
@@ -96,14 +96,14 @@ exports.getEmpleados = async (req, res) => {
         `);
         
         const camposRazones = razonesFields.recordset.map(f => f.COLUMN_NAME);
-        console.log('🏭 Campos de razones sociales:', camposRazones);
+        console.log('🛡 Campos de razones sociales:', camposRazones);
         
         let campoNombre = 'nombre_razon';
         if (camposRazones.includes('razon_social')) campoNombre = 'razon_social';
         else if (camposRazones.includes('nombre')) campoNombre = 'nombre';
         else if (camposRazones.includes('descripcion')) campoNombre = 'descripcion';
         
-        console.log('🏭 Usando campo nombre:', campoNombre);
+        console.log('🛡 Usando campo nombre:', campoNombre);
         
         const razonesSocialesResult = await pool.request()
           .query(`SELECT id, ${campoNombre} as nombre_razon FROM ${tablaRazones}`);
@@ -175,6 +175,20 @@ exports.getEmpleados = async (req, res) => {
       } catch (error) {
         console.log('⚠️ Tabla empresas no encontrada');
       }
+
+      // ✅ CARGAR EMPLEADOS_SUCURSALES (relación múltiple)
+      let empleadosSucursales = [];
+      try {
+        const empleadosSucursalesResult = await pool.request().query(`
+          SELECT es.id_empleado, es.id_sucursal, s.nombre as sucursal_nombre
+          FROM empleados_sucursales es
+          INNER JOIN sucursales s ON es.id_sucursal = s.id
+        `);
+        empleadosSucursales = empleadosSucursalesResult.recordset;
+        console.log('✅ Relaciones empleados-sucursales cargadas:', empleadosSucursales.length);
+      } catch (error) {
+        console.log('⚠️ Tabla empleados_sucursales no encontrada');
+      }
       
       // ✅ COMBINAR DATOS CON VALIDACIONES
       empleadosConRelaciones = result.recordset.map(empleado => {
@@ -188,12 +202,25 @@ exports.getEmpleados = async (req, res) => {
           empleadoCompleto.nombre_razon = 'Sin razón social';
         }
         
-        // Agregar nombre de sucursal
-        if (empleado.id_sucursal && sucursales.length > 0) {
-          const sucursal = sucursales.find(s => s.id === empleado.id_sucursal);
-          empleadoCompleto.sucursal_nombre = sucursal ? sucursal.nombre : 'Sin sucursal';
+        // 🆕 MANEJO MEJORADO DE SUCURSALES (múltiples)
+        const sucursalesEmpleado = empleadosSucursales.filter(es => es.id_empleado === empleado.id);
+        if (sucursalesEmpleado.length > 0) {
+          empleadoCompleto.sucursales = sucursalesEmpleado.map(es => ({
+            id: es.id_sucursal,
+            nombre: es.sucursal_nombre
+          }));
+          empleadoCompleto.sucursal_nombre = sucursalesEmpleado[0].sucursal_nombre; // Primera sucursal para compatibilidad
+          empleadoCompleto.id_sucursal_principal = sucursalesEmpleado[0].id_sucursal;
         } else {
-          empleadoCompleto.sucursal_nombre = 'Sin sucursal';
+          // Fallback: buscar en campo id_sucursal directo si existe
+          if (empleado.id_sucursal && sucursales.length > 0) {
+            const sucursal = sucursales.find(s => s.id === empleado.id_sucursal);
+            empleadoCompleto.sucursal_nombre = sucursal ? sucursal.nombre : 'Sin sucursal';
+            empleadoCompleto.sucursales = sucursal ? [{ id: sucursal.id, nombre: sucursal.nombre }] : [];
+          } else {
+            empleadoCompleto.sucursal_nombre = 'Sin sucursal';
+            empleadoCompleto.sucursales = [];
+          }
         }
         
         // Agregar nombre de centro de costo
@@ -230,6 +257,7 @@ exports.getEmpleados = async (req, res) => {
         ...empleado,
         nombre_razon: 'Error al cargar',
         sucursal_nombre: 'Error al cargar',
+        sucursales: [],
         centro_costo_nombre: 'Error al cargar',
         empresa_nombre: 'Error al cargar',
         jefe_nombre: 'Error al cargar'
@@ -326,7 +354,21 @@ exports.getEmpleadoById = async (req, res) => {
         }
       }
       
-      // Cargar otros datos relacionados de manera similar...
+      // 🆕 CARGAR SUCURSALES MÚLTIPLES
+      try {
+        const sucursalesResult = await pool.request()
+          .input('id_empleado', sql.Int, id)
+          .query(`
+            SELECT s.id, s.nombre, s.tipo_sucursal
+            FROM empleados_sucursales es
+            INNER JOIN sucursales s ON es.id_sucursal = s.id
+            WHERE es.id_empleado = @id_empleado
+          `);
+        
+        empleado.sucursales = sucursalesResult.recordset;
+      } catch (sucError) {
+        empleado.sucursales = [];
+      }
       
     } catch (relacionError) {
       console.warn('⚠️ Error al cargar datos relacionados para empleado:', relacionError.message);
@@ -345,11 +387,11 @@ exports.getEmpleadoById = async (req, res) => {
   }
 };
 
-// ✅ FUNCIÓN: Crear un nuevo empleado - CON TODOS LOS CAMPOS
+// ✅ FUNCIÓN: Crear un nuevo empleado - CON TODOS LOS CAMPOS Y MEJORAS
 exports.createEmpleado = async (req, res) => {
   try {
-    console.log('📨 === CREANDO NUEVO EMPLEADO ===');
-    console.log('📨 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('🔨 === CREANDO NUEVO EMPLEADO ===');
+    console.log('🔨 Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     const { 
       rut, nombre, apellido, sucursales_ids, id_razon_social, id_centro_costo,
@@ -362,33 +404,42 @@ exports.createEmpleado = async (req, res) => {
     } = req.body;
     
     // Validar datos requeridos
-    if (!rut || !nombre || !apellido || !id_razon_social) {
+    if (!rut || !nombre || !apellido) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Datos incompletos. RUT, nombre, apellido y razón social son obligatorios' 
+        message: 'Datos incompletos. RUT, nombre y apellido son obligatorios' 
       });
     }
     
-    // Validar y convertir id_razon_social a entero
-    let razonSocialId;
-    if (typeof id_razon_social === 'string') {
-      razonSocialId = parseInt(id_razon_social, 10);
-    } else {
-      razonSocialId = id_razon_social;
+    // 🆕 VALIDACIÓN MEJORADA DE RUT
+    const rutLimpio = limpiarRUT(rut);
+    if (!rutLimpio || rutLimpio.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'RUT inválido. Debe tener al menos 8 caracteres'
+      });
     }
     
-    if (isNaN(razonSocialId) || razonSocialId <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'ID de razón social debe ser un número válido mayor a 0' 
-      });
+    // Validar y convertir id_razon_social a entero si se proporciona
+    let razonSocialId = null;
+    if (id_razon_social) {
+      razonSocialId = typeof id_razon_social === 'string'
+        ? parseInt(id_razon_social, 10)
+        : id_razon_social;
+      
+      if (isNaN(razonSocialId) || razonSocialId <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'ID de razón social debe ser un número válido mayor a 0' 
+        });
+      }
     }
     
     const pool = await poolPromise;
     
     // Verificar si ya existe un empleado con el mismo rut
     const checkResult = await pool.request()
-      .input('rut', sql.VarChar, rut)
+      .input('rut', sql.VarChar, rutLimpio)
       .query('SELECT COUNT(*) as count FROM empleados WHERE rut = @rut');
     
     if (checkResult.recordset[0].count > 0) {
@@ -440,7 +491,7 @@ exports.createEmpleado = async (req, res) => {
       return isNaN(parsed) ? null : parsed;
     };
     
-    // ✅ CREAR EMPLEADO CON TODOS LOS CAMPOS
+    // ✅ CREAR EMPLEADO CON TODOS LOS CAMPOS Y MANEJO DE ERRORES MEJORADO
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
     
@@ -455,8 +506,14 @@ exports.createEmpleado = async (req, res) => {
       const camposExistentes = empleadosFields.recordset.map(f => f.COLUMN_NAME);
       
       // Construir query dinámicamente según campos existentes
-      let campos = ['rut', 'nombre', 'apellido', 'id_razon_social', 'created_at', 'updated_at'];
-      let valores = ['@rut', '@nombre', '@apellido', '@id_razon_social', '@created_at', '@updated_at'];
+      let campos = ['rut', 'nombre', 'apellido', 'activo', 'created_at', 'updated_at'];
+      let valores = ['@rut', '@nombre', '@apellido', '@activo', '@created_at', '@updated_at'];
+      
+      // Agregar id_razon_social solo si se proporciona
+      if (razonSocialId && camposExistentes.includes('id_razon_social')) {
+        campos.push('id_razon_social');
+        valores.push('@id_razon_social');
+      }
       
       const camposOpcionales = [
         { campo: 'codigo_empleado', valor: codigo_empleado },
@@ -470,7 +527,6 @@ exports.createEmpleado = async (req, res) => {
         { campo: 'fecha_ingreso', valor: fechaIngreso },
         { campo: 'fecha_termino', valor: fechaTermino },
         { campo: 'estado_civil', valor: estado_civil },
-        { campo: 'activo', valor: activo !== undefined ? (activo ? 1 : 0) : 1 },
         { campo: 'discapacidad', valor: discapacidad !== undefined ? (discapacidad ? 1 : 0) : 0 },
         { campo: 'telefono', valor: telefono },
         { campo: 'descripcion', valor: descripcion },
@@ -490,7 +546,7 @@ exports.createEmpleado = async (req, res) => {
       
       // Agregar campos opcionales que existan en la tabla
       camposOpcionales.forEach(({ campo, valor }) => {
-        if (camposExistentes.includes(campo)) {
+        if (camposExistentes.includes(campo) && valor !== null && valor !== undefined) {
           campos.push(campo);
           valores.push(`@${campo}`);
         }
@@ -504,19 +560,24 @@ exports.createEmpleado = async (req, res) => {
       
       // Preparar request con todos los parámetros
       const request = transaction.request()
-        .input('rut', sql.VarChar, rut)
+        .input('rut', sql.VarChar, rutLimpio)
         .input('nombre', sql.VarChar, nombre)
         .input('apellido', sql.VarChar, apellido)
-        .input('id_razon_social', sql.Int, razonSocialId)
+        .input('activo', sql.Bit, activo !== undefined ? (activo ? 1 : 0) : 1)
         .input('created_at', sql.DateTime, now)
         .input('updated_at', sql.DateTime, now);
       
+      // Agregar id_razon_social si se proporciona
+      if (razonSocialId && camposExistentes.includes('id_razon_social')) {
+        request.input('id_razon_social', sql.Int, razonSocialId);
+      }
+      
       // Agregar parámetros opcionales
       camposOpcionales.forEach(({ campo, valor }) => {
-        if (camposExistentes.includes(campo)) {
+        if (camposExistentes.includes(campo) && valor !== null && valor !== undefined) {
           if (campo.includes('fecha') && valor) {
             request.input(campo, sql.Date, valor);
-          } else if (campo === 'activo' || campo === 'discapacidad') {
+          } else if (campo === 'discapacidad') {
             request.input(campo, sql.Bit, valor);
           } else if (campo.startsWith('id_') && valor) {
             request.input(campo, sql.Int, valor);
@@ -538,17 +599,22 @@ exports.createEmpleado = async (req, res) => {
         try {
           console.log('🏢 Intentando asignar sucursales:', sucursales_ids);
           
-          // Verificar si la tabla empleados_sucursales existe
+          // 🆕 CREAR TABLA SI NO EXISTE (mejorado)
           await transaction.request().query(`
             IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'empleados_sucursales')
-            CREATE TABLE empleados_sucursales (
-              id INT IDENTITY(1,1) PRIMARY KEY,
-              id_empleado INT NOT NULL,
-              id_sucursal INT NOT NULL,
-              created_at DATETIME DEFAULT GETDATE(),
-              FOREIGN KEY (id_empleado) REFERENCES empleados(id),
-              FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
-            )
+            BEGIN
+              CREATE TABLE empleados_sucursales (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                id_empleado INT NOT NULL,
+                id_sucursal INT NOT NULL,
+                created_at DATETIME DEFAULT GETDATE(),
+                CONSTRAINT FK_empleados_sucursales_empleado 
+                  FOREIGN KEY (id_empleado) REFERENCES empleados(id) ON DELETE CASCADE,
+                CONSTRAINT FK_empleados_sucursales_sucursal 
+                  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id) ON DELETE CASCADE,
+                CONSTRAINT UC_empleado_sucursal UNIQUE (id_empleado, id_sucursal)
+              )
+            END
           `);
           
           for (const sucursalId of sucursales_ids) {
@@ -595,11 +661,11 @@ exports.createEmpleado = async (req, res) => {
   }
 };
 
-// ✅ FUNCIÓN: Actualizar empleado - CON TODOS LOS CAMPOS
+// ✅ FUNCIÓN: Actualizar empleado - CON TODOS LOS CAMPOS Y MEJORAS
 exports.updateEmpleado = async (req, res) => {
   try {
     console.log('🔄 === ACTUALIZANDO EMPLEADO ===');
-    console.log('📨 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('🔨 Datos recibidos:', JSON.stringify(req.body, null, 2));
     console.log('🆔 ID:', req.params.id);
     
     const id = parseInt(req.params.id);
@@ -629,16 +695,19 @@ exports.updateEmpleado = async (req, res) => {
       });
     }
 
-    // Validar id_razon_social
-    const razonSocialIdParsed = typeof id_razon_social === 'string'
-      ? parseInt(id_razon_social, 10)
-      : id_razon_social;
+    // Validar id_razon_social si se proporciona
+    let razonSocialIdParsed = null;
+    if (id_razon_social) {
+      razonSocialIdParsed = typeof id_razon_social === 'string'
+        ? parseInt(id_razon_social, 10)
+        : id_razon_social;
 
-    if (isNaN(razonSocialIdParsed) || razonSocialIdParsed <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'ID de razón social debe ser un número válido mayor a 0' 
-      });
+      if (isNaN(razonSocialIdParsed) || razonSocialIdParsed <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'ID de razón social debe ser un número válido mayor a 0' 
+        });
+      }
     }
     
     // Preparar fechas
@@ -709,7 +778,12 @@ exports.updateEmpleado = async (req, res) => {
       const camposExistentes = empleadosFields.recordset.map(f => f.COLUMN_NAME);
       
       // Construir update dinámicamente
-      let setClauses = ['nombre = @nombre', 'apellido = @apellido', 'id_razon_social = @id_razon_social', 'updated_at = GETDATE()'];
+      let setClauses = ['nombre = @nombre', 'apellido = @apellido', 'updated_at = GETDATE()'];
+      
+      // Agregar id_razon_social solo si se proporciona y el campo existe
+      if (razonSocialIdParsed && camposExistentes.includes('id_razon_social')) {
+        setClauses.push('id_razon_social = @id_razon_social');
+      }
       
       const camposOpcionales = [
         { campo: 'codigo_empleado', valor: codigo_empleado },
@@ -742,8 +816,8 @@ exports.updateEmpleado = async (req, res) => {
       ];
       
       // Agregar SET clauses para campos existentes
-      camposOpcionales.forEach(({ campo }) => {
-        if (camposExistentes.includes(campo)) {
+      camposOpcionales.forEach(({ campo, valor }) => {
+        if (camposExistentes.includes(campo) && valor !== null && valor !== undefined) {
           setClauses.push(`${campo} = @${campo}`);
         }
       });
@@ -757,12 +831,16 @@ exports.updateEmpleado = async (req, res) => {
       const request = transaction.request()
         .input('id', sql.Int, id)
         .input('nombre', sql.NVarChar, nombre)
-        .input('apellido', sql.NVarChar, apellido)
-        .input('id_razon_social', sql.Int, razonSocialIdParsed);
+        .input('apellido', sql.NVarChar, apellido);
+      
+      // Agregar id_razon_social si se proporciona
+      if (razonSocialIdParsed && camposExistentes.includes('id_razon_social')) {
+        request.input('id_razon_social', sql.Int, razonSocialIdParsed);
+      }
       
       // Agregar parámetros opcionales
       camposOpcionales.forEach(({ campo, valor }) => {
-        if (camposExistentes.includes(campo)) {
+        if (camposExistentes.includes(campo) && valor !== null && valor !== undefined) {
           if (campo.includes('fecha') && valor) {
             request.input(campo, sql.Date, valor);
           } else if (campo === 'activo' || campo === 'discapacidad') {
@@ -832,7 +910,292 @@ exports.updateEmpleado = async (req, res) => {
   }
 };
 
-// ✅ RESTO DE FUNCIONES SIN CAMBIOS PERO IMPORTADAS COMPLETAS
+// ✅ FUNCIÓN: Validar RUT
+exports.validateRut = async (req, res) => {
+  try {
+    const { rut } = req.body;
+    
+    if (!rut) {
+      return res.status(400).json({
+        success: false,
+        message: 'RUT es requerido'
+      });
+    }
+    
+    const rutLimpio = limpiarRUT(rut);
+    
+    if (!rutLimpio || rutLimpio.length < 8) {
+      return res.json({
+        success: true,
+        valido: false,
+        message: 'RUT inválido. Debe tener al menos 8 caracteres'
+      });
+    }
+    
+    const pool = await poolPromise;
+    
+    // Verificar si ya existe
+    const existeResult = await pool.request()
+      .input('rut', sql.VarChar, rutLimpio)
+      .query('SELECT id, nombre, apellido FROM empleados WHERE rut = @rut');
+    
+    if (existeResult.recordset.length > 0) {
+      const empleado = existeResult.recordset[0];
+      return res.json({
+        success: true,
+        valido: false,
+        existe: true,
+        empleado: empleado,
+        message: `RUT ya existe: ${empleado.nombre} ${empleado.apellido}`
+      });
+    }
+    
+    return res.json({
+      success: true,
+      valido: true,
+      existe: false,
+      message: 'RUT válido y disponible'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error validando RUT:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al validar RUT',
+      error: error.message
+    });
+  }
+};
+
+// ✅ FUNCIÓN: Obtener empleados por sucursal
+exports.getEmpleadosBySucursal = async (req, res) => {
+  try {
+    const id_sucursal = parseInt(req.params.id_sucursal);
+    
+    if (isNaN(id_sucursal)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'ID de sucursal debe ser un número válido' 
+      });
+    }
+    
+    const pool = await poolPromise;
+    
+    try {
+      const result = await pool.request()
+        .input('id_sucursal', sql.Int, id_sucursal)
+        .query(`
+          SELECT 
+            e.id,
+            e.rut,
+            e.nombre,
+            e.apellido,
+            e.cargo,
+            e.activo,
+            e.correo_electronico,
+            e.telefono,
+            s.nombre as sucursal_nombre
+          FROM empleados_sucursales es
+          INNER JOIN empleados e ON es.id_empleado = e.id
+          INNER JOIN sucursales s ON es.id_sucursal = s.id
+          WHERE es.id_sucursal = @id_sucursal AND e.activo = 1
+          ORDER BY e.nombre, e.apellido
+        `);
+      
+      return res.json({ 
+        success: true, 
+        empleados: result.recordset 
+      });
+      
+    } catch (error) {
+      console.warn('⚠️ Error al obtener empleados por sucursal:', error.message);
+      return res.json({ 
+        success: true, 
+        empleados: [] 
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error al obtener empleados por sucursal:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Error en el servidor',
+      error: error.message
+    });
+  }
+};
+
+// ✅ FUNCIÓN: Importar empleados desde Excel
+exports.importEmpleadosFromExcel = async (req, res) => {
+  try {
+    console.log('📊 === IMPORTANDO EMPLEADOS DESDE EXCEL ===');
+    
+    const { datosExcel, validarDuplicados = true } = req.body;
+    
+    if (!datosExcel || !Array.isArray(datosExcel) || datosExcel.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No hay datos del Excel para procesar'
+      });
+    }
+    
+    const pool = await poolPromise;
+    let procesados = 0;
+    let creados = 0;
+    let actualizados = 0;
+    let errores = 0;
+    const erroresDetalle = [];
+    
+    console.log(`📊 Procesando ${datosExcel.length} empleados...`);
+    
+    // Detectar campos de la tabla empleados
+    const empleadosFields = await pool.request().query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'empleados'
+    `);
+    const camposExistentes = empleadosFields.recordset.map(f => f.COLUMN_NAME);
+    
+    for (let i = 0; i < datosExcel.length; i++) {
+      const empleadoData = datosExcel[i];
+      
+      try {
+        // Validar datos básicos
+        if (!empleadoData.rut || !empleadoData.nombre || !empleadoData.apellido) {
+          errores++;
+          erroresDetalle.push({
+            fila: i + 1,
+            error: 'RUT, nombre y apellido son obligatorios',
+            datos: empleadoData
+          });
+          continue;
+        }
+        
+        const rutLimpio = limpiarRUT(empleadoData.rut);
+        
+        if (!rutLimpio || rutLimpio.length < 8) {
+          errores++;
+          erroresDetalle.push({
+            fila: i + 1,
+            error: 'RUT inválido',
+            datos: empleadoData
+          });
+          continue;
+        }
+        
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        
+        try {
+          // Verificar si el empleado existe
+          const existeResult = await transaction.request()
+            .input('rut', sql.VarChar, rutLimpio)
+            .query('SELECT id FROM empleados WHERE rut = @rut');
+          
+          const existe = existeResult.recordset.length > 0;
+          
+          if (existe && !validarDuplicados) {
+            // Actualizar empleado existente
+            const empleadoId = existeResult.recordset[0].id;
+            
+            let setClauses = ['nombre = @nombre', 'apellido = @apellido', 'updated_at = GETDATE()'];
+            const request = transaction.request()
+              .input('id', sql.Int, empleadoId)
+              .input('nombre', sql.VarChar, empleadoData.nombre)
+              .input('apellido', sql.VarChar, empleadoData.apellido);
+            
+            // Agregar campos opcionales
+            const camposOpcionales = [
+              'cargo', 'direccion', 'correo_electronico', 'telefono', 'nacionalidad'
+            ];
+            
+            camposOpcionales.forEach(campo => {
+              if (empleadoData[campo] && camposExistentes.includes(campo)) {
+                setClauses.push(`${campo} = @${campo}`);
+                request.input(campo, sql.VarChar, empleadoData[campo]);
+              }
+            });
+            
+            await request.query(`UPDATE empleados SET ${setClauses.join(', ')} WHERE id = @id`);
+            
+            actualizados++;
+            
+          } else if (!existe) {
+            // Crear nuevo empleado
+            let campos = ['rut', 'nombre', 'apellido', 'activo', 'created_at', 'updated_at'];
+            let valores = ['@rut', '@nombre', '@apellido', '1', 'GETDATE()', 'GETDATE()'];
+            
+            const request = transaction.request()
+              .input('rut', sql.VarChar, rutLimpio)
+              .input('nombre', sql.VarChar, empleadoData.nombre)
+              .input('apellido', sql.VarChar, empleadoData.apellido);
+            
+            // Agregar campos opcionales
+            const camposOpcionales = [
+              'cargo', 'direccion', 'correo_electronico', 'telefono', 'nacionalidad'
+            ];
+            
+            camposOpcionales.forEach(campo => {
+              if (empleadoData[campo] && camposExistentes.includes(campo)) {
+                campos.push(campo);
+                valores.push(`@${campo}`);
+                request.input(campo, sql.VarChar, empleadoData[campo]);
+              }
+            });
+            
+            await request.query(`
+              INSERT INTO empleados (${campos.join(', ')})
+              VALUES (${valores.join(', ')})
+            `);
+            
+            creados++;
+          }
+          
+          await transaction.commit();
+          procesados++;
+          
+        } catch (transactionError) {
+          await transaction.rollback();
+          throw transactionError;
+        }
+        
+      } catch (empleadoError) {
+        console.error(`❌ Error procesando empleado fila ${i + 1}:`, empleadoError.message);
+        errores++;
+        erroresDetalle.push({
+          fila: i + 1,
+          error: empleadoError.message,
+          datos: empleadoData
+        });
+      }
+    }
+    
+    console.log(`✅ Importación completada: ${procesados} procesados, ${creados} creados, ${actualizados} actualizados, ${errores} errores`);
+    
+    return res.json({
+      success: true,
+      message: `Importación completada: ${procesados}/${datosExcel.length} empleados procesados`,
+      data: {
+        total_filas: datosExcel.length,
+        procesados,
+        creados,
+        actualizados,
+        errores,
+        errores_detalle: erroresDetalle.slice(0, 10) // Solo primeros 10 errores
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en importación de empleados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al importar empleados desde Excel',
+      error: error.message
+    });
+  }
+};
+
+// ✅ RESTO DE FUNCIONES EXISTENTES MEJORADAS
 exports.getEmpleadoSucursales = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -972,14 +1335,19 @@ exports.updateEmpleadoSucursales = async (req, res) => {
       // Verificar si la tabla empleados_sucursales existe
       await pool.request().query(`
         IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'empleados_sucursales')
-        CREATE TABLE empleados_sucursales (
-          id INT IDENTITY(1,1) PRIMARY KEY,
-          id_empleado INT NOT NULL,
-          id_sucursal INT NOT NULL,
-          created_at DATETIME DEFAULT GETDATE(),
-          FOREIGN KEY (id_empleado) REFERENCES empleados(id),
-          FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
-        )
+        BEGIN
+          CREATE TABLE empleados_sucursales (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            id_empleado INT NOT NULL,
+            id_sucursal INT NOT NULL,
+            created_at DATETIME DEFAULT GETDATE(),
+            CONSTRAINT FK_empleados_sucursales_empleado 
+              FOREIGN KEY (id_empleado) REFERENCES empleados(id) ON DELETE CASCADE,
+            CONSTRAINT FK_empleados_sucursales_sucursal 
+              FOREIGN KEY (id_sucursal) REFERENCES sucursales(id) ON DELETE CASCADE,
+            CONSTRAINT UC_empleado_sucursal UNIQUE (id_empleado, id_sucursal)
+          )
+        END
       `);
       
       // Iniciar transacción
@@ -1324,165 +1692,68 @@ exports.getEmpleadosStats = async (req, res) => {
         FROM empleados
       `);
     
-    const discapacidadResult = await pool.request()
+    const cargoResult = await pool.request()
       .query(`
         SELECT 
-          SUM(CASE WHEN discapacidad = 1 THEN 1 ELSE 0 END) as con_discapacidad,
-          SUM(CASE WHEN discapacidad = 0 THEN 1 ELSE 0 END) as sin_discapacidad
-        FROM empleados
+          ISNULL(cargo, 'Sin especificar') as cargo,
+          COUNT(*) as cantidad
+        FROM empleados 
+        WHERE activo = 1
+        GROUP BY cargo
+        ORDER BY cantidad DESC
       `);
     
-    return res.json({ 
-      success: true, 
-      estadisticas: {
-        por_estado: estadoResult.recordset[0],
-        por_discapacidad: discapacidadResult.recordset[0]
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error al obtener estadísticas de empleados:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error en el servidor',
-      error: error.message
-    });
-  }
-};
-
-exports.getEmpleadosBySucursal = async (req, res) => {
-  try {
-    const idSucursal = parseInt(req.params.id_sucursal);
-    
-    if (isNaN(idSucursal)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'ID de sucursal debe ser un número válido' 
-      });
-    }
-    
-    const pool = await poolPromise;
-    
-    // Obtener empleados de la sucursal (compatibilidad con ambos sistemas)
-    const empleadosResult = await pool.request()
-      .input('id_sucursal', sql.Int, idSucursal)
+    const sucursalResult = await pool.request()
       .query(`
-        SELECT DISTINCT
-          e.id,
-          e.rut,
-          e.nombre,
-          e.apellido,
-          e.cargo,
-          e.correo_electronico,
-          e.telefono,
-          e.activo,
-          e.discapacidad,
-          e.fecha_ingreso
-        FROM empleados e
-        WHERE e.id_sucursal = @id_sucursal
-        ORDER BY e.nombre, e.apellido
+        SELECT 
+          s.nombre as sucursal,
+          COUNT(DISTINCT es.id_empleado) as empleados
+        FROM sucursales s
+        LEFT JOIN empleados_sucursales es ON s.id = es.id_sucursal
+        LEFT JOIN empleados e ON es.id_empleado = e.id AND e.activo = 1
+        GROUP BY s.id, s.nombre
+        ORDER BY empleados DESC
       `);
-    
-    return res.json({ 
-      success: true, 
-      empleados: empleadosResult.recordset 
-    });
-  } catch (error) {
-    console.error('❌ Error al obtener empleados por sucursal:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Error en el servidor',
-      error: error.message
-    });
-  }
-};
-
-exports.importEmpleadosFromExcel = async (req, res) => {
-  try {
-    return res.status(501).json({
-      success: false,
-      message: 'Funcionalidad de importación desde Excel no implementada aún'
-    });
-  } catch (error) {
-    console.error('❌ Error en importación de empleados:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error en el servidor',
-      error: error.message
-    });
-  }
-};
-
-exports.validateRut = async (req, res) => {
-  try {
-    const { rut } = req.body;
-    
-    if (!rut) {
-      return res.status(400).json({
-        success: false,
-        message: 'RUT es requerido'
-      });
-    }
-    
-    // Validación básica de RUT
-    const validarRutChileno = (rut) => {
-      if (!rut) return false;
-      
-      const rutLimpio = rut.replace(/[.-]/g, '');
-      
-      if (rutLimpio.length < 8) return false;
-      
-      const cuerpo = rutLimpio.slice(0, -1);
-      const dv = rutLimpio.slice(-1).toUpperCase();
-      
-      if (!/^\d+$/.test(cuerpo)) return false;
-      if (dv !== 'K' && !/^\d$/.test(dv)) return false;
-      
-      let suma = 0;
-      let multiplicador = 2;
-      
-      for (let i = cuerpo.length - 1; i >= 0; i--) {
-        suma += parseInt(cuerpo.charAt(i)) * multiplicador;
-        multiplicador = multiplicador === 7 ? 2 : multiplicador + 1;
-      }
-      
-      const resto = suma % 11;
-      const dvCalculado = resto === 0 ? '0' : resto === 1 ? 'K' : (11 - resto).toString();
-      
-      return dv === dvCalculado;
-    };
-    
-    const esValido = validarRutChileno(rut);
-    
-    // Si es válido, verificar si ya existe en la base de datos
-    let existeEnBD = false;
-    if (esValido) {
-      try {
-        const pool = await poolPromise;
-        const checkResult = await pool.request()
-          .input('rut', sql.VarChar, rut)
-          .query('SELECT COUNT(*) as count FROM empleados WHERE rut = @rut');
-        
-        existeEnBD = checkResult.recordset[0].count > 0;
-      } catch (error) {
-        console.warn('⚠️ No se pudo verificar existencia del RUT en BD');
-      }
-    }
     
     return res.json({
       success: true,
-      valido: esValido,
-      existe: existeEnBD,
-      message: esValido 
-        ? (existeEnBD ? 'RUT válido pero ya existe en la base de datos' : 'RUT válido')
-        : 'RUT inválido'
+      stats: {
+        estado: estadoResult.recordset[0],
+        por_cargo: cargoResult.recordset,
+        por_sucursal: sucursalResult.recordset
+      }
     });
-    
   } catch (error) {
-    console.error('❌ Error al validar RUT:', error);
+    console.error('❌ Error al obtener estadísticas:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error en el servidor',
+      message: 'Error al obtener estadísticas',
       error: error.message
     });
   }
 };
+
+// ========== FUNCIONES AUXILIARES ==========
+
+/**
+ * Limpia y normaliza un RUT
+ * @param {string} rut - RUT a limpiar
+ * @returns {string|null} - RUT limpio o null si es inválido
+ */
+function limpiarRUT(rut) {
+  if (!rut) return null;
+  
+  // Convertir a string y limpiar
+  let rutLimpio = String(rut)
+    .replace(/[.\-\s]/g, '') // Remover puntos, guiones y espacios
+    .toUpperCase()
+    .trim();
+  
+  // Validar longitud mínima
+  if (rutLimpio.length < 8) return null;
+  
+  // Validar formato básico (números + K opcional)
+  if (!/^\d{7,8}[0-9K]$/.test(rutLimpio)) return null;
+  
+  return rutLimpio;
+}
