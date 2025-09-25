@@ -1,4 +1,4 @@
-// EmpleadosPage.jsx - VERSIÓN COMPLETA CON TODOS LOS CAMPOS NUEVOS
+// EmpleadosPage.jsx - VERSIÓN COMPLETA CORREGIDA CON FILTRO "SIN RAZÓN SOCIAL"
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, 
@@ -52,15 +52,19 @@ import {
   Work as WorkIcon,
   Fingerprint as FingerprintIcon,
   CloudUpload as CloudUploadIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  DeleteSweep as DeleteSweepIcon,
+  SelectAll as SelectAllIcon,
+  Business as BusinessIcon
 } from '@mui/icons-material';
 import api from '../api/api';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { es } from 'date-fns/locale';
 import { format, parseISO } from 'date-fns';
+import ImportarEmpleadosExcel from './ImportarEmpleadosExcel';
 
-// 🔧 CONFIGURACIÓN DE API
+// CONFIGURACIÓN DE API COMPLETA CON ASIGNACIÓN MASIVA DE RAZÓN SOCIAL
 const empleadosAPI = {
   obtenerEmpleados: (showInactive = false) => api.get(`/empleados${showInactive ? '?showInactive=true' : ''}`),
   obtenerEmpleadoPorId: (id) => api.get(`/empleados/${id}`),
@@ -76,9 +80,13 @@ const empleadosAPI = {
   validarRUT: (rut) => api.post('/empleados/validate-rut', { rut }),
   obtenerSucursales: () => api.get('/sucursales'),
   obtenerRazonesSociales: () => api.get('/razonessociales'),
-  obtenerCentrosCostos: () => api.get('/centroscostos'),
+  obtenerCentrosCostos: () => api.get('/centros-costos'),
   obtenerEmpresas: () => api.get('/empresas'),
-  obtenerJefes: () => api.get('/empleados?cargo=jefe')
+  obtenerJefes: () => api.get('/empleados?cargo=jefe'),
+  importarEmpleadosExcel: (datosExcel, validarDuplicados = true) => 
+    api.post('/empleados/import-excel', { datosExcel, validarDuplicados }),
+  updateRazonSocialMasiva: (empleados_ids, id_razon_social) => 
+    api.put('/empleados/razon-social-masiva', { empleados_ids, id_razon_social })
 };
  
 // Función para formatear fecha evitando problemas de zona horaria
@@ -183,11 +191,21 @@ const EmpleadosPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
+  // ESTADOS PARA SELECCIÓN MÚLTIPLE
+  const [selectedEmpleados, setSelectedEmpleados] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  
   // Estados de diálogos
   const [openForm, setOpenForm] = useState(false);
   const [openDelete, setOpenDelete] = useState(false);
+  const [openDeleteMultiple, setOpenDeleteMultiple] = useState(false);
+  const [openRazonSocialMasiva, setOpenRazonSocialMasiva] = useState(false);
   const [openDetalles, setOpenDetalles] = useState(false);
+  const [openImportDialog, setOpenImportDialog] = useState(false);
   const [selectedEmpleado, setSelectedEmpleado] = useState(null);
+  
+  // Estados específicos para asignación masiva de razón social
+  const [razonSocialSeleccionada, setRazonSocialSeleccionada] = useState('');
   
   // Estados de filtros y búsqueda
   const [searchTerm, setSearchTerm] = useState('');
@@ -275,7 +293,7 @@ const EmpleadosPage = () => {
     }
   }, []);
 
-  // Funciones de carga de datos
+  // Funciones de carga de datos - DECLARADAS PRIMERO
   const fetchEmpleados = useCallback(async () => {
     try {
       setLoading(true);
@@ -300,6 +318,10 @@ const EmpleadosPage = () => {
         
         setEmpleados(empleadosConSucursales);
         setError(null);
+        
+        // Limpiar selección al recargar
+        setSelectedEmpleados([]);
+        setSelectAll(false);
       } else {
         setEmpleados([]);
         setError('No se encontraron empleados');
@@ -408,6 +430,331 @@ const EmpleadosPage = () => {
     }
   }, []);
 
+  // FUNCIÓN: Buscar sucursal por nombre mapeado
+  const buscarSucursalPorNombre = useCallback((nombreMapeado) => {
+    if (!nombreMapeado || !sucursales.length) return null;
+    
+    // Buscar coincidencia exacta primero
+    let sucursalEncontrada = sucursales.find(s => 
+      s.nombre === nombreMapeado || 
+      s.nombre.toLowerCase() === nombreMapeado.toLowerCase()
+    );
+    
+    if (sucursalEncontrada) {
+      console.log(`✅ Sucursal encontrada (exacta): ${nombreMapeado} -> ID: ${sucursalEncontrada.id}`);
+      return sucursalEncontrada;
+    }
+    
+    // Buscar coincidencia parcial
+    sucursalEncontrada = sucursales.find(s => 
+      s.nombre.toLowerCase().includes(nombreMapeado.toLowerCase()) ||
+      nombreMapeado.toLowerCase().includes(s.nombre.toLowerCase())
+    );
+    
+    if (sucursalEncontrada) {
+      console.log(`✅ Sucursal encontrada (parcial): ${nombreMapeado} -> ID: ${sucursalEncontrada.id}`);
+      return sucursalEncontrada;
+    }
+    
+    console.log(`⚠️ No se encontró sucursal para: ${nombreMapeado}`);
+    return null;
+  }, [sucursales]);
+
+  // 🔧 FUNCIÓN CORREGIDA: Aplicar filtros con filtro para empleados sin razón social
+  const empleadosArray = Array.isArray(empleados) ? empleados : [];
+  
+  const filteredEmpleados = React.useMemo(() => {
+    return empleadosArray.filter(empleado => {
+      // Filtro por estado activo/inactivo
+      if (!showInactive && !empleado.activo) return false;
+      
+      // 🆕 FILTRO POR RAZÓN SOCIAL CON OPCIÓN "SIN ASIGNAR"
+      if (razonSocialFilter !== 'todas') {
+        if (razonSocialFilter === 'sin_asignar') {
+          // Mostrar empleados sin razón social asignada
+          if (empleado.id_razon_social && empleado.id_razon_social !== 0) return false;
+        } else {
+          // Mostrar empleados con la razón social específica
+          if (empleado.id_razon_social !== parseInt(razonSocialFilter)) return false;
+        }
+      }
+      
+      // Filtro por discapacidad
+      if (showDiscapacidad && !empleado.discapacidad) return false;
+      
+      return true;
+    });
+  }, [empleadosArray, showInactive, razonSocialFilter, showDiscapacidad]);
+  
+  const paginatedEmpleados = React.useMemo(() => {
+    return filteredEmpleados.slice(
+      page * rowsPerPage,
+      page * rowsPerPage + rowsPerPage
+    );
+  }, [filteredEmpleados, page, rowsPerPage]);
+
+  // FUNCIONES PARA SELECCIÓN MÚLTIPLE
+  
+  // Seleccionar/deseleccionar un empleado
+  const handleSelectEmpleado = useCallback((empleadoId, checked) => {
+    setSelectedEmpleados(prev => {
+      if (checked) {
+        return [...prev, empleadoId];
+      } else {
+        return prev.filter(id => id !== empleadoId);
+      }
+    });
+  }, []);
+
+  // Seleccionar/deseleccionar todos los empleados de la página actual
+  const handleSelectAll = useCallback((checked) => {
+    setSelectAll(checked);
+    if (checked) {
+      const allIds = paginatedEmpleados.map(emp => emp.id);
+      setSelectedEmpleados(prev => {
+        // Agregar todos los IDs de la página actual, evitando duplicados
+        const newIds = allIds.filter(id => !prev.includes(id));
+        return [...prev, ...newIds];
+      });
+    } else {
+      // Remover solo los IDs de la página actual
+      const currentPageIds = paginatedEmpleados.map(emp => emp.id);
+      setSelectedEmpleados(prev => prev.filter(id => !currentPageIds.includes(id)));
+    }
+  }, [paginatedEmpleados]);
+
+  // Verificar si un empleado está seleccionado
+  const isEmpleadoSelected = useCallback((empleadoId) => {
+    return selectedEmpleados.includes(empleadoId);
+  }, [selectedEmpleados]);
+
+  // Abrir diálogo de eliminación múltiple
+  const handleOpenDeleteMultiple = useCallback(() => {
+    if (selectedEmpleados.length === 0) {
+      showSnackbar('Debe seleccionar al menos un empleado para eliminar', 'warning');
+      return;
+    }
+    setOpenDeleteMultiple(true);
+  }, [selectedEmpleados.length, showSnackbar]);
+
+  // NUEVA FUNCIÓN: Abrir diálogo de asignación masiva de razón social
+  const handleOpenRazonSocialMasiva = useCallback(() => {
+    if (selectedEmpleados.length === 0) {
+      showSnackbar('Debe seleccionar al menos un empleado para asignar razón social', 'warning');
+      return;
+    }
+    setRazonSocialSeleccionada('');
+    setOpenRazonSocialMasiva(true);
+  }, [selectedEmpleados.length, showSnackbar]);
+
+  // 🔧 FUNCIÓN CORREGIDA: Realizar la asignación masiva de razón social
+  const handleUpdateRazonSocialMasiva = useCallback(async () => {
+    if (selectedEmpleados.length === 0) return;
+    
+    if (!razonSocialSeleccionada || razonSocialSeleccionada === '') {
+      showSnackbar('Debe seleccionar una razón social', 'error');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      console.log(`🏢 Asignando razón social ${razonSocialSeleccionada} a ${selectedEmpleados.length} empleados`);
+      console.log('🔍 IDs de empleados seleccionados:', selectedEmpleados);
+      console.log('🔍 Tipo de IDs:', selectedEmpleados.map(id => typeof id));
+      
+      // 🚨 CORRECCIÓN: Asegurar que todos los IDs sean números enteros válidos
+      const empleadosIdsValidados = selectedEmpleados
+        .map(id => {
+          const numericId = parseInt(id, 10);
+          console.log(`🔄 Convirtiendo ID ${id} (${typeof id}) -> ${numericId} (${typeof numericId})`);
+          return numericId;
+        })
+        .filter(id => !isNaN(id) && id > 0); // Filtrar IDs válidos
+      
+      console.log('✅ IDs validados:', empleadosIdsValidados);
+      
+      if (empleadosIdsValidados.length === 0) {
+        showSnackbar('No se encontraron empleados válidos para actualizar', 'error');
+        return;
+      }
+      
+      if (empleadosIdsValidados.length !== selectedEmpleados.length) {
+        console.warn(`⚠️ Se perdieron ${selectedEmpleados.length - empleadosIdsValidados.length} empleados por IDs inválidos`);
+      }
+      
+      // 🚨 CORRECCIÓN: Convertir razonSocialSeleccionada a número
+      const razonSocialId = parseInt(razonSocialSeleccionada, 10);
+      if (isNaN(razonSocialId) || razonSocialId <= 0) {
+        showSnackbar('ID de razón social inválido', 'error');
+        return;
+      }
+      
+      console.log('🎯 Enviando al backend:', {
+        empleados_ids: empleadosIdsValidados,
+        id_razon_social: razonSocialId
+      });
+      
+      const response = await empleadosAPI.updateRazonSocialMasiva(empleadosIdsValidados, razonSocialId);
+      
+      if (response.data && response.data.success) {
+        await fetchEmpleados();
+        
+        // Limpiar selección
+        setSelectedEmpleados([]);
+        setSelectAll(false);
+        
+        showSnackbar(
+          response.data.message,
+          response.data.errores > 0 ? 'warning' : 'success'
+        );
+        
+        setOpenRazonSocialMasiva(false);
+        setRazonSocialSeleccionada('');
+      } else {
+        throw new Error(response.data?.message || 'Error desconocido');
+      }
+      
+    } catch (err) {
+      console.error('❌ Error en asignación masiva de razón social:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Error al asignar razón social';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEmpleados, razonSocialSeleccionada, showSnackbar, fetchEmpleados]);
+
+  // Eliminar empleados seleccionados
+  const handleDeleteSelectedEmpleados = useCallback(async () => {
+    if (selectedEmpleados.length === 0) return;
+    
+    try {
+      setLoading(true);
+      console.log(`🗑️ Eliminando ${selectedEmpleados.length} empleados`);
+      
+      let eliminados = 0;
+      let errores = 0;
+      
+      for (const empleadoId of selectedEmpleados) {
+        try {
+          await empleadosAPI.eliminarEmpleado(empleadoId);
+          eliminados++;
+        } catch (error) {
+          console.error(`Error eliminando empleado ${empleadoId}:`, error);
+          errores++;
+        }
+      }
+      
+      await fetchEmpleados();
+      
+      // Limpiar selección
+      setSelectedEmpleados([]);
+      setSelectAll(false);
+      
+      showSnackbar(
+        `Eliminación completada: ${eliminados} empleados eliminados${errores > 0 ? `, ${errores} errores` : ''}`, 
+        errores > 0 ? 'warning' : 'success'
+      );
+      
+      setOpenDeleteMultiple(false);
+    } catch (err) {
+      console.error('❌ Error en eliminación múltiple:', err);
+      showSnackbar('Error al eliminar empleados seleccionados', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEmpleados, showSnackbar, fetchEmpleados]);
+
+  // Manejar la finalización de la importación CON ASIGNACIÓN AUTOMÁTICA DE SUCURSALES
+  const handleImportComplete = useCallback(async (result) => {
+    console.log('✅ Importación completada:', result);
+    
+    if (result && result.successful > 0) {
+      showSnackbar(
+        `Importación exitosa: ${result.successful} empleados importados${result.failed > 0 ? `, ${result.failed} errores` : ''}`,
+        result.failed > 0 ? 'warning' : 'success'
+      );
+      
+      // Recargar la lista de empleados
+      await fetchEmpleados();
+      
+      // NUEVO: Asignar sucursales automáticamente a los empleados importados
+      try {
+        console.log('🏢 Iniciando asignación automática de sucursales...');
+        
+        // Obtener empleados recién importados (últimos por fecha de creación)
+        const response = await empleadosAPI.obtenerEmpleados(false);
+        if (response.data && response.data.success && Array.isArray(response.data.empleados)) {
+          const empleadosRecientes = response.data.empleados
+            .filter(emp => emp.establecimiento) // Solo los que tienen establecimiento
+            .slice(-result.successful); // Tomar los últimos importados
+          
+          console.log(`🏢 Procesando ${empleadosRecientes.length} empleados para asignación de sucursales`);
+          
+          let asignacionesExitosas = 0;
+          
+          for (const empleado of empleadosRecientes) {
+            try {
+              const sucursalEncontrada = buscarSucursalPorNombre(empleado.establecimiento);
+              
+              if (sucursalEncontrada) {
+                await empleadosAPI.actualizarSucursalesEmpleado(empleado.id, [sucursalEncontrada.id]);
+                asignacionesExitosas++;
+                console.log(`✅ Sucursal asignada: ${empleado.nombre} -> ${sucursalEncontrada.nombre}`);
+              }
+            } catch (error) {
+              console.error(`❌ Error asignando sucursal a ${empleado.nombre}:`, error);
+            }
+          }
+          
+          if (asignacionesExitosas > 0) {
+            showSnackbar(
+              `🏢 Sucursales asignadas automáticamente a ${asignacionesExitosas} empleados`,
+              'info'
+            );
+            
+            // Recargar empleados para mostrar las sucursales asignadas
+            await fetchEmpleados();
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error en asignación automática de sucursales:', error);
+      }
+    } else {
+      showSnackbar(
+        `Error en la importación: ${result?.failed || 'Desconocido'} empleados fallaron`,
+        'error'
+      );
+    }
+    
+    // Cerrar el diálogo
+    setOpenImportDialog(false);
+  }, [showSnackbar, buscarSucursalPorNombre, fetchEmpleados]);
+
+  // FUNCIONES PARA EL MODAL DE IMPORTACIÓN:
+  
+  // Abrir modal de importación
+  const handleOpenImportDialog = useCallback(() => {
+    console.log('📤 Abriendo diálogo de importación de Excel');
+    setOpenImportDialog(true);
+  }, []);
+
+  // Cerrar modal de importación
+  const handleCloseImportDialog = useCallback(() => {
+    console.log('❌ Cerrando diálogo de importación');
+    setOpenImportDialog(false);
+  }, []);
+
+  // Actualizar selectAll cuando cambia la selección
+  useEffect(() => {
+    if (paginatedEmpleados.length > 0) {
+      const currentPageIds = paginatedEmpleados.map(emp => emp.id);
+      const allCurrentPageSelected = currentPageIds.every(id => selectedEmpleados.includes(id));
+      setSelectAll(allCurrentPageSelected);
+    } else {
+      setSelectAll(false);
+    }
+  }, [selectedEmpleados, paginatedEmpleados]);
+
   // Effect de inicialización
   useEffect(() => {
     const inicializar = async () => {
@@ -478,6 +825,10 @@ const EmpleadosPage = () => {
         setEmpleados(empleadosConSucursales);
         setError(null);
         console.log('✅ Búsqueda completada:', empleadosConSucursales.length, 'resultados');
+        
+        // Limpiar selección al buscar
+        setSelectedEmpleados([]);
+        setSelectAll(false);
       } else {
         setEmpleados([]);
         setError('No se encontraron empleados');
@@ -655,7 +1006,19 @@ const EmpleadosPage = () => {
     });
   }, []);
 
-  // Manejadores de diálogos
+  // Manejadores de diálogos ACTUALIZADO
+  const handleCloseDialogs = useCallback(() => {
+    setOpenForm(false);
+    setOpenDelete(false);
+    setOpenDeleteMultiple(false);
+    setOpenRazonSocialMasiva(false);
+    setOpenDetalles(false);
+    setSelectedEmpleado(null);
+    setRazonSocialSeleccionada('');
+    resetFormData();
+    setFormErrors({});
+  }, [resetFormData]);
+
   const handleOpenNew = useCallback(() => {
     console.log('➕ Abriendo formulario para nuevo empleado');
     setSelectedEmpleado(null);
@@ -816,15 +1179,6 @@ const EmpleadosPage = () => {
     setSelectedEmpleado(empleado);
     setOpenDelete(true);
   }, []);
-
-  const handleCloseDialogs = useCallback(() => {
-    setOpenForm(false);
-    setOpenDelete(false);
-    setOpenDetalles(false);
-    setSelectedEmpleado(null);
-    resetFormData();
-    setFormErrors({});
-  }, [resetFormData]);
 
   // Función para guardar empleado
   const handleSaveEmpleado = useCallback(async () => {
@@ -1035,30 +1389,6 @@ const EmpleadosPage = () => {
     setPage(0);
   }, []);
 
-  // Aplicar filtros
-  const empleadosArray = Array.isArray(empleados) ? empleados : [];
-  
-  const filteredEmpleados = React.useMemo(() => {
-    return empleadosArray.filter(empleado => {
-      if (!showInactive && !empleado.activo) return false;
-      
-      if (razonSocialFilter !== 'todas') {
-        if (empleado.id_razon_social !== parseInt(razonSocialFilter)) return false;
-      }
-      
-      if (showDiscapacidad && !empleado.discapacidad) return false;
-      
-      return true;
-    });
-  }, [empleadosArray, showInactive, razonSocialFilter, showDiscapacidad]);
-  
-  const paginatedEmpleados = React.useMemo(() => {
-    return filteredEmpleados.slice(
-      page * rowsPerPage,
-      page * rowsPerPage + rowsPerPage
-    );
-  }, [filteredEmpleados, page, rowsPerPage]);
-
   // RENDER PRINCIPAL
   return (
     <Box sx={{ p: 3 }}>
@@ -1068,11 +1398,36 @@ const EmpleadosPage = () => {
           Gestión de Empleados
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          {/* BOTONES DE OPERACIONES MASIVAS */}
+          {selectedEmpleados.length > 0 && (
+            <>
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={<BusinessIcon />}
+                onClick={handleOpenRazonSocialMasiva}
+                disabled={loading}
+              >
+                Asignar Razón Social ({selectedEmpleados.length})
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteSweepIcon />}
+                onClick={handleOpenDeleteMultiple}
+                disabled={loading}
+              >
+                Eliminar Seleccionados ({selectedEmpleados.length})
+              </Button>
+            </>
+          )}
+          {/* BOTONES NORMALES */}
           <Button
             variant="outlined"
             color="primary"
             startIcon={<CloudUploadIcon />}
-            onClick={() => console.log('Importar Excel')}
+            onClick={handleOpenImportDialog}
+            disabled={loading}
           >
             Importar Excel
           </Button>
@@ -1081,6 +1436,7 @@ const EmpleadosPage = () => {
             color="primary"
             startIcon={<AddIcon />}
             onClick={handleOpenNew}
+            disabled={loading}
             sx={{ backgroundColor: '#f37d16', '&:hover': { backgroundColor: '#e06c00' } }}
           >
             Nuevo Empleado
@@ -1145,6 +1501,12 @@ const EmpleadosPage = () => {
               >
                 <MenuItem value="todas">
                   <Typography fontWeight="bold">Todas las Razones Sociales</Typography>
+                </MenuItem>
+                {/* 🆕 OPCIÓN PARA EMPLEADOS SIN RAZÓN SOCIAL */}
+                <MenuItem value="sin_asignar">
+                  <Typography fontWeight="bold" color="warning.main">
+                    Sin Razón Social Asignada
+                  </Typography>
                 </MenuItem>
                 {razonesSociales.map((razonSocial) => (
                   <MenuItem key={razonSocial.id} value={razonSocial.id}>
@@ -1226,16 +1588,42 @@ const EmpleadosPage = () => {
                 <strong>Con discapacidad:</strong> {filteredEmpleados.filter(e => e.discapacidad).length}
               </Typography>
             </Grid>
+            {/* 🆕 ESTADÍSTICA DE EMPLEADOS SIN RAZÓN SOCIAL */}
+            <Grid item>
+              <Typography variant="body2" color="error.main">
+                <strong>Sin razón social:</strong> {filteredEmpleados.filter(e => !e.id_razon_social || e.id_razon_social === 0).length}
+              </Typography>
+            </Grid>
+            {/* ESTADÍSTICA DE SELECCIÓN */}
+            {selectedEmpleados.length > 0 && (
+              <Grid item>
+                <Typography variant="body2" color="primary.main">
+                  <strong>Seleccionados:</strong> {selectedEmpleados.length}
+                </Typography>
+              </Grid>
+            )}
           </Grid>
         </Paper>
       )}
 
-      {/* Tabla de empleados */}
+      {/* Tabla de empleados CON CHECKBOXES */}
       <Paper sx={{ width: '100%', overflow: 'hidden' }}>
         <TableContainer sx={{ maxHeight: 440 }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                {/* COLUMNA DE SELECCIÓN */}
+                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem', padding: '8px', width: '50px' }}>
+                  <Tooltip title="Seleccionar todos en esta página">
+                    <Checkbox
+                      checked={selectAll}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      indeterminate={selectedEmpleados.length > 0 && !selectAll}
+                      size="small"
+                      disabled={loading || paginatedEmpleados.length === 0}
+                    />
+                  </Tooltip>
+                </TableCell>
                 <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem', padding: '8px' }}>RUT</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem', padding: '8px' }}>Código</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', fontSize: '0.9rem', padding: '8px' }}>Nombre</TableCell>
@@ -1252,7 +1640,7 @@ const EmpleadosPage = () => {
             <TableBody>
               {loading && !paginatedEmpleados.length ? (
                 <TableRow>
-                  <TableCell colSpan={11} align="center">
+                  <TableCell colSpan={12} align="center">
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
                       <CircularProgress size={30} sx={{ mr: 2 }} />
                       <Typography>Cargando empleados...</Typography>
@@ -1261,7 +1649,7 @@ const EmpleadosPage = () => {
                 </TableRow>
               ) : error ? (
                 <TableRow>
-                  <TableCell colSpan={11} align="center" sx={{ color: 'error.main' }}>
+                  <TableCell colSpan={12} align="center" sx={{ color: 'error.main' }}>
                     <Box sx={{ p: 3 }}>
                       <ErrorIcon sx={{ fontSize: 40, mb: 1 }} />
                       <Typography variant="h6">{error}</Typography>
@@ -1278,7 +1666,7 @@ const EmpleadosPage = () => {
                 </TableRow>
               ) : !paginatedEmpleados.length ? (
                 <TableRow>
-                  <TableCell colSpan={11} align="center">
+                  <TableCell colSpan={12} align="center">
                     <Box sx={{ p: 3 }}>
                       <Typography variant="h6" color="text.secondary">
                         No hay empleados para mostrar
@@ -1309,13 +1697,24 @@ const EmpleadosPage = () => {
                     key={empleado.id} 
                     hover
                     sx={{ 
-                      backgroundColor: !empleado.activo ? 'rgba(0, 0, 0, 0.04)' : 'inherit',
+                      backgroundColor: !empleado.activo ? 'rgba(0, 0, 0, 0.04)' : 
+                                      isEmpleadoSelected(empleado.id) ? 'rgba(243, 125, 22, 0.1)' : 'inherit',
                       opacity: !empleado.activo ? 0.7 : 1,
                       "&:hover": {
-                        backgroundColor: 'rgba(243, 125, 22, 0.1)'
+                        backgroundColor: isEmpleadoSelected(empleado.id) ? 'rgba(243, 125, 22, 0.2)' : 'rgba(243, 125, 22, 0.1)'
                       }
                     }}
                   >
+                    {/* CELDA CON CHECKBOX */}
+                    <TableCell sx={{ padding: '4px 8px' }}>
+                      <Checkbox
+                        checked={isEmpleadoSelected(empleado.id)}
+                        onChange={(e) => handleSelectEmpleado(empleado.id, e.target.checked)}
+                        size="small"
+                        disabled={loading}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </TableCell>
                     <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px' }}>
                       <Link
                         component="button"
@@ -1339,7 +1738,20 @@ const EmpleadosPage = () => {
                     </TableCell>
                     <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px' }}>{empleado.nombre || ''}</TableCell>
                     <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px' }}>{empleado.apellido || ''}</TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px' }}>{empleado.nombre_razon || getRazonSocialNombre(empleado)}</TableCell>
+                    <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px' }}>
+                      {/* 🔧 MOSTRAR INDICADOR VISUAL PARA EMPLEADOS SIN RAZÓN SOCIAL */}
+                      {!empleado.id_razon_social || empleado.id_razon_social === 0 ? (
+                        <Chip 
+                          label="Sin asignar" 
+                          size="small" 
+                          color="error" 
+                          variant="outlined"
+                          sx={{ fontSize: '0.7rem' }}
+                        />
+                      ) : (
+                        empleado.nombre_razon || getRazonSocialNombre(empleado)
+                      )}
+                    </TableCell>
                     <TableCell sx={{ fontSize: '0.8rem', padding: '4px 8px', maxWidth: '150px' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {getSucursalesNombres(empleado)}
@@ -1408,7 +1820,7 @@ const EmpleadosPage = () => {
           </Table>
         </TableContainer>
         <TablePagination
-          rowsPerPageOptions={[5, 10, 25, 50]}
+          rowsPerPageOptions={[10, 25, 50, 100]}
           component="div"
           count={filteredEmpleados.length}
           rowsPerPage={rowsPerPage}
@@ -1420,7 +1832,153 @@ const EmpleadosPage = () => {
         />
       </Paper>
 
-      {/* Formulario de empleado (crear/editar) */}
+      {/* DIÁLOGO DE ASIGNACIÓN MASIVA DE RAZÓN SOCIAL */}
+      <Dialog
+        open={openRazonSocialMasiva}
+        onClose={handleCloseDialogs}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', color: 'primary.main' }}>
+          <BusinessIcon sx={{ mr: 1 }} />
+          Asignar Razón Social Masivamente
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+              Asignación masiva de razón social
+            </Typography>
+            <Typography variant="body2">
+              Se asignará la razón social seleccionada a los {selectedEmpleados.length} empleados seleccionados.
+            </Typography>
+          </Alert>
+          
+          <DialogContentText sx={{ mb: 2 }}>
+            Empleados seleccionados: {selectedEmpleados.length}
+          </DialogContentText>
+          
+          <Box sx={{ maxHeight: 200, overflow: 'auto', mb: 2 }}>
+            {selectedEmpleados.slice(0, 10).map(empleadoId => {
+              const empleado = empleados.find(e => e.id === empleadoId);
+              return empleado ? (
+                <Typography key={empleadoId} variant="body2" sx={{ mb: 1 }}>
+                  • {empleado.nombre} {empleado.apellido} ({formatearRut(empleado.rut)})
+                </Typography>
+              ) : null;
+            })}
+            {selectedEmpleados.length > 10 && (
+              <Typography variant="body2" color="text.secondary">
+                ... y {selectedEmpleados.length - 10} más
+              </Typography>
+            )}
+          </Box>
+          
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Razón Social</InputLabel>
+            <Select
+              value={razonSocialSeleccionada}
+              onChange={(e) => setRazonSocialSeleccionada(e.target.value)}
+              label="Razón Social"
+              disabled={loading}
+            >
+              <MenuItem value="">
+                <em>Seleccione una razón social</em>
+              </MenuItem>
+              {razonesSociales.map((razonSocial) => (
+                <MenuItem key={razonSocial.id} value={razonSocial.id.toString()}>
+                  {razonSocial.nombre_razon}
+                </MenuItem>
+              ))}
+            </Select>
+            <FormHelperText>
+              Esta razón social se asignará a todos los empleados seleccionados
+            </FormHelperText>
+          </FormControl>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button 
+            onClick={handleCloseDialogs} 
+            color="primary" 
+            variant="outlined"
+            disabled={loading}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleUpdateRazonSocialMasiva} 
+            color="primary" 
+            variant="contained"
+            disabled={loading || !razonSocialSeleccionada}
+            startIcon={loading ? <CircularProgress size={16} /> : <BusinessIcon />}
+            sx={{ backgroundColor: '#f37d16', '&:hover': { backgroundColor: '#e06c00' } }}
+          >
+            {loading ? 'Asignando...' : `Asignar a ${selectedEmpleados.length} Empleados`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* DIÁLOGO DE CONFIRMACIÓN PARA ELIMINACIÓN MÚLTIPLE */}
+      <Dialog
+        open={openDeleteMultiple}
+        onClose={handleCloseDialogs}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', color: 'error.main' }}>
+          <WarningIcon sx={{ mr: 1 }} />
+          Confirmar Eliminación Múltiple
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+              ¡ATENCIÓN! Esta acción es IRREVERSIBLE
+            </Typography>
+          </Alert>
+          <DialogContentText sx={{ mb: 2 }}>
+            Está a punto de eliminar permanentemente {selectedEmpleados.length} empleado{selectedEmpleados.length > 1 ? 's' : ''}:
+          </DialogContentText>
+          <Box sx={{ maxHeight: 200, overflow: 'auto', mb: 2 }}>
+            {selectedEmpleados.slice(0, 10).map(empleadoId => {
+              const empleado = empleados.find(e => e.id === empleadoId);
+              return empleado ? (
+                <Typography key={empleadoId} variant="body2" sx={{ mb: 1 }}>
+                  • {empleado.nombre} {empleado.apellido} ({formatearRut(empleado.rut)})
+                </Typography>
+              ) : null;
+            })}
+            {selectedEmpleados.length > 10 && (
+              <Typography variant="body2" color="text.secondary">
+                ... y {selectedEmpleados.length - 10} más
+              </Typography>
+            )}
+          </Box>
+          <DialogContentText>
+            Los empleados serán eliminados permanentemente de la base de datos. 
+            Esta acción <strong>NO SE PUEDE DESHACER</strong>.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button 
+            onClick={handleCloseDialogs} 
+            color="primary" 
+            variant="outlined"
+            disabled={loading}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleDeleteSelectedEmpleados} 
+            color="error" 
+            variant="contained"
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={16} /> : <DeleteSweepIcon />}
+          >
+            {loading ? 'Eliminando...' : `Eliminar ${selectedEmpleados.length} Empleados`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Formulario de empleado (crear/editar) - COMPLETO */}
       <Dialog open={openForm} onClose={handleCloseDialogs} maxWidth="lg" fullWidth>
         <DialogTitle sx={{ backgroundColor: '#f37d16', color: 'white' }}>
           {selectedEmpleado ? 'Editar Empleado' : 'Nuevo Empleado'}
@@ -1849,7 +2407,7 @@ const EmpleadosPage = () => {
                 </LocalizationProvider>
               </Grid>
 
-              {/* === SECCIÓN REMUNERACIONES === */}
+              {/* SECCIÓN REMUNERACIONES */}
               <Grid item xs={12}>
                 <Box sx={{ 
                   borderTop: '2px solid #f37d16', 
@@ -1858,7 +2416,7 @@ const EmpleadosPage = () => {
                   marginBottom: 1
                 }}>
                   <Typography variant="h6" sx={{ color: '#f37d16', fontWeight: 'bold' }}>
-                    💰 Información de Remuneraciones
+                    Información de Remuneraciones
                   </Typography>
                 </Box>
               </Grid>
@@ -2269,7 +2827,7 @@ const EmpleadosPage = () => {
                         />
                       </Grid>
 
-                      {/* === SECCIÓN REMUNERACIONES EN DETALLES === */}
+                      {/* SECCIÓN REMUNERACIONES EN DETALLES */}
                       {(selectedEmpleado.sueldo_base || selectedEmpleado.total_ingresos || selectedEmpleado.monto_pensiones) && (
                         <>
                           <Grid item xs={12} sx={{ mt: 2 }}>
@@ -2278,7 +2836,7 @@ const EmpleadosPage = () => {
                               paddingTop: 2 
                             }}>
                               <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#f37d16' }}>
-                                💰 Información Salarial
+                                Información Salarial
                               </Typography>
                             </Box>
                           </Grid>
@@ -2421,7 +2979,7 @@ const EmpleadosPage = () => {
             </CardContent>
           </Card>
           <DialogContentText>
-            El empleado será eliminado permanentemente de la base de datos. 
+            El empleado sera eliminado de la base de datos.
             Esta acción <strong>NO SE PUEDE DESHACER</strong>.
           </DialogContentText>
         </DialogContent>
@@ -2446,6 +3004,14 @@ const EmpleadosPage = () => {
         </DialogActions>
       </Dialog>
 
+      {/* MODAL DE IMPORTACIÓN DE EXCEL - CON ASIGNACIÓN AUTOMÁTICA DE SUCURSALES */}
+      <ImportarEmpleadosExcel
+        open={openImportDialog}
+        handleClose={handleCloseImportDialog}
+        onImportComplete={handleImportComplete}
+        sucursales={sucursales} // Pasar sucursales disponibles para el mapeo
+      />
+
       {/* Snackbar para mensajes */}
       <Snackbar
         open={snackbar.open}
@@ -2469,4 +3035,4 @@ const EmpleadosPage = () => {
   );
 };
 
-export default EmpleadosPage;
+export default EmpleadosPage;                                  

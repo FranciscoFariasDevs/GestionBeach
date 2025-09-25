@@ -79,11 +79,20 @@ const ConsultorPage = () => {
     return () => window.removeEventListener('keypress', handleKeyPress);
   }, [codigo]);
 
+  // CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
   const buscarProducto = async (cod) => {
     setLoading(true);
     try {
-      const res = await fetch(`http://192.168.100.92:5000/api/productos?q=${encodeURIComponent(cod)}`);
-      if (!res.ok) throw new Error('No encontrado');
+      const backendHost = window.location.hostname;
+      const res = await fetch(`http://${backendHost}:5000/api/productos?q=${encodeURIComponent(cod)}`);
+      
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Producto no encontrado');
+        }
+        throw new Error('Error en la solicitud');
+      }
+
       const data = await res.json();
       setProducto(data);
       setTimeout(() => setProducto(null), 5000);

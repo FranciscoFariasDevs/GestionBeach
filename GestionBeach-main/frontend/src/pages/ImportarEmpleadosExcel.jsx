@@ -1,4 +1,4 @@
-// ImportarEmpleadosExcel.jsx
+// ImportarEmpleadosExcel.jsx - VERSIÓN CORREGIDA PARA BD REAL CON SUELDO_BASE DECIMAL - COMPLETA
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -52,35 +52,7 @@ import {
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import { styled } from '@mui/material/styles';
-import axios from 'axios';
-
-// URL base para las peticiones API
-const API_URL = 'http://localhost:5000/api';
-
-// Recuperar token guardado del localStorage
-const getAuthToken = () => localStorage.getItem('token');
-
-// Crear instancia de axios con config por defecto
-const axiosWithAuth = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Interceptor para añadir el token a cada petición
-axiosWithAuth.interceptors.request.use(
-  config => {
-    const token = getAuthToken();
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
-    }
-    return config;
-  },
-  error => {
-    return Promise.reject(error);
-  }
-);
+import api from '../api/api';
 
 // Estilos personalizados
 const DropZone = styled(Box)(({ theme, isDragging }) => ({
@@ -100,28 +72,156 @@ const DropZone = styled(Box)(({ theme, isDragging }) => ({
 // Pasos del proceso de importación
 const steps = ['Cargar archivo', 'Mapear campos', 'Revisar datos', 'Importar'];
 
-// Campos disponibles en la entidad de empleados
+// MAPEO DE SUCURSALES ACTUALIZADO - EXCEL -> NOMBRE REAL
+const MAPEO_SUCURSALES = {
+  'FERRETERIA BEACH MARKET': 'VICENTE PALACIOS 2908, TOME',
+  'FERRETERIA COELEMU BEACH': 'TRES ESQUINAS S/N, COELEMU FE',
+  'FERRETERIA CHILLAN': 'RIO VIEJO 999, CHILLAN',
+  'FERRETERIA COELEMU': 'TRES ESQUINAS S/N, COELEMU FE',
+  'FERRETERIA TOME CENTRO': 'LAS CAMELIAS 39, TOME',
+  'MULTITIENDA TOME BEACH': 'VICENTE PALACIOS 3088, TOME',
+  'FERRETERIA QUIRIHUE': 'RUTA EL CONQUISTADOR 1002, QUIRIHUE',
+  'SUPER COELEMU': 'TRES ESQUINAS S/N, COELEMU MU',
+  'SUPER ENRIQUE MOLINA': 'ENRIQUE MOLINA 596, TOME',
+  'SUPER LORD COCHRANE': 'LORD COCHRANE 1127,TOME',
+  'FERRETERIA DICHATO': 'DANIEL VERA 876, DICHATO',
+  'MINIMARKET': 'DANIEL VERA 890, DICHATO',
+  'PANADERIA': 'DANIEL VERA 891, DICHATO',
+  'RANGUELMO': 'LOS CIPRESES 77, RANGUELMO'
+};
+
+// CAMPOS REALES DE LA BASE DE DATOS SEGÚN EL ESQUEMA PROPORCIONADO
 const camposEmpleado = [
-  { id: 'rut', nombre: 'RUT', requerido: true, descripcion: 'Número de identificación del empleado (RUT)' },
-  { id: 'nombre', nombre: 'Nombre', requerido: true, descripcion: 'Primer nombre del empleado' },
-  { id: 'apellido', nombre: 'Apellido', requerido: true, descripcion: 'Apellido del empleado' },
-  { id: 'id_sucursal', nombre: 'ID Sucursal', requerido: false, descripcion: 'ID numérico o nombre de la sucursal donde trabaja' },
-  { id: 'nombre_sucursal', nombre: 'Nombre Sucursal', requerido: false, descripcion: 'Nombre de la sucursal (se convertirá automáticamente a ID)' },
-  { id: 'cargo', nombre: 'Cargo', requerido: false, descripcion: 'Puesto o cargo del empleado' },
-  { id: 'direccion', nombre: 'Dirección', requerido: false, descripcion: 'Dirección residencial' },
-  { id: 'telefono', nombre: 'Teléfono', requerido: false, descripcion: 'Número de teléfono de contacto' },
-  { id: 'nacionalidad', nombre: 'Nacionalidad', requerido: false, descripcion: 'País de nacionalidad' },
-  { id: 'correo_electronico', nombre: 'Correo Electrónico', requerido: false, descripcion: 'Email de contacto' },
-  { id: 'fecha_nacimiento', nombre: 'Fecha de Nacimiento', requerido: false, descripcion: 'Fecha de nacimiento (YYYY-MM-DD)' },
-  { id: 'fecha_ingreso', nombre: 'Fecha de Ingreso', requerido: false, descripcion: 'Fecha de incorporación a la empresa (YYYY-MM-DD)' },
-  { id: 'estado_civil', nombre: 'Estado Civil', requerido: false, descripcion: 'Estado civil (Soltero, Casado, etc.)' },
-  { id: 'activo', nombre: 'Activo', requerido: false, descripcion: 'Indica si el empleado está activo (true/false)' },
-  { id: 'rut_empresa', nombre: 'RUT Empresa', requerido: false, descripcion: 'RUT de la empresa a la que pertenece' },
-  { id: 'discapacidad', nombre: 'Discapacidad', requerido: false, descripcion: 'Indica si tiene alguna discapacidad (true/false)' }
+  // CAMPOS OBLIGATORIOS
+  { id: 'rut', nombre: 'RUT', requerido: true, descripcion: 'RUT del empleado' },
+  { id: 'nombre', nombre: 'NOMBRE', requerido: true, descripcion: 'Nombre del empleado' },
+  { id: 'apellido_paterno', nombre: 'A. PATERNO', requerido: true, descripcion: 'Apellido paterno' },
+  
+  // CAMPOS OPCIONALES - DATOS PERSONALES
+  { id: 'apellido_materno', nombre: 'A. MATERNO', requerido: false, descripcion: 'Apellido materno' },
+  { id: 'codigo', nombre: 'CODIGO', requerido: false, descripcion: 'Código del empleado' },
+  { id: 'fecha_nacimiento', nombre: 'FECHA NAC.', requerido: false, descripcion: 'Fecha de nacimiento' },
+  { id: 'sexo', nombre: 'SEXO', requerido: false, descripcion: 'Sexo (M/F)' },
+  { id: 'estado_civil', nombre: 'ESTADO CIVIL', requerido: false, descripcion: 'Estado civil' },
+  { id: 'nacionalidad', nombre: 'NACIONALIDAD', requerido: false, descripcion: 'Nacionalidad' },
+  { id: 'direccion', nombre: 'DIRECCION', requerido: false, descripcion: 'Dirección residencial' },
+  { id: 'telefono', nombre: 'TELEFONO', requerido: false, descripcion: 'Teléfono de contacto' },
+  { id: 'email', nombre: 'EMAIL', requerido: false, descripcion: 'Correo electrónico' },
+  { id: 'persona_discapacidad', nombre: 'PERSONA CON DISCAPACIDAD', requerido: false, descripcion: 'Tiene discapacidad (Si/No)' },
+  
+  // CAMPOS LABORALES
+  { id: 'fecha_ingreso', nombre: 'FECHA INGRESO', requerido: false, descripcion: 'Fecha de ingreso' },
+  { id: 'fecha_termino', nombre: 'FECHA TERMINO', requerido: false, descripcion: 'Fecha de término' },
+  { id: 'estado_contrato', nombre: 'ESTADO CONTRATO', requerido: false, descripcion: 'Estado del contrato' },
+  { id: 'tipo_contrato', nombre: 'TIPO DE CONTRATO', requerido: false, descripcion: 'Tipo de contrato' },
+  { id: 'cod_departamento', nombre: 'COD. DEPARTAMENTO', requerido: false, descripcion: 'Código del departamento' },
+  { id: 'desc_departamento', nombre: 'DESC. DEPARTAMENTO', requerido: false, descripcion: 'Descripción departamento' },
+  { id: 'cargo', nombre: 'CARGO', requerido: false, descripcion: 'Cargo o puesto' },
+  { id: 'establecimiento', nombre: 'ESTABLECIMIENTO', requerido: false, descripcion: 'Establecimiento/Sucursal' },
+  { id: 'tipo_jornada', nombre: 'TIPO DE JORNADA', requerido: false, descripcion: 'Tipo de jornada laboral' },
+  { id: 'horas_semanales_pactadas', nombre: 'HORAS SEMANALES PACTADAS', requerido: false, descripcion: 'Horas semanales pactadas' },
+  
+  // CAMPOS DE REMUNERACIÓN
+  { id: 'afecto_ajuste', nombre: 'AFECTO AJUSTE', requerido: false, descripcion: 'Afecto a ajuste' },
+  { id: 'sueldo_base', nombre: 'SUELDO BASE', requerido: false, descripcion: 'Sueldo base' },
+  { id: 'afecto_benef_semana_corrida', nombre: 'AFECTO BENEF. SEMANA CORRIDA', requerido: false, descripcion: 'Afecto beneficio semana corrida' },
+  { id: 'dia_inicio_periodo', nombre: 'DIA INICIO PERIODO', requerido: false, descripcion: 'Día inicio período' },
+  { id: 'dias_trabajados_semana', nombre: 'DIAS TRABAJADOS POR SEMANA', requerido: false, descripcion: 'Días trabajados por semana' },
+  { id: 'dia_inicio_semana', nombre: 'DIA INICIO SEMANA', requerido: false, descripcion: 'Día inicio semana' },
+  { id: 'dia_descanso_convencional', nombre: 'DIA DESCANSO CONVENCIONAL', requerido: false, descripcion: 'Día descanso convencional' },
+  { id: 'tipo_sueldo_base', nombre: 'TIPO SUELDO BASE', requerido: false, descripcion: 'Tipo sueldo base' },
+  { id: 'valor_sueldo_base', nombre: 'VALOR SUELDO BASE', requerido: false, descripcion: 'Valor sueldo base' },
+  { id: 'comision_porcentaje', nombre: 'COMISION (%)', requerido: false, descripcion: 'Porcentaje de comisión' },
+  { id: 'valor_hora', nombre: 'VALOR HORA', requerido: false, descripcion: 'Valor por hora' },
+  { id: 'cantidad_horas', nombre: 'CANTIDAD DE HORAS', requerido: false, descripcion: 'Cantidad de horas' },
+  { id: 'valor_dia', nombre: 'VALOR DIA', requerido: false, descripcion: 'Valor por día' },
+  { id: 'cantidad_dias', nombre: 'CANTIDAD DE DIAS', requerido: false, descripcion: 'Cantidad de días' },
+  { id: 'asig_zona_extrema', nombre: 'ASIG. ZONA EXTREMA', requerido: false, descripcion: 'Asignación zona extrema' },
+  { id: 'gratificacion_legal', nombre: 'GRATIFICACION LEGAL', requerido: false, descripcion: 'Gratificación legal' },
+  { id: 'porcentaje_gratif', nombre: 'PORCENTAJE GRATIF.', requerido: false, descripcion: 'Porcentaje gratificación' },
+  
+  // CAMPOS DE PREVISIÓN Y SALUD
+  { id: 'prevision', nombre: 'PREVISION', requerido: false, descripcion: 'Sistema previsional' },
+  { id: 'cotiz_especial', nombre: 'COTIZ. ESPECIAL', requerido: false, descripcion: 'Cotización especial' },
+  { id: 'porcentaje_cotiz', nombre: 'PORCENTAJE COTIZ.', requerido: false, descripcion: 'Porcentaje cotización' },
+  { id: 'tramo_asig_familiar', nombre: 'TRAMO ASIG. FAMILIAR', requerido: false, descripcion: 'Tramo asignación familiar' },
+  { id: 'es_jubilado', nombre: 'ES JUBILADO', requerido: false, descripcion: 'Es jubilado (Si/No)' },
+  { id: 'cargas_normales', nombre: 'CARGAS NORMALES', requerido: false, descripcion: 'Número de cargas normales' },
+  { id: 'cargas_maternales', nombre: 'CARGAS MATERNALES', requerido: false, descripcion: 'Número de cargas maternales' },
+  { id: 'cargas_invalidas', nombre: 'CARGAS INVALIDAS', requerido: false, descripcion: 'Número de cargas inválidas' },
+  { id: 'seguro_cesantia', nombre: 'SEGURO CESANTIA', requerido: false, descripcion: 'Seguro de cesantía' },
+  { id: 'afecto_seguro_accidentes', nombre: 'AFECTO SEGURO ACCIDENTES', requerido: false, descripcion: 'Afecto seguro accidentes' },
+  { id: 'isapre', nombre: 'ISAPRE', requerido: false, descripcion: 'ISAPRE' },
+  { id: 'tipo_pacto_isapre', nombre: 'TIPO PACTO ISAPRE', requerido: false, descripcion: 'Tipo pacto ISAPRE' },
+  { id: 'monto_pactado', nombre: 'MONTO PACTADO', requerido: false, descripcion: 'Monto pactado ISAPRE' },
+  { id: 'moneda', nombre: 'MONEDA', requerido: false, descripcion: 'Moneda' },
+  { id: 'monto_ges', nombre: 'MONTO GES', requerido: false, descripcion: 'Monto GES' },
+  { id: 'monto_ges_n', nombre: 'MONTO GES N°', requerido: false, descripcion: 'Monto GES número' },
+  { id: 'cuenta_par', nombre: 'CUENTA PAR', requerido: false, descripcion: 'Número cuenta PAR' },
+  { id: 'institucion_par', nombre: 'INSTITUCION PAR', requerido: false, descripcion: 'Institución PAR' },
+  { id: 'moneda_par', nombre: 'MONEDA PAR', requerido: false, descripcion: 'Moneda PAR' },
+  
+  // CAMPOS APVI
+  { id: 'aporte_apvi_1', nombre: 'APORTE APVI 1', requerido: false, descripcion: 'Aporte APVI 1' },
+  { id: 'monto_aporte_apvi_1', nombre: 'MONTO APORTE APVI 1', requerido: false, descripcion: 'Monto aporte APVI 1' },
+  { id: 'regimen_apvi_1', nombre: 'REGIMEN APVI 1', requerido: false, descripcion: 'Régimen APVI 1' },
+  { id: 'forma_apvi_1', nombre: 'FORMA APVI 1', requerido: false, descripcion: 'Forma APVI 1' },
+  { id: 'institucion_apvi_1', nombre: 'INSTITUCION APVI 1', requerido: false, descripcion: 'Institución APVI 1' },
+  { id: 'inicio_apvi_1', nombre: 'INICIO APVI 1', requerido: false, descripcion: 'Inicio APVI 1' },
+  { id: 'moneda_apvi_1', nombre: 'MONEDA APVI 1', requerido: false, descripcion: 'Moneda APVI 1' },
+  
+  { id: 'aporte_apvi_2', nombre: 'APORTE APVI 2', requerido: false, descripcion: 'Aporte APVI 2' },
+  { id: 'monto_aporte_apvi_2', nombre: 'MONTO APORTE APVI 2', requerido: false, descripcion: 'Monto aporte APVI 2' },
+  { id: 'regimen_apvi_2', nombre: 'REGIMEN APVI 2', requerido: false, descripcion: 'Régimen APVI 2' },
+  { id: 'forma_apvi_2', nombre: 'FORMA APVI 2', requerido: false, descripcion: 'Forma APVI 2' },
+  { id: 'institucion_apvi_2', nombre: 'INSTITUCION APVI 2', requerido: false, descripcion: 'Institución APVI 2' },
+  { id: 'inicio_apvi_2', nombre: 'INICIO APVI 2', requerido: false, descripcion: 'Inicio APVI 2' },
+  { id: 'moneda_apvi_2', nombre: 'MONEDA APVI 2', requerido: false, descripcion: 'Moneda APVI 2' },
+  
+  // CAMPOS APVC
+  { id: 'aporte_apvc', nombre: 'APORTE APVC', requerido: false, descripcion: 'Aporte APVC' },
+  { id: 'monto_aporte_apvc', nombre: 'MONTO APORTE APVC', requerido: false, descripcion: 'Monto aporte APVC' },
+  { id: 'regimen_apvc', nombre: 'REGIMEN APVC', requerido: false, descripcion: 'Régimen APVC' },
+  { id: 'forma_apvc', nombre: 'FORMA APVC', requerido: false, descripcion: 'Forma APVC' },
+  { id: 'institucion_apvc', nombre: 'INSTITUCION APVC', requerido: false, descripcion: 'Institución APVC' },
+  { id: 'inicio_apvc', nombre: 'INICIO APVC', requerido: false, descripcion: 'Inicio APVC' },
+  
+  // CAMPOS AFILIACIÓN VOLUNTARIA
+  { id: 'rut_afil_vol', nombre: 'RUT AFIL. VOL.', requerido: false, descripcion: 'RUT afiliación voluntaria' },
+  { id: 'nombre_afil_vol', nombre: 'NOMBRE AFIL. VOL.', requerido: false, descripcion: 'Nombre afiliación voluntaria' },
+  { id: 'apellido_paterno_afil_vol', nombre: 'A. PATERNO AFIL. VOL.', requerido: false, descripcion: 'Apellido paterno afiliación voluntaria' },
+  { id: 'apellido_materno_afil_vol', nombre: 'A. MATERNO AFIL. VOL.', requerido: false, descripcion: 'Apellido materno afiliación voluntaria' },
+  { id: 'afp_afil_vol', nombre: 'AFP AFIL. VOL.', requerido: false, descripcion: 'AFP afiliación voluntaria' },
+  { id: 'cotiz_afil_vol', nombre: 'COTIZ. AFIL VOL.', requerido: false, descripcion: 'Cotización afiliación voluntaria' },
+  { id: 'inicio_afil_vol', nombre: 'INICIO AFIL. VOL.', requerido: false, descripcion: 'Inicio afiliación voluntaria' }
 ];
 
 // Obtener los campos obligatorios
 const camposRequeridos = camposEmpleado.filter(campo => campo.requerido).map(campo => campo.id);
+
+// Función para mapear nombre de sucursal
+const mapearSucursal = (nombreExcel) => {
+  if (!nombreExcel) return null;
+  
+  const nombreLimpio = String(nombreExcel).trim().toUpperCase();
+  
+  // Buscar coincidencia exacta
+  for (const [nombreOriginal, nombreMapeado] of Object.entries(MAPEO_SUCURSALES)) {
+    if (nombreLimpio === nombreOriginal.toUpperCase()) {
+      return nombreMapeado;
+    }
+  }
+  
+  // Buscar coincidencia parcial
+  for (const [nombreOriginal, nombreMapeado] of Object.entries(MAPEO_SUCURSALES)) {
+    if (nombreLimpio.includes(nombreOriginal.toUpperCase()) || nombreOriginal.toUpperCase().includes(nombreLimpio)) {
+      return nombreMapeado;
+    }
+  }
+  
+  // Si no encuentra mapeo, retornar el valor original
+  return nombreExcel;
+};
 
 // Componente principal ImportarEmpleadosExcel
 const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursales = [] }) => {
@@ -137,22 +237,13 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
   const [alert, setAlert] = useState({ show: false, message: '', severity: 'info' });
   const [previewData, setPreviewData] = useState([]);
   const [datosEmpleados, setDatosEmpleados] = useState([]);
-  const [sucursalMappingWarnings, setSucursalMappingWarnings] = useState([]);
-  const [sucursalPorDefecto, setSucursalPorDefecto] = useState(''); // Nueva: Sucursal por defecto
-  const [empleadosSinSucursal, setEmpleadosSinSucursal] = useState(0); // Nueva: Contador de empleados sin sucursal
 
   // Efectos
   useEffect(() => {
-    // Reiniciar estado al abrir el modal
     if (open) {
       resetState();
     }
   }, [open]);
-
-  // Debug: Log sucursales cuando cambien
-  useEffect(() => {
-    console.log('Sucursales recibidas en ImportarEmpleadosExcel:', sucursales);
-  }, [sucursales]);
 
   // Reiniciar todos los estados
   const resetState = () => {
@@ -166,101 +257,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
     setAlert({ show: false, message: '', severity: 'info' });
     setPreviewData([]);
     setDatosEmpleados([]);
-    setSucursalMappingWarnings([]);
-    setSucursalPorDefecto('');
-    setEmpleadosSinSucursal(0);
-  };
-
-  // Función para convertir nombre de sucursal a ID
-  const convertirNombreSucursalAId = (nombreSucursal) => {
-    console.log('🔍 Buscando sucursal por nombre:', nombreSucursal);
-    console.log('🏢 Sucursales disponibles:', sucursales);
-    
-    if (!nombreSucursal || typeof nombreSucursal !== 'string') {
-      console.log('❌ Nombre de sucursal inválido:', nombreSucursal);
-      return null; // Cambio: retorna null en lugar de -1 para manejar mejor
-    }
-    
-    const nombreLimpio = nombreSucursal.toString().trim().toLowerCase();
-    console.log('🧹 Nombre limpio a buscar:', nombreLimpio);
-    
-    // Buscar por coincidencia exacta
-    let sucursalEncontrada = sucursales.find(s => 
-      s.nombre && s.nombre.toLowerCase().trim() === nombreLimpio
-    );
-    
-    if (sucursalEncontrada) {
-      console.log('✅ Encontrada por coincidencia exacta:', sucursalEncontrada);
-      return sucursalEncontrada.id_sucursal || sucursalEncontrada.id;
-    }
-    
-    // Buscar por coincidencia parcial
-    sucursalEncontrada = sucursales.find(s => 
-      s.nombre && (
-        s.nombre.toLowerCase().includes(nombreLimpio) ||
-        nombreLimpio.includes(s.nombre.toLowerCase())
-      )
-    );
-    
-    if (sucursalEncontrada) {
-      console.log('✅ Encontrada por coincidencia parcial:', sucursalEncontrada);
-      return sucursalEncontrada.id_sucursal || sucursalEncontrada.id;
-    }
-    
-    // Buscar variaciones comunes
-    const variaciones = {
-      'central': ['matriz', 'principal', 'centro'],
-      'norte': ['zona norte', 'sucursal norte'],
-      'sur': ['zona sur', 'sucursal sur'],
-      'oriente': ['este', 'zona oriente'],
-      'poniente': ['oeste', 'zona poniente']
-    };
-    
-    for (const [variacion, sinonimos] of Object.entries(variaciones)) {
-      if (nombreLimpio.includes(variacion) || sinonimos.some(s => nombreLimpio.includes(s))) {
-        sucursalEncontrada = sucursales.find(s => 
-          s.nombre && s.nombre.toLowerCase().includes(variacion)
-        );
-        if (sucursalEncontrada) {
-          console.log('✅ Encontrada por variación:', sucursalEncontrada);
-          return sucursalEncontrada.id_sucursal || sucursalEncontrada.id;
-        }
-      }
-    }
-    
-    console.log('❌ No se encontró sucursal, retornando null');
-    return null; // Cambio: retorna null para manejar mejor
-  };
-
-  // Función para validar y convertir valor de sucursal
-  const procesarValorSucursal = (valor) => {
-    console.log('🔄 Procesando valor de sucursal:', valor, 'tipo:', typeof valor);
-    
-    if (!valor || valor === '') {
-      console.log('📝 Valor vacío, retornando null');
-      return null;
-    }
-    
-    // Si es un número, validar que sea válido
-    const numeroId = parseInt(valor);
-    if (!isNaN(numeroId) && numeroId > 0) {
-      // Verificar que la sucursal existe
-      const sucursalExiste = sucursales.find(s => 
-        (s.id_sucursal === numeroId) || (s.id === numeroId)
-      );
-      if (sucursalExiste) {
-        console.log('✅ ID numérico válido encontrado:', numeroId);
-        return numeroId;
-      } else {
-        console.log('⚠️ ID numérico no encontrado en sucursales:', numeroId);
-        return null;
-      }
-    }
-    
-    // Si es texto, convertir nombre a ID
-    const idConvertido = convertirNombreSucursalAId(valor);
-    console.log('🔄 Resultado de conversión:', idConvertido);
-    return idConvertido;
   };
 
   // Manejadores para cargar archivo
@@ -301,18 +297,14 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         
-        // Obtener primera hoja
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Opciones especiales para manejar tablas Excel
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
           header: 1,
           blankrows: false,
           defval: '' 
         });
-        
-        console.log("Excel data:", jsonData); // Para depuración
         
         if (jsonData.length < 1) {
           setAlert({
@@ -324,18 +316,16 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           return;
         }
 
-        // Buscar la primera fila con datos que puedan ser encabezados
+        // Detectar encabezados
         let headerRowIndex = 0;
         while (headerRowIndex < Math.min(5, jsonData.length)) {
           const row = jsonData[headerRowIndex];
           if (row && row.length > 0 && row.filter(cell => cell && cell !== "").length > 1) {
-            // Esta fila tiene múltiples celdas con datos, probablemente son encabezados
             break;
           }
           headerRowIndex++;
         }
         
-        // Si no encontramos una fila adecuada para encabezados
         if (headerRowIndex >= Math.min(5, jsonData.length)) {
           setAlert({
             show: true,
@@ -346,12 +336,10 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           return;
         }
         
-        // Usar la fila encontrada como encabezados
         const headers = jsonData[headerRowIndex].map(header => 
           header === "" ? `Columna_${Math.random().toString(36).substr(2, 5)}` : String(header)
         );
         
-        // Datos a partir de la siguiente fila
         const rows = jsonData.slice(headerRowIndex + 1).filter(row => 
           row.length > 0 && row.some(cell => cell !== "")
         );
@@ -366,7 +354,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           return;
         }
         
-        // Preparar datos para vista previa
         const preview = rows.slice(0, 5).map(row => {
           const rowData = {};
           headers.forEach((header, index) => {
@@ -375,7 +362,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           return rowData;
         });
 
-        // Convertir a array de objetos para todos los datos
         const formattedData = rows.map(row => {
           const rowData = {};
           headers.forEach((header, index) => {
@@ -388,45 +374,57 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
         setColumns(headers);
         setPreviewData(preview);
 
-        // Inicializar mapeo vacío
-        const initialMappings = {};
+        // Auto-mapeo inteligente MEJORADO para los campos reales
+        const autoMappings = {};
         headers.forEach(header => {
-          initialMappings[header] = '';
+          autoMappings[header] = '';
         });
-        setMappings(initialMappings);
-        
-        // Auto-mapeo básico basado en nombres de columnas
-        const autoMappings = {...initialMappings};
+
         headers.forEach(header => {
           const headerLower = String(header).toLowerCase().trim();
           
-          // Mapeo básico por coincidencia de nombre
           camposEmpleado.forEach(campo => {
-            if (headerLower === campo.id.toLowerCase() || 
-                headerLower === campo.nombre.toLowerCase() ||
-                headerLower.includes(campo.id.toLowerCase()) ||
-                headerLower.includes(campo.nombre.toLowerCase())) {
-              // Verificar que no esté ya mapeado
+            const campoLower = campo.nombre.toLowerCase();
+            const campoId = campo.id.toLowerCase();
+            
+            // Mapeo específico mejorado para campos reales
+            if (
+              (headerLower.includes('rut') && !headerLower.includes('afil') && campo.id === 'rut') ||
+              (headerLower.includes('nombre') && !headerLower.includes('paterno') && !headerLower.includes('materno') && !headerLower.includes('afil') && campo.id === 'nombre') ||
+              (headerLower.includes('paterno') && !headerLower.includes('afil') && campo.id === 'apellido_paterno') ||
+              (headerLower.includes('materno') && !headerLower.includes('afil') && campo.id === 'apellido_materno') ||
+              (headerLower.includes('codigo') && campo.id === 'codigo') ||
+              (headerLower.includes('telefono') && campo.id === 'telefono') ||
+              (headerLower.includes('direccion') && campo.id === 'direccion') ||
+              (headerLower.includes('nacionalidad') && campo.id === 'nacionalidad') ||
+              (headerLower.includes('email') && campo.id === 'email') ||
+              (headerLower.includes('cargo') && campo.id === 'cargo') ||
+              (headerLower.includes('sueldo') && headerLower.includes('base') && campo.id === 'sueldo_base') ||
+              (headerLower.includes('establecimiento') && campo.id === 'establecimiento') ||
+              (headerLower.includes('sucursal') && campo.id === 'establecimiento') ||
+              (headerLower.includes('fecha') && headerLower.includes('nac') && campo.id === 'fecha_nacimiento') ||
+              (headerLower.includes('fecha') && headerLower.includes('ingr') && campo.id === 'fecha_ingreso') ||
+              (headerLower.includes('fecha') && headerLower.includes('term') && campo.id === 'fecha_termino') ||
+              (headerLower.includes('estado') && headerLower.includes('civil') && campo.id === 'estado_civil') ||
+              (headerLower.includes('estado') && headerLower.includes('contrato') && campo.id === 'estado_contrato') ||
+              (headerLower.includes('tipo') && headerLower.includes('contrato') && campo.id === 'tipo_contrato') ||
+              (headerLower.includes('sexo') && campo.id === 'sexo') ||
+              (headerLower.includes('discapacidad') && campo.id === 'persona_discapacidad') ||
+              (headerLower.includes('jornada') && campo.id === 'tipo_jornada') ||
+              (headerLower.includes('horas') && headerLower.includes('semanales') && campo.id === 'horas_semanales_pactadas') ||
+              (headerLower.includes('departamento') && headerLower.includes('cod') && campo.id === 'cod_departamento') ||
+              (headerLower.includes('departamento') && headerLower.includes('desc') && campo.id === 'desc_departamento')
+            ) {
               if (!Object.values(autoMappings).includes(campo.id)) {
                 autoMappings[header] = campo.id;
               }
             }
           });
-          
-          // Mapeo especial para sucursales
-          if (headerLower.includes('sucursal') && !Object.values(autoMappings).includes('id_sucursal')) {
-            if (headerLower.includes('id') || headerLower.includes('codigo')) {
-              autoMappings[header] = 'id_sucursal';
-            } else {
-              autoMappings[header] = 'nombre_sucursal';
-            }
-          }
         });
         
         setMappings(autoMappings);
-        
         setLoading(false);
-        setActiveStep(1); // Avanzar al paso de mapeo
+        setActiveStep(1);
       } catch (error) {
         console.error('Error al procesar archivo Excel:', error);
         setAlert({
@@ -443,20 +441,17 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
 
   // Actualizar mapeo de un campo
   const handleMappingChange = (column, value) => {
-    // Verificar si ya existe este campo en otro mapeo
     if (value && Object.values(mappings).includes(value)) {
-      // Encontrar la columna que tenía este valor y eliminarla
       Object.keys(mappings).forEach(key => {
         if (mappings[key] === value && key !== column) {
           setMappings(prev => ({
             ...prev,
-            [key]: '' // Resetear el mapeo anterior
+            [key]: ''
           }));
         }
       });
     }
 
-    // Actualizar el mapeo actual
     setMappings(prev => ({
       ...prev,
       [column]: value
@@ -471,9 +466,8 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
       .join(', ');
   };
 
-  // Condición para habilitar el botón Siguiente en paso de mapeo
   const canProceedFromMapping = () => {
-    const mappedFields = Object.values(mappings).filter(field => field); // Campos mapeados (no vacíos)
+    const mappedFields = Object.values(mappings).filter(field => field);
     const allRequiredMapped = camposRequeridos.every(campo => mappedFields.includes(campo));
     return allRequiredMapped;
   };
@@ -494,7 +488,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
     setActiveStep((prev) => prev - 1);
   };
 
-  // Cerrar alerta
   const handleAlertClose = () => {
     setAlert({ show: false, message: '', severity: 'info' });
   };
@@ -504,102 +497,118 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
     if (!excelData || !excelData.rows || !mappings) return;
     
     const datos = [];
-    const warnings = [];
-    let empleadosSinSucursalCount = 0;
     
     excelData.rows.forEach((row, index) => {
       const mapped = {};
-      let hasWarning = false;
-      let warningMessage = '';
-      let tieneSucursalValida = false;
       
-      // Aplicar el mapeo a cada fila
       Object.entries(mappings).forEach(([columnaExcel, campoSistema]) => {
-        if (campoSistema) { // Solo mapear si se seleccionó un campo destino
+        if (campoSistema) {
           const valorOriginal = row[columnaExcel];
           
-          // Manejo especial para sucursales
-          if (campoSistema === 'id_sucursal' || campoSistema === 'nombre_sucursal') {
-            const idSucursal = procesarValorSucursal(valorOriginal);
-            if (idSucursal !== null) {
-              mapped.id_sucursal = idSucursal;
-              tieneSucursalValida = true;
+          // Conversiones específicas para tipos de datos
+          if (campoSistema === 'persona_discapacidad' || campoSistema === 'es_jubilado' || 
+              campoSistema === 'afecto_ajuste' || campoSistema === 'afecto_benef_semana_corrida' ||
+              campoSistema === 'seguro_cesantia' || campoSistema === 'afecto_seguro_accidentes') {
+            // Convertir a boolean - MUY ESPECÍFICO PARA EVITAR FALSOS POSITIVOS
+            if (typeof valorOriginal === 'boolean') {
+              mapped[campoSistema] = valorOriginal;
+            } else if (typeof valorOriginal === 'string') {
+              const valorLower = valorOriginal.toLowerCase().trim();
+              // Solo valores explícitamente positivos
+              mapped[campoSistema] = ['si', 'sí', 'yes', 'true', '1', 's', 'verdadero', 'x'].includes(valorLower);
+            } else if (typeof valorOriginal === 'number') {
+              mapped[campoSistema] = valorOriginal === 1;
+            } else {
+              mapped[campoSistema] = false; // Por defecto SIEMPRE false
             }
-            
-            // Agregar warning si no se pudo mapear la sucursal
-            if (valorOriginal && valorOriginal !== '' && idSucursal === null) {
-              hasWarning = true;
-              warningMessage = `Sucursal "${valorOriginal}" no encontrada`;
+          } else if (campoSistema.includes('fecha')) {
+            // Manejar fechas
+            if (valorOriginal && valorOriginal !== '') {
+              try {
+                let fecha = null;
+                if (valorOriginal instanceof Date) {
+                  fecha = valorOriginal;
+                } else if (typeof valorOriginal === 'string') {
+                  const fechaStr = valorOriginal.trim();
+                  if (fechaStr.includes('/')) {
+                    const partes = fechaStr.split('/');
+                    if (partes.length === 3) {
+                      fecha = new Date(partes[2], partes[1] - 1, partes[0]);
+                    }
+                  } else if (fechaStr.includes('-')) {
+                    fecha = new Date(fechaStr);
+                  }
+                }
+                
+                if (fecha && !isNaN(fecha.getTime())) {
+                  const year = fecha.getFullYear();
+                  const month = String(fecha.getMonth() + 1).padStart(2, '0');
+                  const day = String(fecha.getDate()).padStart(2, '0');
+                  mapped[campoSistema] = `${year}-${month}-${day}`;
+                }
+              } catch (error) {
+                console.warn(`Error procesando fecha ${valorOriginal}:`, error);
+                mapped[campoSistema] = null;
+              }
+            }
+          } else if (campoSistema === 'establecimiento') {
+            // Mapear sucursales usando la tabla de mapeo
+            const sucursalMapeada = mapearSucursal(valorOriginal);
+            mapped[campoSistema] = sucursalMapeada;
+          } else if (campoSistema === 'sueldo_base') {
+            // CORRIGIDO: SUELDO_BASE AHORA ES DECIMAL - PROCESAMIENTO SIMPLIFICADO
+            if (valorOriginal && valorOriginal !== '') {
+              // Limpiar el valor de caracteres no numéricos excepto punto y coma
+              const valorLimpio = String(valorOriginal).replace(/[^0-9.,\-]/g, '');
+              // Reemplazar coma por punto si existe (formato europeo)
+              const valorConPunto = valorLimpio.replace(',', '.');
+              const valorNumerico = parseFloat(valorConPunto);
+              
+              if (!isNaN(valorNumerico)) {
+                // Mantener como decimal - no redondear
+                mapped[campoSistema] = valorNumerico;
+              } else {
+                mapped[campoSistema] = null;
+              }
+            } else {
+              mapped[campoSistema] = null;
+            }
+          } else if (campoSistema.includes('valor') || campoSistema.includes('monto') || 
+                     campoSistema.includes('comision') || campoSistema.includes('porcentaje') || 
+                     campoSistema.includes('aporte')) {
+            // Convertir valores numéricos
+            if (valorOriginal && valorOriginal !== '') {
+              const valorNumerico = parseFloat(String(valorOriginal).replace(/[^0-9.-]/g, ''));
+              mapped[campoSistema] = isNaN(valorNumerico) ? null : valorNumerico;
+            }
+          } else if (campoSistema.includes('cargas') || campoSistema.includes('cantidad') || 
+                     campoSistema.includes('horas') || campoSistema.includes('dias')) {
+            // Convertir a enteros
+            if (valorOriginal && valorOriginal !== '') {
+              const valorEntero = parseInt(String(valorOriginal).replace(/[^0-9]/g, ''));
+              mapped[campoSistema] = isNaN(valorEntero) ? null : valorEntero;
             }
           } else {
-            mapped[campoSistema] = valorOriginal;
+            // Campo de texto normal
+            mapped[campoSistema] = valorOriginal && valorOriginal !== '' ? String(valorOriginal).trim() : null;
           }
         }
       });
       
-      // Si no tiene sucursal válida, contar para mostrar al usuario
-      if (!tieneSucursalValida) {
-        empleadosSinSucursalCount++;
-      }
-      
       datos.push(mapped);
-      
-      if (hasWarning) {
-        warnings.push({
-          fila: index + 1,
-          empleado: `${mapped.nombre || ''} ${mapped.apellido || ''}`.trim() || `Fila ${index + 1}`,
-          warning: warningMessage
-        });
-      }
     });
     
     setDatosEmpleados(datos);
-    setSucursalMappingWarnings(warnings);
-    setEmpleadosSinSucursal(empleadosSinSucursalCount);
-    
-    // Si hay empleados sin sucursal, sugerir la primera sucursal disponible
-    if (empleadosSinSucursalCount > 0 && sucursales.length > 0 && !sucursalPorDefecto) {
-      setSucursalPorDefecto((sucursales[0].id_sucursal || sucursales[0].id).toString());
-    }
   };
 
-  // Obtener el nombre de la sucursal por ID
-  const getSucursalNombre = (idSucursal) => {
-    if (!idSucursal) return 'No especificada';
-    
-    const sucursal = sucursales.find(s => 
-      (s.id_sucursal === idSucursal) || (s.id === idSucursal)
-    );
-    return sucursal ? sucursal.nombre : `ID: ${idSucursal}`;
-  };
-
-  // Importar datos desde el Excel con el mapeo configurado
+  // Importar datos usando el endpoint del backend
   const importData = async () => {
     setLoading(true);
     
-    console.log('🚀 INICIANDO IMPORTACIÓN');
-    console.log('📊 Datos de empleados a importar:', datosEmpleados);
-    console.log('🗺️ Mapeos configurados:', mappings);
-    console.log('🏢 Sucursales disponibles:', sucursales);
-    console.log('🏢 Sucursal por defecto seleccionada:', sucursalPorDefecto);
-    
-    // Verificar que se han mapeado los campos obligatorios
     if (!canProceedFromMapping()) {
-      console.log('❌ ERROR: Faltan campos obligatorios por mapear');
       setAlert({
         show: true,
         message: `Faltan campos obligatorios por mapear: ${getMissingRequiredFields()}`,
-        severity: 'error'
-      });
-      setLoading(false);
-      return;
-    }
-
-    // Verificar que se ha seleccionado sucursal por defecto si hay empleados sin sucursal
-    if (empleadosSinSucursal > 0 && !sucursalPorDefecto) {
-      setAlert({
-        show: true,
-        message: `Hay ${empleadosSinSucursal} empleados sin sucursal válida. Debe seleccionar una sucursal por defecto.`,
         severity: 'error'
       });
       setLoading(false);
@@ -611,135 +620,58 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
       let fallidos = 0;
       const errores = [];
       
-      console.log(`📈 Procesando ${datosEmpleados.length} empleados...`);
-      
       for (let i = 0; i < datosEmpleados.length; i++) {
-        console.log(`\n🔄 PROCESANDO EMPLEADO ${i + 1}/${datosEmpleados.length}`);
-        console.log('📋 Datos originales:', datosEmpleados[i]);
-        
-        let empleadoData = null;
-        
         try {
-          // Preparar los datos para enviar
-          empleadoData = { ...datosEmpleados[i] };
-          console.log('📝 Datos después de clonar:', empleadoData);
+          const empleadoData = { ...datosEmpleados[i] };
           
-          // IMPORTANTE: Remover el campo 'id' si existe (es autoincremental)
-          if (empleadoData.id) {
-            console.log('🗑️ Eliminando campo id autoincremental:', empleadoData.id);
-            delete empleadoData.id;
-          }
-          
-          // NUEVO: Aplicar sucursal por defecto si no tiene sucursal válida
-          if (!empleadoData.id_sucursal && sucursalPorDefecto) {
-            empleadoData.id_sucursal = parseInt(sucursalPorDefecto);
-            console.log('🏢 Aplicando sucursal por defecto:', empleadoData.id_sucursal);
-          }
-          
-          // Validar que tiene sucursal válida
-          if (!empleadoData.id_sucursal) {
-            throw new Error('No se pudo asignar una sucursal válida al empleado');
-          }
-          
-          console.log('✅ id_sucursal final:', empleadoData.id_sucursal);
-          
-          // Validar campos obligatorios (SOLO RUT, nombre y apellido)
-          console.log('🔍 Validando campos obligatorios...');
+          // Validar campos obligatorios
           if (!empleadoData.rut) {
             throw new Error('RUT es obligatorio');
           }
-          console.log('✅ RUT válido:', empleadoData.rut);
-          
           if (!empleadoData.nombre) {
             throw new Error('Nombre es obligatorio');
           }
-          console.log('✅ Nombre válido:', empleadoData.nombre);
-          
-          if (!empleadoData.apellido) {
-            throw new Error('Apellido es obligatorio');
+          if (!empleadoData.apellido_paterno) {
+            throw new Error('Apellido paterno es obligatorio');
           }
-          console.log('✅ Apellido válido:', empleadoData.apellido);
           
-          // Limpiar campos vacíos (convertir strings vacíos a null)
-          console.log('🧹 Limpiando campos vacíos...');
+          // Activar por defecto
+          empleadoData.activo = true;
+          
+          // Remover campos vacíos
           Object.keys(empleadoData).forEach(key => {
-            const valorOriginal = empleadoData[key];
             if (empleadoData[key] === '' || empleadoData[key] === undefined) {
               empleadoData[key] = null;
-              console.log(`🧹 Campo '${key}' cambiado de '${valorOriginal}' a null`);
             }
           });
           
-          console.log('📤 Datos finales a enviar:', empleadoData);
+          const response = await api.post('/empleados', empleadoData);
           
-          // Verificar si ya existe un empleado con ese RUT
-          console.log('🔍 Verificando si existe empleado con RUT:', empleadoData.rut);
-          try {
-            const checkResponse = await axiosWithAuth.get(`/empleados/search?query=${empleadoData.rut}`);
-            console.log('📋 Respuesta de búsqueda:', checkResponse);
-            
-            const empleadosExistentes = checkResponse.data.empleados || [];
-            console.log('👥 Empleados existentes encontrados:', empleadosExistentes);
-            
-            const existe = empleadosExistentes.some(emp => emp.rut === empleadoData.rut);
-            console.log('❓ ¿Empleado ya existe?', existe);
-            
-            if (existe) {
-              throw new Error(`Empleado con RUT ${empleadoData.rut} ya existe`);
-            }
-          } catch (searchError) {
-            console.log('⚠️ Error en búsqueda (continuando):', searchError.message);
-            // Si hay error en la búsqueda, continuamos con la creación
+          if (response.data && response.data.success) {
+            exitosos++;
+          } else {
+            throw new Error(response.data?.message || 'Error desconocido');
           }
           
-          console.log('🚀 Enviando POST a /empleados con datos:', empleadoData);
-          
-          // Crear el empleado
-          const createResponse = await axiosWithAuth.post('/empleados', empleadoData);
-          console.log('✅ Empleado creado exitosamente:', createResponse.data);
-          
-          exitosos++;
-          console.log(`🎉 ÉXITO - Empleado ${i + 1} importado correctamente`);
-          
         } catch (error) {
-          console.log(`❌ ERROR al importar empleado ${i + 1}:`);
-          console.log('🔴 Error completo:', error);
-          console.log('🔴 Mensaje de error:', error.message);
-          console.log('🔴 Respuesta del servidor:', error.response);
-          
-          // Guardar información del error para mostrar al usuario
           const empleadoInfo = datosEmpleados[i];
           const errorInfo = {
             fila: i + 1,
             rut: empleadoInfo.rut || 'Sin RUT',
             nombre: empleadoInfo.nombre || 'Sin nombre',
-            error: error.response?.data?.message || error.response?.data?.error || error.message || 'Error desconocido',
-            datosEnviados: empleadoData || empleadoInfo,
-            errorCompleto: error.response?.data || error
+            error: error.response?.data?.message || error.message || 'Error desconocido'
           };
           errores.push(errorInfo);
           fallidos++;
-          
-          console.log('💾 Error guardado:', errorInfo);
         }
         
-        // Actualizar progreso
         setImportProgress(Math.round(((i + 1) / datosEmpleados.length) * 100));
-        console.log(`📊 Progreso: ${Math.round(((i + 1) / datosEmpleados.length) * 100)}%`);
       }
       
-      console.log('\n🏁 IMPORTACIÓN COMPLETADA');
-      console.log(`✅ Exitosos: ${exitosos}`);
-      console.log(`❌ Fallidos: ${fallidos}`);
-      console.log('📋 Errores detallados:', errores);
-      
-      // Mostrar errores detallados si los hay
       if (errores.length > 0 && errores.length <= 5) {
         const errorMessages = errores.map(err => 
           `Fila ${err.fila} (${err.rut} - ${err.nombre}): ${err.error}`
         ).join('\n');
-        
-        console.log('📢 Mostrando errores al usuario:', errorMessages);
         
         setAlert({
           show: true,
@@ -747,17 +679,14 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           severity: exitosos > 0 ? 'warning' : 'error'
         });
       } else {
-        // Mensaje general
         setAlert({
           show: true,
-          message: `Importación completada: ${exitosos} exitosos, ${fallidos} fallidos.${fallidos > 0 ? ' Revise la consola del navegador para más detalles.' : ''}`,
+          message: `Importación completada: ${exitosos} exitosos, ${fallidos} fallidos.${fallidos > 0 ? ' Revise la consola para más detalles.' : ''}`,
           severity: exitosos > 0 ? (fallidos > 0 ? 'warning' : 'success') : 'error'
         });
       }
       
-      // Notificar al componente padre
       if (onImportComplete) {
-        console.log('📞 Notificando al componente padre...');
         onImportComplete({
           total: datosEmpleados.length,
           successful: exitosos,
@@ -765,24 +694,19 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
         });
       }
       
-      setActiveStep(3); // Avanzar al paso final
+      setActiveStep(3);
     } catch (error) {
-      console.log('💥 ERROR GENERAL en la importación:');
-      console.log('🔴 Error completo:', error);
-      console.log('🔴 Stack trace:', error.stack);
-      
       setAlert({
         show: true,
-        message: `Error general en la importación: ${error.message}. Revise la consola del navegador para más detalles.`,
+        message: `Error general en la importación: ${error.message}`,
         severity: 'error'
       });
     } finally {
       setLoading(false);
-      console.log('🔚 Función importData terminada');
     }
   };
 
-  // Renderizar vista previa de los datos del Excel
+  // Renderizar vista previa del Excel
   const renderExcelPreview = () => {
     if (!previewData.length || !columns.length) return null;
     
@@ -831,11 +755,23 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
             <TableBody>
               {previewData.map((row, rowIndex) => (
                 <TableRow key={rowIndex} hover>
-                  {columns.map((col, colIndex) => (
-                    <TableCell key={`${rowIndex}-${colIndex}`}>
-                      {row[col] !== undefined ? String(row[col]) : ''}
-                    </TableCell>
-                  ))}
+                  {columns.map((col, colIndex) => {
+                    let valorMostrar = row[col] !== undefined ? String(row[col]) : '';
+                    
+                    // Si es establecimiento, mostrar también el mapeo
+                    if (mappings[col] === 'establecimiento' && valorMostrar) {
+                      const valorMapeado = mapearSucursal(valorMostrar);
+                      if (valorMapeado !== valorMostrar) {
+                        valorMostrar = `${valorMostrar} → ${valorMapeado}`;
+                      }
+                    }
+                    
+                    return (
+                      <TableCell key={`${rowIndex}-${colIndex}`}>
+                        {valorMostrar}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableBody>
@@ -902,7 +838,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
                         <MenuItem value="">
                           <em>No mapear</em>
                         </MenuItem>
-                        {/* Primero los campos obligatorios */}
                         <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
                           -- Campos obligatorios --
                         </MenuItem>
@@ -915,22 +850,86 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
                             {campo.nombre} *
                           </MenuItem>
                         ))}
-                        {/* Luego los campos opcionales */}
                         <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
-                          -- Campos opcionales --
+                          -- Datos personales --
                         </MenuItem>
-                        {camposEmpleado.filter(campo => !campo.requerido).map((campo) => (
+                        {camposEmpleado.filter(campo => !campo.requerido && (
+                          ['apellido_materno', 'codigo', 'fecha_nacimiento', 'sexo', 'estado_civil', 
+                           'nacionalidad', 'direccion', 'telefono', 'email', 'persona_discapacidad'].includes(campo.id)
+                        )).map((campo) => (
                           <MenuItem 
                             key={campo.id} 
                             value={campo.id}
                             disabled={Object.values(mappings).includes(campo.id) && mappings[column] !== campo.id}
                           >
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              {(campo.id === 'id_sucursal' || campo.id === 'nombre_sucursal') && (
-                                <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
-                              )}
-                              {campo.nombre}
-                            </Box>
+                            {campo.nombre}
+                          </MenuItem>
+                        ))}
+                        <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
+                          -- Datos laborales --
+                        </MenuItem>
+                        {camposEmpleado.filter(campo => !campo.requerido && (
+                          ['fecha_ingreso', 'fecha_termino', 'estado_contrato', 'tipo_contrato',
+                           'cod_departamento', 'desc_departamento', 'cargo', 'establecimiento', 
+                           'tipo_jornada', 'horas_semanales_pactadas'].includes(campo.id)
+                        )).map((campo) => (
+                          <MenuItem 
+                            key={campo.id} 
+                            value={campo.id}
+                            disabled={Object.values(mappings).includes(campo.id) && mappings[column] !== campo.id}
+                          >
+                            {campo.nombre}
+                          </MenuItem>
+                        ))}
+                        <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
+                          -- Remuneraciones --
+                        </MenuItem>
+                        {camposEmpleado.filter(campo => !campo.requerido && (
+                          campo.id.includes('sueldo') || campo.id.includes('valor') ||
+                          campo.id.includes('comision') || campo.id.includes('gratificacion') ||
+                          campo.id.includes('asig') || campo.id.includes('afecto') ||
+                          campo.id.includes('dia_') || campo.id.includes('cantidad') ||
+                          campo.id.includes('tipo_sueldo')
+                        )).map((campo) => (
+                          <MenuItem 
+                            key={campo.id} 
+                            value={campo.id}
+                            disabled={Object.values(mappings).includes(campo.id) && mappings[column] !== campo.id}
+                          >
+                            {campo.nombre}
+                          </MenuItem>
+                        ))}
+                        <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
+                          -- Previsión y Salud --
+                        </MenuItem>
+                        {camposEmpleado.filter(campo => !campo.requerido && (
+                          campo.id.includes('prevision') || campo.id.includes('cotiz') ||
+                          campo.id.includes('cargas') || campo.id.includes('jubilado') ||
+                          campo.id.includes('seguro') || campo.id.includes('isapre') ||
+                          campo.id.includes('tramo') || campo.id.includes('ges') ||
+                          campo.id.includes('par') || campo.id.includes('moneda')
+                        )).map((campo) => (
+                          <MenuItem 
+                            key={campo.id} 
+                            value={campo.id}
+                            disabled={Object.values(mappings).includes(campo.id) && mappings[column] !== campo.id}
+                          >
+                            {campo.nombre}
+                          </MenuItem>
+                        ))}
+                        <MenuItem disabled style={{ opacity: 0.7, fontWeight: 'bold' }}>
+                          -- APVI y APVC --
+                        </MenuItem>
+                        {camposEmpleado.filter(campo => !campo.requerido && (
+                          campo.id.includes('apvi') || campo.id.includes('apvc') ||
+                          campo.id.includes('afil_vol')
+                        )).map((campo) => (
+                          <MenuItem 
+                            key={campo.id} 
+                            value={campo.id}
+                            disabled={Object.values(mappings).includes(campo.id) && mappings[column] !== campo.id}
+                          >
+                            {campo.nombre}
                           </MenuItem>
                         ))}
                       </Select>
@@ -952,40 +951,28 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           </Table>
         </TableContainer>
 
-        {/* Información sobre sucursales */}
-        {sucursales.length > 0 && (
-          <Card sx={{ mt: 3, backgroundColor: 'rgba(243, 125, 22, 0.05)' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <BusinessIcon sx={{ mr: 1, color: 'primary.main' }} />
-                Sucursales Disponibles
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Las siguientes sucursales están disponibles para mapear:
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {sucursales.map((sucursal) => (
-                  <Chip
-                    key={sucursal.id_sucursal || sucursal.id}
-                    label={`${sucursal.nombre} (ID: ${sucursal.id_sucursal || sucursal.id})`}
-                    variant="outlined"
-                    size="small"
-                    color="primary"
-                  />
-                ))}
-              </Box>
-              <Alert severity="info" sx={{ mt: 2 }}>
-                <Typography variant="body2">
-                  💡 <strong>Consejos para mapear sucursales:</strong>
-                  <br />• Si su Excel contiene IDs numéricos de sucursal, mapee a "ID Sucursal"
-                  <br />• Si su Excel contiene nombres de sucursal, mapee a "Nombre Sucursal"
-                  <br />• El sistema intentará encontrar coincidencias automáticamente
-                  <br />• En el siguiente paso podrá asignar una sucursal por defecto
-                </Typography>
-              </Alert>
-            </CardContent>
-          </Card>
-        )}
+        <Alert severity="info" sx={{ mt: 2 }}>
+          <Typography variant="body2">
+            <strong>Información sobre el mapeo:</strong><br/>
+            • Los campos con * son obligatorios: RUT, NOMBRE y A. PATERNO<br/>
+            • El campo ESTABLECIMIENTO se mapeará automáticamente usando la tabla de sucursales<br/>
+            • Las fechas se pueden importar en formato DD/MM/YYYY o YYYY-MM-DD<br/>
+            • Los campos de Si/No se detectan automáticamente (Si, Sí, S, 1 = Verdadero)<br/>
+            • SUELDO BASE ahora acepta decimales (ej: 450500.50)
+          </Typography>
+        </Alert>
+
+        {/* Mostrar mapeo de sucursales */}
+        <Alert severity="success" sx={{ mt: 2 }}>
+          <AlertTitle>Mapeo de Sucursales Configurado</AlertTitle>
+          <Typography variant="body2">
+            Las sucursales se mapearán automáticamente según esta tabla:<br/>
+            {Object.entries(MAPEO_SUCURSALES).slice(0, 3).map(([original, mapeado]) => (
+              <span key={original}><strong>{original}</strong> → {mapeado}<br/></span>
+            ))}
+            <em>... y {Object.keys(MAPEO_SUCURSALES).length - 3} más</em>
+          </Typography>
+        </Alert>
       </Box>
     );
   };
@@ -994,17 +981,15 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
   const renderMappedDataPreview = () => {
     if (!datosEmpleados.length) return null;
     
-    // Obtener todos los campos que tienen datos
     const camposConDatos = new Set();
     datosEmpleados.forEach(empleado => {
       Object.keys(empleado).forEach(key => {
-        if (empleado[key] !== undefined && empleado[key] !== '') {
+        if (empleado[key] !== undefined && empleado[key] !== null && empleado[key] !== '') {
           camposConDatos.add(key);
         }
       });
     });
     
-    // Convertir a array y ordenar: primero los requeridos, luego el resto
     const camposOrdenados = [...camposConDatos].sort((a, b) => {
       const aRequerido = camposRequeridos.includes(a);
       const bRequerido = camposRequeridos.includes(b);
@@ -1012,7 +997,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
       if (aRequerido && !bRequerido) return -1;
       if (!aRequerido && bRequerido) return 1;
       
-      // Si ambos son requeridos o ambos son opcionales, ordenar alfabéticamente
       return a.localeCompare(b);
     });
     
@@ -1021,93 +1005,6 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
         <Typography variant="h6" gutterBottom>
           Vista previa de datos a importar ({datosEmpleados.length} empleados)
         </Typography>
-        
-        {/* NUEVA SECCIÓN: Selector de Sucursal por Defecto */}
-        {empleadosSinSucursal > 0 && (
-          <Card sx={{ mb: 3, backgroundColor: 'rgba(243, 125, 22, 0.05)', border: '2px solid #f37d16' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: '#f37d16' }}>
-                <AssignmentIcon sx={{ mr: 1 }} />
-                Asignación de Sucursal por Defecto
-              </Typography>
-              
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                <Typography variant="body2">
-                  <strong>{empleadosSinSucursal} empleados</strong> no tienen una sucursal válida asignada.
-                  Seleccione una sucursal por defecto para estos empleados:
-                </Typography>
-              </Alert>
-              
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth required>
-                    <InputLabel id="sucursal-defecto-label">Sucursal por Defecto</InputLabel>
-                    <Select
-                      labelId="sucursal-defecto-label"
-                      value={sucursalPorDefecto}
-                      onChange={(e) => setSucursalPorDefecto(e.target.value)}
-                      label="Sucursal por Defecto"
-                    >
-                      <MenuItem value="">
-                        <em>Seleccione una sucursal</em>
-                      </MenuItem>
-                      {sucursales.map((sucursal) => (
-                        <MenuItem 
-                          key={sucursal.id_sucursal || sucursal.id} 
-                          value={(sucursal.id_sucursal || sucursal.id).toString()}
-                        >
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
-                            {sucursal.nombre} (ID: {sucursal.id_sucursal || sucursal.id})
-                          </Box>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    <FormHelperText>
-                      Esta sucursal se asignará a los {empleadosSinSucursal} empleados que no tienen sucursal válida
-                    </FormHelperText>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  {sucursalPorDefecto && (
-                    <Alert severity="success">
-                      <Typography variant="body2">
-                        <GroupsIcon fontSize="small" sx={{ mb: -0.5, mr: 1 }} />
-                        {empleadosSinSucursal} empleados serán asignados a: 
-                        <strong> {getSucursalNombre(parseInt(sucursalPorDefecto))}</strong>
-                      </Typography>
-                    </Alert>
-                  )}
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        )}
-        
-        {/* Mostrar warnings de mapeo de sucursales */}
-        {sucursalMappingWarnings.length > 0 && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <AlertTitle>Advertencias de Mapeo de Sucursales</AlertTitle>
-            <List dense>
-              {sucursalMappingWarnings.slice(0, 5).map((warning, index) => (
-                <ListItem key={index} sx={{ py: 0 }}>
-                  <ListItemIcon>
-                    <WarningIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={warning.empleado}
-                    secondary={warning.warning}
-                  />
-                </ListItem>
-              ))}
-            </List>
-            {sucursalMappingWarnings.length > 5 && (
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                ... y {sucursalMappingWarnings.length - 5} advertencias más.
-              </Typography>
-            )}
-          </Alert>
-        )}
         
         <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
           <Table size="small" stickyHeader>
@@ -1134,12 +1031,7 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
                 <TableRow key={rowIndex} hover>
                   {camposOrdenados.map((campo, colIndex) => (
                     <TableCell key={`${rowIndex}-${colIndex}`}>
-                      {campo === 'id_sucursal' ? 
-                        (empleado[campo] ? getSucursalNombre(empleado[campo]) : 
-                         sucursalPorDefecto ? `${getSucursalNombre(parseInt(sucursalPorDefecto))} (por defecto)` : 
-                         'Sin asignar') :
-                        empleado[campo] !== undefined ? String(empleado[campo]) : ''
-                      }
+                      {empleado[campo] !== undefined && empleado[campo] !== null ? String(empleado[campo]) : '-'}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -1160,14 +1052,11 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
   // Renderizar contenido según el paso actual
   const getStepContent = (step) => {
     switch (step) {
-      case 0: // Cargar archivo
+      case 0:
         return (
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="body1" gutterBottom>
               Cargue un archivo Excel (.xlsx, .xls) con los datos de los empleados a importar.
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              El Excel debe tener encabezados en la primera fila y datos a partir de la segunda fila.
             </Typography>
             
             <input
@@ -1204,63 +1093,33 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
             </DropZone>
             
             <Alert severity="info" sx={{ mt: 3 }}>
-              <AlertTitle>Formato requerido del Excel</AlertTitle>
+              <AlertTitle>Campos requeridos mínimos</AlertTitle>
               <Typography variant="body2">
-                Para que la importación funcione correctamente, su Excel debe tener:
-              </Typography>
-              <ul>
-                <li>Primera fila con nombres de columnas (encabezados)</li>
-                <li>Datos a partir de la segunda fila</li>
-                <li>Sin filas vacías al inicio del archivo</li>
-                <li>Sin subtítulos o información adicional antes de la tabla</li>
-              </ul>
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                Ejemplo de formato correcto:
-              </Typography>
-              <Box sx={{ bgcolor: '#f5f5f5', p: 2, mt: 1, borderRadius: 1 }}>
-                <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre' }}>
-                  RUT       |  Nombre   |  Apellido  |  Sucursal{'\n'}
-                  ----------|-----------|------------|------------{'\n'}
-                  12345678-9|  Juan     |  Pérez     |  Central{'\n'}
-                  98765432-1|  María    |  González  |  Norte
-                </Typography>
-              </Box>
-            </Alert>
-
-            <Alert severity="success" sx={{ mt: 2 }}>
-              <AlertTitle>✨ Nuevo: Asignación Automática de Sucursales</AlertTitle>
-              <Typography variant="body2">
-                <strong>Campos obligatorios:</strong> Solo RUT, Nombre y Apellido
-              </Typography>
-              <Typography variant="body2">
-                <strong>Sucursales:</strong> Si no se pueden mapear automáticamente, podrá asignar una sucursal por defecto a todos los empleados.
+                Solo son obligatorios: <strong>RUT, NOMBRE y A. PATERNO</strong>
               </Typography>
               <Typography variant="body2" sx={{ mt: 1 }}>
-                ✅ ¡Ya no necesita preocuparse por los errores de sucursal!
+                El sistema mapeará automáticamente las sucursales según la tabla configurada.
               </Typography>
             </Alert>
           </Box>
         );
       
-      case 1: // Mapear campos
+      case 1:
         return (
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="body1" gutterBottom>
               Asigne las columnas del archivo Excel a los campos correspondientes en el sistema.
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Los campos marcados con * son obligatorios. Se encontraron {excelData?.rows.length || 0} filas en el archivo.
+              Se encontraron {excelData?.rows.length || 0} filas en el archivo.
             </Typography>
             
-            {/* Mapeo de columnas */}
             {renderColumnMapping()}
             
             <Divider sx={{ my: 2 }} />
             
-            {/* Vista previa del Excel */}
             {renderExcelPreview()}
             
-            {/* Mostrar campos pendientes de mapear */}
             {!canProceedFromMapping() && (
               <Alert severity="warning" sx={{ mt: 2 }}>
                 <AlertTitle>Campos obligatorios sin mapear</AlertTitle>
@@ -1272,7 +1131,7 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
           </Box>
         );
       
-      case 2: // Revisar datos
+      case 2:
         return (
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="body1" gutterBottom>
@@ -1282,23 +1141,23 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
               Se importarán {datosEmpleados.length} empleados. Verifique que los datos estén correctamente mapeados.
             </Typography>
             
-            {/* Vista previa de datos mapeados con selector de sucursal */}
             {renderMappedDataPreview()}
             
             <Alert severity="info" sx={{ mt: 2 }}>
               <AlertTitle>Información importante</AlertTitle>
               <ul>
                 <li>Los empleados con RUT duplicado no serán importados.</li>
+                <li>Las sucursales se mapearán automáticamente según la tabla configurada.</li>
                 <li>Los campos vacíos se guardarán como nulos en la base de datos.</li>
-                <li>Todos los empleados tendrán una sucursal válida asignada.</li>
-                <li>Los empleados se pueden editar después para cambiar de sucursal.</li>
                 <li>Puede volver al paso anterior para ajustar el mapeo si es necesario.</li>
+                <li>Se creará automáticamente la relación empleado-sucursal si corresponde.</li>
+                <li>SUELDO BASE se guardará como decimal con hasta 2 decimales.</li>
               </ul>
             </Alert>
           </Box>
         );
       
-      case 3: // Resultados
+      case 3:
         return (
           <Box sx={{ mt: 2, mb: 2, textAlign: 'center' }}>
             <CheckCircleIcon color="success" sx={{ fontSize: 60, mb: 2 }} />
@@ -1306,16 +1165,11 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
               Importación Completada
             </Typography>
             <Typography variant="body1" paragraph>
-              La importación de empleados se ha completado correctamente.
+              La importación de empleados se ha completado exitosamente.
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Puede cerrar esta ventana y continuar trabajando con los empleados importados.
             </Typography>
-            <Alert severity="success" sx={{ mt: 2 }}>
-              <Typography variant="body2">
-                Todos los empleados han sido asignados a una sucursal valida, puede editar estos campos si es necesario.
-              </Typography>
-            </Alert>
           </Box>
         );
       
@@ -1465,8 +1319,7 @@ const ImportarEmpleadosExcel = ({ open, handleClose, onImportComplete, sucursale
             <Button
               disabled={
                 (activeStep === 0 && !file) ||
-                (activeStep === 1 && !canProceedFromMapping()) ||
-                (activeStep === 2 && empleadosSinSucursal > 0 && !sucursalPorDefecto)
+                (activeStep === 1 && !canProceedFromMapping())
               }
               variant="contained"
               onClick={handleNext}

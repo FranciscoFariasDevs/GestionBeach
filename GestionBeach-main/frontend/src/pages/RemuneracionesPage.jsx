@@ -1,4 +1,4 @@
-// RemuneracionesPage.jsx - VERSIÓN COMPLETA CON FILTROS Y MODAL DE ASIGNACIÓN
+// RemuneracionesPage.jsx - VERSIÓN COMPLETA CORREGIDA SIN MOSTRAR SUELDO BASE EN VISTA PREVIA
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -49,7 +49,10 @@ import {
   Autocomplete,
   Checkbox,
   FormGroup,
-  TablePagination
+  TablePagination,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
@@ -82,12 +85,14 @@ import {
   ClearAll as ClearAllIcon,
   Assignment as AssignmentIcon,
   PersonAdd as PersonAddIcon,
-  Store as StoreIcon
+  Store as StoreIcon,
+  AccountTree as AccountTreeIcon,
+  Apartment as ApartmentIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import api from '../api/api';
 
-// 🔧 CONFIGURACIÓN COMPLETA - API centralizada con nuevos endpoints
+// CONFIGURACIÓN COMPLETA - API centralizada con nuevos endpoints
 const remuneracionesAPI = {
   test: () => api.get('/remuneraciones/test'),
   obtenerPeriodos: (filtros = {}) => api.get('/remuneraciones', { params: filtros }),
@@ -122,13 +127,13 @@ const pasosCarga = [
 ];
 
 const RemuneracionesPage = () => {
-  // 🔧 ESTADOS PRINCIPALES
+  // ESTADOS PRINCIPALES
   const [periodos, setPeriodos] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // 🆕 ESTADOS PARA FILTROS
+  // ESTADOS PARA FILTROS
   const [filtros, setFiltros] = useState({
     razon_social_id: 'todos',
     sucursal_id: 'todos', 
@@ -151,14 +156,14 @@ const RemuneracionesPage = () => {
   
   // Estados para análisis profesional mejorados
   const [activeStep, setActiveStep] = useState(0);
-  const [viewMode, setViewMode] = useState('cards');
+  const [viewMode, setViewMode] = useState('grouped');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [analisisExcel, setAnalisisExcel] = useState(null);
   const [mapeoColumnas, setMapeoColumnas] = useState({});
   const [columnasDetectadas, setColumnasDetectadas] = useState([]);
   const [periodoSeleccionado, setPeriodoSeleccionado] = useState('');
   
-  // 🆕 ESTADOS PARA MODAL DE ASIGNACIÓN
+  // ESTADOS PARA MODAL DE ASIGNACIÓN
   const [openAsignacionDialog, setOpenAsignacionDialog] = useState(false);
   const [empleadosSinAsignacion, setEmpleadosSinAsignacion] = useState([]);
   const [asignacionesTemporales, setAsignacionesTemporales] = useState({});
@@ -193,6 +198,10 @@ const RemuneracionesPage = () => {
   const [paginaActual, setPaginaActual] = useState(1);
   const [empleadosPorPagina, setEmpleadosPorPagina] = useState(50);
   
+  // NUEVOS ESTADOS PARA FILTRADO ESPECÍFICO
+  const [filtroRazonSocialDetalle, setFiltroRazonSocialDetalle] = useState('todos');
+  const [filtroSucursalDetalle, setFiltroSucursalDetalle] = useState('todos');
+  
   // Estados para Snackbar mejorado
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -200,12 +209,12 @@ const RemuneracionesPage = () => {
     severity: 'success'
   });
 
-  // 🔧 FUNCIONES DE CARGA MEJORADAS CON MANEJO DE ERRORES
+  // FUNCIONES DE CARGA MEJORADAS CON MANEJO DE ERRORES
   const testConexion = useCallback(async () => {
     try {
-      console.log('🔧 Iniciando test de conexión...');
+      console.log('Iniciando test de conexión...');
       const response = await remuneracionesAPI.test();
-      console.log('✅ Test de conexión exitoso:', response.data);
+      console.log('Test de conexión exitoso:', response.data);
       
       if (!response.data.success) {
         setError('Error en la conexión a la base de datos');
@@ -213,7 +222,7 @@ const RemuneracionesPage = () => {
       }
       return true;
     } catch (err) {
-      console.error('❌ Error en test de conexión:', err);
+      console.error('Error en test de conexión:', err);
       const errorMsg = err.response?.data?.message || 'No se puede conectar con el servidor de remuneraciones';
       setError(errorMsg);
       showSnackbar(errorMsg, 'error');
@@ -221,25 +230,25 @@ const RemuneracionesPage = () => {
     }
   }, []);
 
-  // 🆕 CARGAR OPCIONES PARA FILTROS
+  // CARGAR OPCIONES PARA FILTROS
   const cargarOpcionesFiltros = useCallback(async () => {
     try {
-      console.log('📊 Cargando opciones para filtros...');
+      console.log('Cargando opciones para filtros...');
       const response = await remuneracionesAPI.obtenerOpcionesFiltros();
       
       if (response.data.success) {
         setOpcionesFiltros(response.data.data);
-        console.log('✅ Opciones de filtros cargadas:', response.data.data);
+        console.log('Opciones de filtros cargadas:', response.data.data);
       }
     } catch (err) {
-      console.error('❌ Error al cargar opciones de filtros:', err);
+      console.error('Error al cargar opciones de filtros:', err);
     }
   }, []);
 
-  // 🆕 CARGAR CATÁLOGOS PARA MODAL DE ASIGNACIÓN
+  // CARGAR CATÁLOGOS PARA MODAL DE ASIGNACIÓN
   const cargarCatalogos = useCallback(async () => {
     try {
-      console.log('📚 Cargando catálogos...');
+      console.log('Cargando catálogos...');
       const [razonesResponse, sucursalesResponse] = await Promise.all([
         catalogosAPI.getRazonesSociales(),
         catalogosAPI.getSucursales()
@@ -247,27 +256,27 @@ const RemuneracionesPage = () => {
       
       setRazonesSociales(razonesResponse.data || []);
       setSucursales(sucursalesResponse.data || []);
-      console.log('✅ Catálogos cargados');
+      console.log('Catálogos cargados');
     } catch (err) {
-      console.error('❌ Error al cargar catálogos:', err);
+      console.error('Error al cargar catálogos:', err);
     }
   }, []);
 
   const cargarPeriodos = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('📅 Cargando períodos con filtros:', filtros);
+      console.log('Cargando períodos con filtros:', filtros);
       
       const response = await remuneracionesAPI.obtenerPeriodos(filtros);
       
       if (response.data.success) {
         setPeriodos(response.data.data || []);
-        console.log(`✅ ${response.data.data?.length || 0} períodos cargados`);
+        console.log(`${response.data.data?.length || 0} períodos cargados`);
       } else {
         throw new Error(response.data.message || 'Error al cargar períodos');
       }
     } catch (err) {
-      console.error('❌ Error al cargar períodos:', err);
+      console.error('Error al cargar períodos:', err);
       const errorMsg = err.response?.data?.message || 'Error al cargar períodos de remuneraciones';
       setError(errorMsg);
       showSnackbar(errorMsg, 'error');
@@ -278,24 +287,37 @@ const RemuneracionesPage = () => {
 
   const cargarEstadisticas = useCallback(async () => {
     try {
-      console.log('📊 Cargando estadísticas...');
+      console.log('Cargando estadísticas...');
       const response = await remuneracionesAPI.obtenerEstadisticas();
       
       if (response.data.success) {
         setEstadisticas(response.data.data);
-        console.log('✅ Estadísticas cargadas:', response.data.data);
+        console.log('Estadísticas cargadas:', response.data.data);
       } else {
-        console.warn('⚠️ Error en estadísticas:', response.data.message);
+        console.warn('Error en estadísticas:', response.data.message);
       }
     } catch (err) {
-      console.error('❌ Error al cargar estadísticas:', err);
+      console.error('Error al cargar estadísticas:', err);
     }
   }, []);
 
-  // 🔧 EFFECT MEJORADO CON MEJOR MANEJO DE ERRORES
+  // FUNCTION SHOWSNACKBAR - DEBE ESTAR DEFINIDA ANTES DE SU USO
+  const showSnackbar = useCallback((message, severity = 'success') => {
+    setSnackbar({ open: false, message: '', severity: 'success' });
+    
+    setTimeout(() => {
+      setSnackbar({ 
+        open: true, 
+        message: message.length > 300 ? message.substring(0, 300) + '...' : message, 
+        severity 
+      });
+    }, 100);
+  }, []);
+
+  // EFFECT MEJORADO CON MEJOR MANEJO DE ERRORES
   useEffect(() => {
     const inicializar = async () => {
-      console.log('🚀 Inicializando RemuneracionesPage...');
+      console.log('Inicializando RemuneracionesPage...');
       
       const conexionOk = await testConexion();
       if (conexionOk) {
@@ -310,12 +332,12 @@ const RemuneracionesPage = () => {
     inicializar();
   }, [testConexion, cargarOpcionesFiltros, cargarCatalogos, cargarEstadisticas]);
 
-  // 🆕 EFFECT PARA RECARGAR PERÍODOS CUANDO CAMBIAN LOS FILTROS
+  // EFFECT PARA RECARGAR PERÍODOS CUANDO CAMBIAN LOS FILTROS
   useEffect(() => {
     cargarPeriodos();
   }, [cargarPeriodos]);
 
-  // 🆕 FUNCIONES PARA MANEJO DE FILTROS
+  // FUNCIONES PARA MANEJO DE FILTROS
   const handleFiltroChange = (campo, valor) => {
     setFiltros(prev => ({
       ...prev,
@@ -332,7 +354,7 @@ const RemuneracionesPage = () => {
     });
   };
 
-  // 🔧 CREAR NUEVO PERÍODO MEJORADO
+  // CREAR NUEVO PERÍODO MEJORADO
   const crearPeriodo = async () => {
     // Validaciones mejoradas
     if (!nuevoPeriodo.mes || !nuevoPeriodo.anio) {
@@ -352,7 +374,7 @@ const RemuneracionesPage = () => {
 
     try {
       setLoading(true);
-      console.log('📅 Creando período:', nuevoPeriodo);
+      console.log('Creando período:', nuevoPeriodo);
       
       const response = await remuneracionesAPI.crearPeriodo(nuevoPeriodo);
       
@@ -378,7 +400,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al crear período');
       }
     } catch (err) {
-      console.error('❌ Error creando período:', err);
+      console.error('Error creando período:', err);
       const errorMsg = err.response?.data?.message || 'Error al crear período';
       showSnackbar(errorMsg, 'error');
     } finally {
@@ -396,7 +418,7 @@ const RemuneracionesPage = () => {
     });
   };
 
-  // 🔧 FUNCIONES PARA ACCIONES DE PERÍODOS MEJORADAS
+  // FUNCIONES PARA ACCIONES DE PERÍODOS MEJORADAS
   const handleVerPeriodo = async (periodo) => {
     try {
       setLoading(true);
@@ -404,10 +426,12 @@ const RemuneracionesPage = () => {
       
       // Resetear filtros y paginación
       setFiltroEmpleados('');
+      setFiltroRazonSocialDetalle('todos');
+      setFiltroSucursalDetalle('todos');
       setPaginaActual(1);
       setEmpleadosPorPagina(50);
       
-      console.log(`👁️ Cargando detalles del período ${periodo.id_periodo}...`);
+      console.log(`Cargando detalles del período ${periodo.id_periodo}...`);
       
       const response = await remuneracionesAPI.obtenerDatosPeriodo(periodo.id_periodo);
       
@@ -426,7 +450,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al cargar datos del período');
       }
     } catch (err) {
-      console.error('❌ Error cargando datos del período:', err);
+      console.error('Error cargando datos del período:', err);
       const errorMsg = err.response?.data?.message || 'Error al cargar datos del período';
       showSnackbar(errorMsg, 'error');
     } finally {
@@ -438,6 +462,8 @@ const RemuneracionesPage = () => {
     setOpenViewDialog(false);
     setSelectedPeriodo(null);
     setFiltroEmpleados('');
+    setFiltroRazonSocialDetalle('todos');
+    setFiltroSucursalDetalle('todos');
     setPaginaActual(1);
     setEmpleadosPorPagina(50);
   };
@@ -447,7 +473,7 @@ const RemuneracionesPage = () => {
       setLoading(true);
       setSelectedPeriodo(periodo);
       
-      console.log(`📊 Generando análisis del período ${periodo.id_periodo}...`);
+      console.log(`Generando análisis del período ${periodo.id_periodo}...`);
       
       const response = await remuneracionesAPI.obtenerAnalisisPeriodo(periodo.id_periodo);
       
@@ -459,7 +485,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al generar análisis del período');
       }
     } catch (err) {
-      console.error('❌ Error generando análisis:', err);
+      console.error('Error generando análisis:', err);
       const errorMsg = err.response?.data?.message || 'Error al generar análisis del período';
       showSnackbar(errorMsg, 'error');
     } finally {
@@ -482,7 +508,7 @@ const RemuneracionesPage = () => {
     
     try {
       setLoading(true);
-      console.log(`🗑️ Eliminando período ${selectedPeriodo.id_periodo}...`);
+      console.log(`Eliminando período ${selectedPeriodo.id_periodo}...`);
       
       const response = await remuneracionesAPI.eliminarPeriodo(selectedPeriodo.id_periodo);
       
@@ -496,7 +522,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al eliminar período');
       }
     } catch (err) {
-      console.error('❌ Error eliminando período:', err);
+      console.error('Error eliminando período:', err);
       const errorMsg = err.response?.data?.message || 'Error al eliminar período';
       showSnackbar(errorMsg, 'error');
     } finally {
@@ -511,7 +537,7 @@ const RemuneracionesPage = () => {
     
     try {
       setLoading(true);
-      console.log(`✏️ Actualizando período ${selectedPeriodo.id_periodo}:`, datosEditados);
+      console.log(`Actualizando período ${selectedPeriodo.id_periodo}:`, datosEditados);
       
       const response = await remuneracionesAPI.actualizarPeriodo(
         selectedPeriodo.id_periodo, 
@@ -525,7 +551,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al actualizar período');
       }
     } catch (err) {
-      console.error('❌ Error actualizando período:', err);
+      console.error('Error actualizando período:', err);
       const errorMsg = err.response?.data?.message || 'Error al actualizar período';
       showSnackbar(errorMsg, 'error');
     } finally {
@@ -537,7 +563,7 @@ const RemuneracionesPage = () => {
 
   const descargarDatos = async (periodo) => {
     try {
-      console.log(`📥 Descargando datos del período ${periodo.id_periodo}...`);
+      console.log(`Descargando datos del período ${periodo.id_periodo}...`);
       
       const response = await remuneracionesAPI.obtenerDatosPeriodo(periodo.id_periodo);
       
@@ -552,13 +578,13 @@ const RemuneracionesPage = () => {
         showSnackbar('No hay datos para descargar', 'warning');
       }
     } catch (err) {
-      console.error('❌ Error descargando datos:', err);
+      console.error('Error descargando datos:', err);
       const errorMsg = err.response?.data?.message || 'Error al descargar datos';
       showSnackbar(errorMsg, 'error');
     }
   };
 
-  // 🔧 PROCESAMIENTO DE EXCEL COMPLETAMENTE MEJORADO
+  // PROCESAMIENTO DE EXCEL COMPLETAMENTE MEJORADO Y CORREGIDO
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -601,7 +627,7 @@ const RemuneracionesPage = () => {
         
         setProcessingStatus('Procesando datos...');
         
-        // 🆕 LEER CON MANEJO MEJORADO DE DATOS VACÍOS
+        // LEER CON MANEJO MEJORADO DE DATOS VACÍOS
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
           header: 1, 
           defval: '', 
@@ -609,13 +635,13 @@ const RemuneracionesPage = () => {
           raw: false
         });
         
-        console.log('📊 Datos raw del Excel (primeras 10 filas):', jsonData.slice(0, 10));
+        console.log('Datos raw del Excel (primeras 10 filas):', jsonData.slice(0, 10));
         
         if (jsonData.length < 2) {
           throw new Error('El archivo debe tener al menos 2 filas (encabezados + datos)');
         }
 
-        // 🆕 BÚSQUEDA INTELIGENTE DE HEADERS MEJORADA
+        // BÚSQUEDA INTELIGENTE DE HEADERS MEJORADA CON DETECCIÓN DE "Líquido"
         let headerRowIndex = await buscarFilaHeaders(jsonData);
 
         if (headerRowIndex === -1) {
@@ -628,17 +654,17 @@ const RemuneracionesPage = () => {
         
         const rows = await procesarFilasDatos(jsonData, headerRowIndex);
         
-        console.log(`📋 Headers detectados (${headers.length}):`, headers.slice(0, 10));
-        console.log(`📊 Filas de datos válidas: ${rows.length}`);
+        console.log(`Headers detectados (${headers.length}):`, headers.slice(0, 10));
+        console.log(`Filas de datos válidas: ${rows.length}`);
         
         if (headers.length < 3) {
           throw new Error('No se detectaron suficientes columnas válidas en los encabezados');
         }
 
-        // 🆕 CONVERSIÓN MEJORADA A OBJETOS
+        // CONVERSIÓN MEJORADA A OBJETOS
         const formattedData = await convertirDatosAObjetos(rows, headers);
 
-        console.log('✅ Datos formateados (primeros 3):', formattedData.slice(0, 3));
+        console.log('Datos formateados (primeros 3):', formattedData.slice(0, 3));
 
         if (formattedData.length === 0) {
           throw new Error('No se encontraron filas de datos válidas después del procesamiento');
@@ -656,7 +682,7 @@ const RemuneracionesPage = () => {
         
         showSnackbar(`Excel cargado exitosamente: ${formattedData.length} registros encontrados`, 'success');
       } catch (error) {
-        console.error('❌ Error al leer Excel:', error);
+        console.error('Error al leer Excel:', error);
         showSnackbar('Error al procesar el archivo Excel: ' + error.message, 'error');
         resetExcelState();
       } finally {
@@ -672,18 +698,19 @@ const RemuneracionesPage = () => {
     reader.readAsArrayBuffer(file);
   };
 
-  // 🆕 FUNCIÓN AUXILIAR: Buscar fila de headers
+  // FUNCIÓN AUXILIAR CORREGIDA: Buscar fila de headers con detección mejorada de "Líquido"
   const buscarFilaHeaders = async (jsonData) => {
     for (let i = 0; i < Math.min(15, jsonData.length); i++) {
       const row = jsonData[i];
       if (row && Array.isArray(row) && row.length > 5) {
         const rowStr = row.join(' ').toUpperCase();
-        // Buscar patrones específicos de nómina chilena
+        // Buscar patrones específicos de nómina chilena incluyendo variaciones de "Líquido"
         if ((rowStr.includes('RUT') || rowStr.includes('R.U.T')) && 
             rowStr.includes('NOMBRE') && 
             (rowStr.includes('BASE') || rowStr.includes('LIQUIDO') || 
-             rowStr.includes('LÍQUIDO') || rowStr.includes('HABERES'))) {
-          console.log(`📋 Headers encontrados en fila ${i + 1}: ${row.slice(0, 8).join(', ')}...`);
+             rowStr.includes('LÍQUIDO') || rowStr.includes('LÃ¯Â¿Â½IDO') ||
+             rowStr.includes('LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO') || rowStr.includes('HABERES'))) {
+          console.log(`Headers encontrados en fila ${i + 1}: ${row.slice(0, 8).join(', ')}...`);
           return i;
         }
       }
@@ -691,7 +718,7 @@ const RemuneracionesPage = () => {
     return -1;
   };
 
-  // 🆕 FUNCIÓN AUXILIAR: Procesar filas de datos
+  // FUNCIÓN AUXILIAR: Procesar filas de datos
   const procesarFilasDatos = async (jsonData, headerRowIndex) => {
     return jsonData.slice(headerRowIndex + 1)
       .filter(row => {
@@ -707,7 +734,7 @@ const RemuneracionesPage = () => {
       });
   };
 
-  // 🆕 FUNCIÓN AUXILIAR: Convertir datos a objetos
+  // FUNCIÓN AUXILIAR: Convertir datos a objetos
   const convertirDatosAObjetos = async (rows, headers) => {
     return rows
       .map((row, index) => {
@@ -732,10 +759,43 @@ const RemuneracionesPage = () => {
       });
   };
 
-  // 🔧 ANÁLISIS AUTOMÁTICO MEJORADO
+  // FUNCIÓN CRÍTICA CORREGIDA: Crear mapeo mejorado que detecte todas las variaciones de "Líquido"
+  const crearMapeoMejorado = (headers, mapeoBackend) => {
+    const mapeoMejorado = { ...mapeoBackend };
+    
+    // Buscar específicamente la columna de líquido con todas las variaciones posibles
+    headers.forEach(header => {
+      const headerUpper = header.toUpperCase().trim();
+      const headerOriginal = header.trim();
+      
+      // Detectar "Líquido" y todas sus variaciones incluyendo problemas de encoding
+      if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || 
+          headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' ||
+          headerUpper.includes('LÃ¯Â¿Â½IDO') || headerUpper === 'LÃ¯Â¿Â½IDO' ||
+          headerUpper.includes('LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO') || headerUpper === 'LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO' ||
+          headerUpper.includes('LÃƒQUIDO') || headerUpper === 'LÃƒQUIDO' ||
+          headerUpper.includes('LIQUIDO A PAGAR') || 
+          headerUpper.includes('LIQUIDO PAGAR') || 
+          headerUpper.includes('LIQ.') || headerUpper === 'LIQ.' ||
+          headerUpper.includes('LÍQUIDO A PAGAR') ||
+          headerUpper.includes('NET') || headerUpper.includes('NETO') ||
+          // Detectar patrones adicionales comunes en nóminas
+          (headerUpper.includes('PAGAR') && (headerUpper.includes('LIQ') || headerUpper.includes('NET'))) ||
+          // Detectar por posición si contiene caracteres especiales que podrían ser "í"
+          /L[\w\Ã¯Â¿Â½\ÃƒÂ¯\Ã‚Â¿\Ã‚Â½\ÃƒÂ£]*[QU]+[I]*[D]*O/i.test(headerOriginal)) {
+        
+        mapeoMejorado.liquido_pagar = header;
+        console.log(`FRONTEND: Líquido detectado correctamente: "${header}" (original: "${headerOriginal}")`);
+      }
+    });
+    
+    return mapeoMejorado;
+  };
+
+  // ANÁLISIS AUTOMÁTICO MEJORADO CON MAPEO CORREGIDO
   const realizarAnalisisAutomatico = async (headers, sampleData) => {
     try {
-      console.log('🔍 Realizando análisis automático...');
+      console.log('Realizando análisis automático...');
       
       const response = await remuneracionesAPI.validarExcel({
         headers,
@@ -745,29 +805,38 @@ const RemuneracionesPage = () => {
       if (response.data.success) {
         const analisis = response.data.data;
         setAnalisisExcel(analisis);
-        setMapeoColumnas(analisis.mapeo_sugerido);
+        
+        // CRÍTICO: Crear mapeo mejorado que detecte todas las variaciones de "Líquido"
+        const mapeoMejorado = crearMapeoMejorado(headers, analisis.mapeo_sugerido || {});
+        setMapeoColumnas(mapeoMejorado);
         
         // Mostrar resultados del análisis
-        if (analisis.errores.length > 0) {
+        if (analisis.errores && analisis.errores.length > 0) {
           showSnackbar(`Análisis completado con ${analisis.errores.length} errores críticos`, 'error');
-        } else if (analisis.advertencias.length > 0) {
+        } else if (analisis.advertencias && analisis.advertencias.length > 0) {
           showSnackbar(`Análisis completado con ${analisis.advertencias.length} advertencias`, 'warning');
         } else {
           showSnackbar('Análisis completado - Excel válido para procesar', 'success');
         }
 
-        console.log('✅ Análisis automático completado:', analisis);
+        // Mensaje especial si se detectó el líquido
+        if (mapeoMejorado.liquido_pagar) {
+          showSnackbar(`Líquido detectado: "${mapeoMejorado.liquido_pagar}"`, 'info');
+        }
+
+        console.log('Análisis automático completado:', analisis);
+        console.log('Mapeo mejorado:', mapeoMejorado);
       } else {
         throw new Error(response.data.message || 'Error en el análisis automático');
       }
     } catch (err) {
-      console.error('❌ Error en análisis automático:', err);
+      console.error('Error en análisis automático:', err);
       const errorMsg = err.response?.data?.message || 'Error al analizar el archivo';
       showSnackbar(errorMsg, 'error');
     }
   };
 
-  // 🆕 PROCESAR EXCEL CON VALIDACIÓN DE EMPLEADOS SIN ASIGNACIÓN
+  // PROCESAMIENTO DE EXCEL CON MAPEO CORREGIDO - ENVÍA MAPEO DEL FRONTEND AL BACKEND
   const procesarExcel = async () => {
     if (!excelData.length) {
       showSnackbar('No hay datos para procesar', 'error');
@@ -790,7 +859,7 @@ const RemuneracionesPage = () => {
     setUploadProgress(0);
 
     try {
-      // 🆕 PROGRESO REALISTA CON VALIDACIÓN PREVIA
+      // PROGRESO REALISTA CON VALIDACIÓN PREVIA
       const etapas = [
         { progreso: 15, mensaje: 'Validando datos...', delay: 200 },
         { progreso: 30, mensaje: 'Verificando período...', delay: 300 },
@@ -807,27 +876,30 @@ const RemuneracionesPage = () => {
         await new Promise(resolve => setTimeout(resolve, etapa.delay));
       }
 
-      console.log('📊 Enviando datos al servidor:', {
+      console.log('Enviando datos al servidor:', {
         totalFilas: excelData.length,
         periodo: periodoSeleccionado,
         archivo: excelFile.name,
+        mapeoColumnas: mapeoColumnas,
         primeraFila: excelData[0]
       });
 
+      // CRÍTICO: Enviar el mapeo del frontend al backend
       const response = await remuneracionesAPI.procesarExcel({
         datosExcel: excelData,
         archivoNombre: excelFile.name,
         validarDuplicados,
-        id_periodo: periodoSeleccionado
+        id_periodo: periodoSeleccionado,
+        mapeoColumnas: mapeoColumnas  // ESTO ES LO CRÍTICO - Enviar mapeo
       });
 
       if (response.data.success) {
         const resultado = response.data.data;
         setResultadoProcesamiento(resultado);
         
-        // 🆕 VALIDAR SI HAY EMPLEADOS SIN ASIGNACIÓN
+        // VALIDAR SI HAY EMPLEADOS SIN ASIGNACIÓN
         if (resultado.empleados_para_validar && resultado.empleados_para_validar.length > 0) {
-          console.log('🔍 Validando empleados sin asignación...');
+          console.log('Validando empleados sin asignación...');
           
           const validacionResponse = await remuneracionesAPI.validarEmpleadosSinAsignacion(
             resultado.empleados_para_validar
@@ -840,27 +912,27 @@ const RemuneracionesPage = () => {
           }
         }
         
-        // 🆕 MENSAJE MEJORADO CON ESTADÍSTICAS DETALLADAS
-        let mensaje = `✅ Procesamiento exitoso: ${resultado.procesados}/${resultado.total_filas} registros`;
+        // MENSAJE MEJORADO CON ESTADÍSTICAS DETALLADAS
+        let mensaje = `Procesamiento exitoso: ${resultado.procesados}/${resultado.total_filas} registros`;
         
         if (resultado.empleados_creados > 0) {
-          mensaje += `\n👤 ${resultado.empleados_creados} empleados nuevos creados`;
+          mensaje += `\n${resultado.empleados_creados} empleados nuevos creados`;
         }
         
         if (resultado.empleados_encontrados > 0) {
-          mensaje += `\n🔍 ${resultado.empleados_encontrados} empleados existentes`;
+          mensaje += `\n${resultado.empleados_encontrados} empleados existentes`;
         }
         
         if (resultado.errores > 0) {
-          mensaje += `\n⚠️ ${resultado.errores} registros con errores`;
+          mensaje += `\n${resultado.errores} registros con errores`;
         }
         
         const severity = resultado.errores > resultado.procesados * 0.1 ? 'warning' : 'success';
         showSnackbar(mensaje, severity);
         
-        // 🆕 MOSTRAR ERRORES DETALLADOS SI EXISTEN
+        // MOSTRAR ERRORES DETALLADOS SI EXISTEN
         if (resultado.errores_detalle && resultado.errores_detalle.length > 0) {
-          console.log('📋 Errores detallados:', resultado.errores_detalle);
+          console.log('Errores detallados:', resultado.errores_detalle);
           
           setTimeout(() => {
             const erroresResumen = resultado.errores_detalle
@@ -883,7 +955,7 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al procesar Excel');
       }
     } catch (err) {
-      console.error('❌ Error al procesar Excel:', err);
+      console.error('Error al procesar Excel:', err);
       
       let errorMessage = 'Error al procesar el archivo Excel';
       
@@ -903,7 +975,7 @@ const RemuneracionesPage = () => {
     }
   };
 
-  // 🆕 MANEJAR ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
+  // MANEJAR ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
   const handleAsignacionChange = (empleadoId, campo, valor) => {
     setAsignacionesTemporales(prev => ({
       ...prev,
@@ -928,12 +1000,12 @@ const RemuneracionesPage = () => {
         return;
       }
       
-      console.log('📝 Procesando asignaciones:', asignaciones);
+      console.log('Procesando asignaciones:', asignaciones);
       
       const response = await remuneracionesAPI.asignarRazonSocialYSucursal(asignaciones);
       
       if (response.data.success) {
-        showSnackbar(`✅ ${response.data.data.empleados_actualizados} empleados actualizados`, 'success');
+        showSnackbar(`${response.data.data.empleados_actualizados} empleados actualizados`, 'success');
         
         // Finalizar proceso
         await Promise.all([
@@ -946,14 +1018,14 @@ const RemuneracionesPage = () => {
         throw new Error(response.data.message || 'Error al asignar razón social y sucursal');
       }
     } catch (err) {
-      console.error('❌ Error en asignaciones:', err);
+      console.error('Error en asignaciones:', err);
       showSnackbar(err.response?.data?.message || 'Error al procesar asignaciones', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔧 FUNCIONES AUXILIARES MEJORADAS
+  // FUNCIONES AUXILIARES MEJORADAS
   const resetExcelState = () => {
     setActiveStep(0);
     setExcelFile(null);
@@ -975,19 +1047,7 @@ const RemuneracionesPage = () => {
     resetExcelState();
   };
 
-  // 🔧 FUNCIONES DE UTILIDAD MEJORADAS
-  const showSnackbar = useCallback((message, severity = 'success') => {
-    setSnackbar({ open: false, message: '', severity: 'success' });
-    
-    setTimeout(() => {
-      setSnackbar({ 
-        open: true, 
-        message: message.length > 300 ? message.substring(0, 300) + '...' : message, 
-        severity 
-      });
-    }, 100);
-  }, []);
-
+  // FUNCIONES DE UTILIDAD MEJORADAS
   const formatMoney = useCallback((amount) => {
     if (!amount || isNaN(amount)) return '$0';
     return new Intl.NumberFormat('es-CL', {
@@ -1002,7 +1062,7 @@ const RemuneracionesPage = () => {
     return meses[numeroMes - 1] || 'N/A';
   }, []);
 
-  // 🔧 CÁLCULOS MEJORADOS
+  // CÁLCULOS MEJORADOS
   const periodosFiltrados = React.useMemo(() => {
     return periodos.filter(periodo => {
       if (filtroEstado === 'todos') return true;
@@ -1010,18 +1070,73 @@ const RemuneracionesPage = () => {
     });
   }, [periodos, filtroEstado]);
 
-  // Cálculos para paginación de empleados optimizados
+  // FUNCIÓN PARA AGRUPAR PERÍODOS POR RAZÓN SOCIAL Y SUCURSAL
+  const periodosAgrupados = React.useMemo(() => {
+    const grupos = {};
+    
+    periodosFiltrados.forEach(periodo => {
+      const razonKey = periodo.nombre_razon || 'Sin Razón Social';
+      const sucursalKey = periodo.sucursal_nombre || 'Sin Sucursal';
+      
+      if (!grupos[razonKey]) {
+        grupos[razonKey] = {};
+      }
+      
+      if (!grupos[razonKey][sucursalKey]) {
+        grupos[razonKey][sucursalKey] = [];
+      }
+      
+      grupos[razonKey][sucursalKey].push(periodo);
+    });
+    
+    return grupos;
+  }, [periodosFiltrados]);
+
+  // FUNCIÓN PARA OBTENER OPCIONES ÚNICAS DE FILTRADO EN EL MODAL DE DETALLES
+  const opcionesFiltroDetalle = React.useMemo(() => {
+    if (!selectedPeriodo?.datos) return { razonesSociales: [], sucursales: [] };
+    
+    const razones = [...new Set(selectedPeriodo.datos.map(emp => emp.nombre_razon).filter(Boolean))];
+    const sucursales = [...new Set(selectedPeriodo.datos.map(emp => emp.sucursal_nombre).filter(Boolean))];
+    
+    return {
+      razonesSociales: razones,
+      sucursales: sucursales
+    };
+  }, [selectedPeriodo?.datos]);
+
+  // Cálculos para paginación de empleados optimizados CON FILTRADO ESPECÍFICO
   const empleadosFiltrados = React.useMemo(() => {
     if (!selectedPeriodo?.datos) return [];
     
     return selectedPeriodo.datos.filter(empleado => {
-      if (!filtroEmpleados) return true;
-      const filtro = filtroEmpleados.toLowerCase();
-      const nombre = (empleado.nombre_empleado || empleado.nombre_completo || '').toLowerCase();
-      const rut = (empleado.rut_empleado || '').toLowerCase();
-      return nombre.includes(filtro) || rut.includes(filtro);
+      // Filtro por nombre o RUT
+      if (filtroEmpleados) {
+        const filtro = filtroEmpleados.toLowerCase();
+        const nombre = (empleado.nombre_empleado || empleado.nombre_completo || '').toLowerCase();
+        const rut = (empleado.rut_empleado || '').toLowerCase();
+        if (!nombre.includes(filtro) && !rut.includes(filtro)) {
+          return false;
+        }
+      }
+      
+      // Filtro por razón social específica
+      if (filtroRazonSocialDetalle !== 'todos') {
+        if (empleado.nombre_razon !== filtroRazonSocialDetalle) {
+          return false;
+        }
+      }
+      
+      // Filtro por sucursal específica
+      if (filtroSucursalDetalle !== 'todos') {
+        if (empleado.sucursal_nombre !== filtroSucursalDetalle) {
+          return false;
+        }
+      }
+      
+      return true;
     });
-  }, [selectedPeriodo?.datos, filtroEmpleados]);
+  }, [selectedPeriodo?.datos, filtroEmpleados, filtroRazonSocialDetalle, filtroSucursalDetalle]);
 
   const totalPaginas = React.useMemo(() => {
     return empleadosPorPagina === -1 ? 1 : Math.ceil(empleadosFiltrados.length / empleadosPorPagina);
@@ -1035,7 +1150,49 @@ const RemuneracionesPage = () => {
     return empleadosFiltrados.slice(inicio, fin);
   }, [empleadosFiltrados, paginaActual, empleadosPorPagina]);
 
-  // 🔧 COMPONENTES DE RENDERIZADO MEJORADOS
+  // 🔥 FUNCIÓN CRÍTICA CORREGIDA: Filtrar columnas para ocultar sueldo base en vista previa
+  const obtenerColumnasParaVistaPrevia = useCallback(() => {
+    if (!previewData || previewData.length === 0) return [];
+    
+    const todasLasColumnas = Object.keys(previewData[0] || {});
+    
+    // FILTRAR SUELDO BASE - buscamos todas las posibles variaciones
+    const columnasOcultas = todasLasColumnas.filter(columna => {
+      const colUpper = columna.toUpperCase().trim();
+      return (
+        colUpper.includes('S. BASE') || 
+        colUpper === 'S. BASE' ||
+        colUpper.includes('SUELDO BASE') ||
+        colUpper.includes('SUELDO_BASE') ||
+        colUpper === 'SUELDO BASE' ||
+        mapeoColumnas.sueldo_base === columna  // También excluir si está mapeado como sueldo_base
+      );
+    });
+    
+    const columnasVisible = todasLasColumnas.filter(col => !columnasOcultas.includes(col));
+    
+    console.log('🚫 Columnas de sueldo base ocultas:', columnasOcultas);
+    console.log('✅ Columnas visibles en vista previa:', columnasVisible.length);
+    
+    return columnasVisible;
+  }, [previewData, mapeoColumnas]);
+
+  // 🔥 FUNCIÓN PARA OBTENER DATOS FILTRADOS SIN SUELDO BASE
+  const obtenerDatosVistaPrevia = useCallback(() => {
+    if (!previewData || previewData.length === 0) return [];
+    
+    const columnasVisible = obtenerColumnasParaVistaPrevia();
+    
+    return previewData.map(row => {
+      const newRow = {};
+      columnasVisible.forEach(col => {
+        newRow[col] = row[col];
+      });
+      return newRow;
+    });
+  }, [previewData, obtenerColumnasParaVistaPrevia]);
+
+  // COMPONENTES DE RENDERIZADO MEJORADOS
   const renderFiltros = () => (
     <Paper sx={{ 
       p: 3, 
@@ -1305,6 +1462,225 @@ const RemuneracionesPage = () => {
     </Box>
   );
 
+  // NUEVA FUNCIÓN PARA RENDERIZAR PERÍODOS AGRUPADOS VISUALMENTE
+  const renderPeriodosAgrupados = () => (
+    <Box>
+      {Object.keys(periodosAgrupados).length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <CalendarTodayIcon sx={{ fontSize: 100, color: 'text.disabled', mb: 2 }} />
+          <Typography variant="h5" color="text.secondary" gutterBottom>
+            No hay períodos de remuneración
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+            {Object.values(filtros).some(f => f !== 'todos') ? 
+              'No se encontraron períodos con los filtros aplicados. Intente modificar los criterios de búsqueda.' :
+              'Comience creando un período y luego cargue los archivos Excel con los datos de nómina'
+            }
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenCreatePeriodoDialog(true)}
+            sx={{ 
+              bgcolor: '#f37d16', 
+              '&:hover': { bgcolor: '#e06c00' },
+              boxShadow: '0 4px 15px rgba(243, 125, 22, 0.3)',
+              mr: 2
+            }}
+          >
+            Crear Período
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<CloudUploadIcon />}
+            onClick={() => setOpenExcelDialog(true)}
+            sx={{ 
+              borderColor: '#f37d16', 
+              color: '#f37d16',
+              '&:hover': { borderColor: '#e06c00', bgcolor: 'rgba(243, 125, 22, 0.1)' }
+            }}
+          >
+            Cargar Nómina
+          </Button>
+        </Box>
+      ) : (
+        Object.entries(periodosAgrupados).map(([razonSocial, sucursales]) => (
+          <Box key={razonSocial} sx={{ mb: 4 }}>
+            {/* Header de Razón Social */}
+            <Paper sx={{ 
+              p: 2, 
+              mb: 2, 
+              background: 'linear-gradient(135deg, #f37d16 0%, #e06c00 100%)', 
+              color: 'white' 
+            }}>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                <BusinessIcon sx={{ mr: 1 }} />
+                {razonSocial}
+                <Chip 
+                  label={`${Object.values(sucursales).reduce((acc, periods) => acc + periods.length, 0)} períodos`}
+                  size="small"
+                  sx={{ ml: 2, bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+                />
+              </Typography>
+            </Paper>
+
+            {/* Sucursales agrupadas */}
+            {Object.entries(sucursales).map(([sucursal, periodos]) => (
+              <Accordion 
+                key={`${razonSocial}-${sucursal}`} 
+                defaultExpanded={Object.keys(sucursales).length === 1}
+                sx={{ mb: 2 }}
+              >
+                <AccordionSummary 
+                  expandIcon={<ExpandMoreIcon />}
+                  sx={{ 
+                    bgcolor: '#f8f9fa',
+                    '&:hover': { bgcolor: '#e9ecef' }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <ApartmentIcon sx={{ mr: 1, color: '#f37d16' }} />
+                    <Typography variant="subtitle1" sx={{ fontWeight: 'medium', flexGrow: 1 }}>
+                      {sucursal}
+                    </Typography>
+                    <Chip 
+                      label={`${periodos.length} períodos`}
+                      size="small"
+                      color="primary"
+                      sx={{ mr: 2 }}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      Total: {formatMoney(periodos.reduce((sum, p) => sum + (p.suma_liquidos || 0), 0))}
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                
+                <AccordionDetails sx={{ p: 0 }}>
+                  <Grid container spacing={2} sx={{ p: 2 }}>
+                    {periodos.map((periodo) => (
+                      <Grid item xs={12} sm={6} md={4} key={periodo.id_periodo}>
+                        <Card sx={{ 
+                          height: '100%',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 25px rgba(0,0,0,0.12)'
+                          },
+                          border: '1px solid rgba(0,0,0,0.05)'
+                        }}>
+                          <CardHeader
+                            avatar={
+                              <Avatar sx={{ 
+                                bgcolor: '#f37d16', 
+                                width: 48, 
+                                height: 48,
+                                fontSize: '0.9rem',
+                                fontWeight: 'bold',
+                                color: 'white'
+                              }}>
+                                {obtenerInicialMes(periodo.mes)}
+                              </Avatar>
+                            }
+                            title={
+                              <Typography variant="h6" component="div" sx={{ fontSize: '1rem' }}>
+                                {periodo.descripcion}
+                              </Typography>
+                            }
+                            subheader={
+                              <Box>
+                                <Typography variant="body2" color="text.secondary">
+                                  {periodo.mes}/{periodo.anio}
+                                </Typography>
+                                <Chip 
+                                  label={periodo.estado} 
+                                  color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
+                                  size="small"
+                                  sx={{ mt: 0.5 }}
+                                />
+                              </Box>
+                            }
+                          />
+                          <CardContent sx={{ pt: 0 }}>
+                            <Grid container spacing={1} sx={{ mb: 2, textAlign: 'center' }}>
+                              <Grid item xs={4}>
+                                <Typography variant="h6" color="primary" sx={{ fontSize: '1.1rem' }}>
+                                  {periodo.total_registros || 0}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Registros
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={4}>
+                                <Typography variant="h6" color="success.main" sx={{ fontSize: '1.1rem' }}>
+                                  {periodo.empleados_encontrados || 0}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Empleados
+                                </Typography>
+                              </Grid>
+                              <Grid item xs={4}>
+                                <Typography variant="h6" color="warning.main" sx={{ fontSize: '1.1rem' }}>
+                                  {periodo.empleados_faltantes || 0}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  Faltantes
+                                </Typography>
+                              </Grid>
+                            </Grid>
+
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                                <strong>Total Nómina:</strong> {formatMoney(periodo.suma_liquidos)}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                                <strong>Cargado:</strong> {periodo.fecha_carga ? 
+                                  new Date(periodo.fecha_carga).toLocaleDateString('es-CL') : 
+                                  'N/A'
+                                }
+                              </Typography>
+                            </Box>
+                            
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 0.5 }}>
+                              <Tooltip title="Ver detalles">
+                                <IconButton size="small" color="primary" onClick={() => handleVerPeriodo(periodo)}>
+                                  <VisibilityIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Análisis estadístico">
+                                <IconButton size="small" color="info" onClick={() => handleAnalisisPeriodo(periodo)}>
+                                  <PieChartIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Editar período">
+                                <IconButton size="small" color="primary" onClick={() => handleEditarPeriodo(periodo)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Descargar datos">
+                                <IconButton size="small" color="success" onClick={() => descargarDatos(periodo)}>
+                                  <DownloadIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Eliminar período">
+                                <IconButton size="small" color="error" onClick={() => handleEliminarPeriodo(periodo)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </AccordionDetails>
+              </Accordion>
+            ))}
+          </Box>
+        ))
+      )}
+    </Box>
+  );
+
   const renderPeriodosCards = () => (
     <Grid container spacing={3}>
       {periodosFiltrados.map((periodo) => (
@@ -1453,7 +1829,7 @@ const RemuneracionesPage = () => {
     </Grid>
   );
 
-  // 🆕 MODAL DE ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
+  // MODAL DE ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
   const renderModalAsignacion = () => (
     <Dialog 
       open={activeStep === 5 && empleadosSinAsignacion.length > 0} 
@@ -1569,7 +1945,7 @@ const RemuneracionesPage = () => {
 
         <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(243, 125, 22, 0.1)', borderRadius: 2 }}>
           <Typography variant="body2" color="primary">
-            💡 Una vez asignadas las razones sociales y sucursales, los empleados podrán 
+            Una vez asignadas las razones sociales y sucursales, los empleados podrán 
             ser correctamente categorizados en futuros procesamientos.
           </Typography>
         </Box>
@@ -1604,7 +1980,7 @@ const RemuneracionesPage = () => {
     </Dialog>
   );
 
-  // 🔧 RENDER PRINCIPAL DEL COMPONENTE
+  // RENDER PRINCIPAL DEL COMPONENTE
   return (
     <Box sx={{ p: 3, minHeight: '100vh', bgcolor: '#f8f9fa' }}>
       {/* Header profesional mejorado */}
@@ -1722,8 +2098,39 @@ const RemuneracionesPage = () => {
       {/* Estadísticas */}
       {estadisticas && renderEstadisticas()}
 
-      {/* 🆕 Filtros mejorados */}
+      {/* Filtros mejorados */}
       {renderFiltros()}
+
+      {/* Toggle entre vista agrupada y vista normal */}
+      <Paper sx={{ p: 2, mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+          <AccountTreeIcon sx={{ mr: 1, color: '#f37d16' }} />
+          Períodos de Remuneración ({periodosFiltrados.length} total)
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={viewMode === 'grouped'}
+                onChange={(e) => setViewMode(e.target.checked ? 'grouped' : 'cards')}
+                color="primary"
+              />
+            }
+            label="Vista Agrupada"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={viewMode === 'cards'}
+                onChange={(e) => setViewMode(e.target.checked ? 'cards' : 'table')}
+                color="primary"
+                disabled={viewMode === 'grouped'}
+              />
+            }
+            label="Vista Cards"
+          />
+        </Box>
+      </Paper>
 
       {/* Contenido principal mejorado */}
       <Paper sx={{ overflow: 'hidden', minHeight: '400px', borderRadius: 3 }}>
@@ -1738,6 +2145,10 @@ const RemuneracionesPage = () => {
                 {processingStatus}
               </Typography>
             )}
+          </Box>
+        ) : viewMode === 'grouped' ? (
+          <Box sx={{ p: 3 }}>
+            {renderPeriodosAgrupados()}
           </Box>
         ) : viewMode === 'cards' ? (
           <Box sx={{ p: 3 }}>
@@ -1878,7 +2289,7 @@ const RemuneracionesPage = () => {
         )}
       </Paper>
 
-      {/* 🆕 Modal de asignación */}
+      {/* Modal de asignación */}
       {renderModalAsignacion()}
 
       {/* Dialog para crear nuevo período con razón social y sucursal */}
@@ -1993,7 +2404,7 @@ const RemuneracionesPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog profesional para cargar y analizar Excel */}
+      {/* Dialog profesional para cargar y analizar Excel CON VISTA PREVIA SIN SUELDO BASE */}
       <Dialog 
         open={openExcelDialog} 
         onClose={handleCloseExcelDialog} 
@@ -2014,10 +2425,10 @@ const RemuneracionesPage = () => {
           position: 'relative'
         }}>
           <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-            Procesador Automático de Nóminas
+            Procesador Automático de Nóminas CORREGIDO
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
-            Sistema con identificación automática de columnas
+            Sistema con identificación automática de columnas - Sin mostrar sueldo base en vista previa
           </Typography>
         </DialogTitle>
         
@@ -2135,7 +2546,7 @@ const RemuneracionesPage = () => {
                   <Card sx={{ p: 3, bgcolor: '#f8f9fa' }}>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <SecurityIcon sx={{ mr: 1, color: '#f37d16' }} />
-                      Identificación Automática
+                      Identificación Automática MEJORADA
                     </Typography>
                     <List dense>
                       <ListItem>
@@ -2155,8 +2566,15 @@ const RemuneracionesPage = () => {
                       <ListItem>
                         <ListItemIcon><CheckCircleIcon color="success" fontSize="small" /></ListItemIcon>
                         <ListItemText 
-                          primary="Todos los campos monetarios" 
+                          primary="Campos monetarios" 
                           secondary="Haberes, descuentos, líquidos"
+                        />
+                      </ListItem>
+                      <ListItem>
+                        <ListItemIcon><CheckCircleIcon color="error" fontSize="small" /></ListItemIcon>
+                        <ListItemText 
+                          primary="DETECTA 'Líquido' CORREGIDO" 
+                          secondary="Incluye todas las variaciones de encoding"
                         />
                       </ListItem>
                       <ListItem>
@@ -2182,7 +2600,7 @@ const RemuneracionesPage = () => {
               </Typography>
               <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(243, 125, 22, 0.1)', borderRadius: 2 }}>
                 <Typography variant="body2" color="primary">
-                  💡 El sistema detecta automáticamente la estructura de la planilla
+                  El sistema detecta automáticamente la estructura de la planilla incluyendo todas las variaciones de "Líquido"
                 </Typography>
               </Box>
               <LinearProgress sx={{ maxWidth: 400, mx: 'auto', height: 6, borderRadius: 3 }} />
@@ -2200,7 +2618,7 @@ const RemuneracionesPage = () => {
               <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} sx={{ mb: 3 }}>
                 <Tab label="Análisis Automático" />
                 <Tab label="Configurar Mapeo" />
-                <Tab label="Vista Previa" />
+                <Tab label="Vista Previa (sin sueldo base)" />
               </Tabs>
 
               {/* Tab 0: Análisis automático */}
@@ -2217,6 +2635,11 @@ const RemuneracionesPage = () => {
                     <Typography>
                       Se encontraron {analisisExcel.total_columnas} columnas en el archivo
                     </Typography>
+                    {mapeoColumnas.liquido_pagar && (
+                      <Typography sx={{ mt: 1, fontWeight: 'bold', color: 'success.main' }}>
+                        ✅ LÍQUIDO DETECTADO CORRECTAMENTE: "{mapeoColumnas.liquido_pagar}"
+                      </Typography>
+                    )}
                   </Alert>
 
                   <Grid container spacing={3}>
@@ -2227,15 +2650,21 @@ const RemuneracionesPage = () => {
                           Columnas Detectadas
                         </Typography>
                         <List>
-                          {Object.entries(analisisExcel.mapeo_sugerido || {}).map(([campo, columna]) => 
+                          {Object.entries(mapeoColumnas || {}).map(([campo, columna]) => 
                             columna && (
                               <ListItem key={campo}>
                                 <ListItemIcon>
-                                  <CheckCircleIcon color="success" />
+                                  <CheckCircleIcon color={campo === 'liquido_pagar' ? 'error' : 'success'} />
                                 </ListItemIcon>
                                 <ListItemText 
                                   primary={campo.replace('_', ' ').toUpperCase()}
                                   secondary={`Mapeado a: "${columna}"`}
+                                  sx={{
+                                    '& .MuiListItemText-primary': {
+                                      fontWeight: campo === 'liquido_pagar' ? 'bold' : 'normal',
+                                      color: campo === 'liquido_pagar' ? 'error.main' : 'inherit'
+                                    }
+                                  }}
                                 />
                               </ListItem>
                             )
@@ -2286,18 +2715,21 @@ const RemuneracionesPage = () => {
                       <Card sx={{ p: 3, bgcolor: '#f8f9fa' }}>
                         <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                           <TrendingUpIcon sx={{ mr: 1, color: '#f37d16' }} />
-                          Recomendaciones
+                          Mapeo Detectado - CRÍTICO CORREGIDO
                         </Typography>
-                        <List>
-                          {analisisExcel.recomendaciones?.map((recomendacion, index) => (
-                            <ListItem key={index}>
-                              <ListItemIcon>
-                                <CheckCircleIcon color="info" />
-                              </ListItemIcon>
-                              <ListItemText primary={recomendacion} />
-                            </ListItem>
-                          ))}
-                        </List>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          {Object.entries(mapeoColumnas || {}).map(([campo, columna]) => 
+                            columna && (
+                              <Chip 
+                                key={campo}
+                                label={`${campo}: "${columna}"`}
+                                color={campo === 'liquido_pagar' ? 'error' : 'primary'}
+                                variant={campo === 'liquido_pagar' ? 'filled' : 'outlined'}
+                                size="small"
+                              />
+                            )
+                          )}
+                        </Box>
                       </Card>
                     </Grid>
                   </Grid>
@@ -2309,8 +2741,12 @@ const RemuneracionesPage = () => {
                 <Box>
                   <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                     <EditIcon sx={{ mr: 1, color: '#f37d16' }} />
-                    Configurar Mapeo de Columnas
+                    Configurar Mapeo de Columnas - CORREGIDO
                   </Typography>
+                  
+                  <Alert severity="info" sx={{ mb: 3 }}>
+                    El mapeo fue detectado automáticamente con mejoras para "Líquido". Puede ajustarlo si es necesario.
+                  </Alert>
                   
                   <Grid container spacing={3}>
                     <Grid item xs={12} sm={6}>
@@ -2345,11 +2781,16 @@ const RemuneracionesPage = () => {
                     
                     <Grid item xs={12} sm={6}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>Sueldo Base</InputLabel>
+                        <InputLabel>Líquido a Pagar ⚠️ CRÍTICO</InputLabel>
                         <Select
-                          value={mapeoColumnas.sueldo_base || ''}
-                          onChange={(e) => setMapeoColumnas({...mapeoColumnas, sueldo_base: e.target.value})}
-                          label="Sueldo Base"
+                          value={mapeoColumnas.liquido_pagar || ''}
+                          onChange={(e) => setMapeoColumnas({...mapeoColumnas, liquido_pagar: e.target.value})}
+                          label="Líquido a Pagar ⚠️ CRÍTICO"
+                          sx={{ 
+                            '& .MuiOutlinedInput-root': {
+                              borderColor: mapeoColumnas.liquido_pagar ? '#f44336' : 'default'
+                            }
+                          }}
                         >
                           <MenuItem value="">-- No mapear --</MenuItem>
                           {columnasDetectadas.map(col => (
@@ -2361,11 +2802,11 @@ const RemuneracionesPage = () => {
                     
                     <Grid item xs={12} sm={6}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>Líquido a Pagar</InputLabel>
+                        <InputLabel>Total Haberes</InputLabel>
                         <Select
-                          value={mapeoColumnas.liquido_pagar || ''}
-                          onChange={(e) => setMapeoColumnas({...mapeoColumnas, liquido_pagar: e.target.value})}
-                          label="Líquido a Pagar"
+                          value={mapeoColumnas.total_haberes || ''}
+                          onChange={(e) => setMapeoColumnas({...mapeoColumnas, total_haberes: e.target.value})}
+                          label="Total Haberes"
                         >
                           <MenuItem value="">-- No mapear --</MenuItem>
                           {columnasDetectadas.map(col => (
@@ -2376,20 +2817,27 @@ const RemuneracionesPage = () => {
                     </Grid>
                   </Grid>
                   
-                  <Alert severity="info" sx={{ mt: 3 }}>
+                  <Alert severity={mapeoColumnas.liquido_pagar ? 'success' : 'error'} sx={{ mt: 3 }}>
                     <Typography variant="body2">
-                      <strong>* Campos obligatorios:</strong> RUT y Nombre son necesarios para procesar los datos.
+                      {mapeoColumnas.liquido_pagar ? 
+                        `✅ LÍQUIDO MAPEADO CORRECTAMENTE: "${mapeoColumnas.liquido_pagar}" se guardará correctamente en la base de datos` :
+                        '❌ CRÍTICO: Debe mapear la columna de Líquido para que los totales se calculen correctamente'
+                      }
                     </Typography>
                   </Alert>
                 </Box>
               )}
 
-              {/* Tab 2: Vista previa */}
+              {/* Tab 2: Vista previa CORREGIDA SIN MOSTRAR SUELDO BASE */}
               {tabValue === 2 && (
                 <Box>
                   <Typography variant="h6" gutterBottom>
-                    Vista Previa de Datos (primeras 20 filas)
+                    Vista Previa de Datos (primeras 20 filas - sin sueldo base)
                   </Typography>
+                  
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    🚫 La columna "Sueldo Base" está oculta en esta vista previa para mayor claridad
+                  </Alert>
                   
                   <TableContainer component={Paper} sx={{ maxHeight: 500, mb: 2 }}>
                     <Table size="small" stickyHeader>
@@ -2398,20 +2846,29 @@ const RemuneracionesPage = () => {
                           <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5', minWidth: 50 }}>
                             #
                           </TableCell>
-                          {Object.keys(previewData[0] || {}).map((key) => {
+                          {obtenerColumnasParaVistaPrevia().map((key) => {
                             const esMapeado = Object.values(mapeoColumnas).includes(key);
+                            const esLiquido = mapeoColumnas.liquido_pagar === key;
                             return (
                               <TableCell 
                                 key={key} 
                                 sx={{ 
                                   fontWeight: 'bold', 
-                                  bgcolor: esMapeado ? '#e8f5e8' : '#f5f5f5',
-                                  color: esMapeado ? '#2e7d32' : 'inherit',
+                                  bgcolor: esLiquido ? '#ffebee' : esMapeado ? '#e8f5e8' : '#f5f5f5',
+                                  color: esLiquido ? '#d32f2f' : esMapeado ? '#2e7d32' : 'inherit',
                                   minWidth: 120
                                 }}
                               >
                                 {key}
-                                {esMapeado && (
+                                {esLiquido && (
+                                  <Chip 
+                                    label="LÍQUIDO ✓" 
+                                    size="small" 
+                                    color="error" 
+                                    sx={{ ml: 1, height: 16, fontSize: '0.65rem' }} 
+                                  />
+                                )}
+                                {esMapeado && !esLiquido && (
                                   <Chip 
                                     label="✓" 
                                     size="small" 
@@ -2425,22 +2882,26 @@ const RemuneracionesPage = () => {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {previewData.map((row, index) => (
+                        {obtenerDatosVistaPrevia().map((row, index) => (
                           <TableRow key={index} hover>
                             <TableCell sx={{ fontWeight: 'bold', color: 'primary.main' }}>
                               {index + 1}
                             </TableCell>
                             {Object.entries(row).map(([key, value], i) => {
                               const esMapeado = Object.values(mapeoColumnas).includes(key);
+                              const esLiquido = mapeoColumnas.liquido_pagar === key;
                               return (
                                 <TableCell 
                                   key={i}
                                   sx={{
-                                    bgcolor: esMapeado ? 'rgba(46, 125, 50, 0.04)' : 'inherit',
+                                    bgcolor: esLiquido ? 'rgba(244, 67, 54, 0.04)' : 
+                                             esMapeado ? 'rgba(46, 125, 50, 0.04)' : 'inherit',
                                     maxWidth: 200,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
+                                    whiteSpace: 'nowrap',
+                                    fontWeight: esLiquido ? 'bold' : 'normal',
+                                    color: esLiquido ? 'error.main' : 'inherit'
                                   }}
                                 >
                                   {value}
@@ -2452,6 +2913,10 @@ const RemuneracionesPage = () => {
                       </TableBody>
                     </Table>
                   </TableContainer>
+                  
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Mostrando {obtenerColumnasParaVistaPrevia().length} de {columnasDetectadas.length} columnas totales
+                  </Typography>
                 </Box>
               )}
             </Box>
@@ -2462,10 +2927,10 @@ const RemuneracionesPage = () => {
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <CircularProgress size={80} sx={{ mb: 3, color: '#f37d16' }} />
               <Typography variant="h5" gutterBottom>
-                Procesando Nómina
+                Procesando Nómina con Mapeo Corregido
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                📄 Guardando datos en la base de datos...
+                Guardando datos en la base de datos con el mapeo mejorado...
               </Typography>
               
               {uploadProgress > 0 && (
@@ -2524,7 +2989,7 @@ const RemuneracionesPage = () => {
                     onClick={() => setTabValue(tabValue + 1)}
                     color="primary"
                   >
-                    {tabValue === 0 ? 'Ver Vista Previa' : 'Ver Configuración'}
+                    {tabValue === 0 ? 'Ver Configuración' : 'Ver Vista Previa'}
                   </Button>
                 )}
                 
@@ -2532,7 +2997,7 @@ const RemuneracionesPage = () => {
                   <Button
                     onClick={procesarExcel}
                     variant="contained"
-                    disabled={loading || analisisExcel?.errores?.length > 0}
+                    disabled={loading || analisisExcel?.errores?.length > 0 || !mapeoColumnas.liquido_pagar}
                     startIcon={loading ? <CircularProgress size={20} /> : <CloudUploadIcon />}
                     sx={{ 
                       bgcolor: '#f37d16', 
@@ -2549,7 +3014,7 @@ const RemuneracionesPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog para Ver Detalles del Período */}
+      {/* Dialog para Ver Detalles del Período - MEJORADO CON FILTRADO ESPECÍFICO */}
       <Dialog 
         open={openViewDialog} 
         onClose={handleCloseViewDialog} 
@@ -2559,6 +3024,24 @@ const RemuneracionesPage = () => {
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', bgcolor: '#f8f9fa' }}>
           <VisibilityIcon sx={{ mr: 1 }} />
           Detalles del Período: {selectedPeriodo?.descripcion}
+          {selectedPeriodo && (
+            <Box sx={{ ml: 2, display: 'flex', gap: 1 }}>
+              {selectedPeriodo.nombre_razon && selectedPeriodo.nombre_razon !== 'Sin Razón Social' && (
+                <Chip 
+                  label={selectedPeriodo.nombre_razon} 
+                  size="small" 
+                  color="info"
+                />
+              )}
+              {selectedPeriodo.sucursal_nombre && selectedPeriodo.sucursal_nombre !== 'Sin Sucursal' && (
+                <Chip 
+                  label={selectedPeriodo.sucursal_nombre} 
+                  size="small" 
+                  color="secondary"
+                />
+              )}
+            </Box>
+          )}
         </DialogTitle>
         <DialogContent>
           {selectedPeriodo && (
@@ -2600,35 +3083,134 @@ const RemuneracionesPage = () => {
                 {selectedPeriodo.datos && selectedPeriodo.datos.length > 0 && (
                   <Grid item xs={12}>
                     <Typography variant="h6" gutterBottom>
-                      Datos de Empleados ({selectedPeriodo.datos.length} total)
+                      Datos de Empleados ({selectedPeriodo.datos.length} total - {empleadosFiltrados.length} filtrados)
                     </Typography>
                     
-                    {/* Filtro y búsqueda */}
-                    <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-                      <TextField
-                        size="small"
-                        placeholder="Buscar por nombre o RUT..."
-                        value={filtroEmpleados || ''}
-                        onChange={(e) => setFiltroEmpleados(e.target.value)}
-                        sx={{ minWidth: 300 }}
-                      />
-                      <FormControl size="small" sx={{ minWidth: 120 }}>
-                        <InputLabel>Registros por página</InputLabel>
-                        <Select
-                          value={empleadosPorPagina}
-                          onChange={(e) => {
-                            setEmpleadosPorPagina(e.target.value);
-                            setPaginaActual(1);
-                          }}
-                          label="Registros por página"
-                        >
-                          <MenuItem value={25}>25</MenuItem>
-                          <MenuItem value={50}>50</MenuItem>
-                          <MenuItem value={100}>100</MenuItem>
-                          <MenuItem value={-1}>Todos</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Box>
+                    {/* FILTROS ESPECÍFICOS MEJORADOS PARA EL PERÍODO */}
+                    <Paper sx={{ p: 2, mb: 3, bgcolor: '#f8f9fa' }}>
+                      <Typography variant="subtitle1" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                        <FilterListIcon sx={{ mr: 1, color: '#f37d16' }} />
+                        Filtros Específicos del Período
+                      </Typography>
+                      
+                      <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} sm={6} md={3}>
+                          <TextField
+                            size="small"
+                            placeholder="Buscar por nombre o RUT..."
+                            value={filtroEmpleados || ''}
+                            onChange={(e) => setFiltroEmpleados(e.target.value)}
+                            fullWidth
+                          />
+                        </Grid>
+                        
+                        <Grid item xs={12} sm={6} md={3}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Razón Social</InputLabel>
+                            <Select
+                              value={filtroRazonSocialDetalle}
+                              onChange={(e) => {
+                                setFiltroRazonSocialDetalle(e.target.value);
+                                setPaginaActual(1);
+                              }}
+                              label="Razón Social"
+                            >
+                              <MenuItem value="todos">Todas las razones sociales</MenuItem>
+                              {opcionesFiltroDetalle.razonesSociales.map(razon => (
+                                <MenuItem key={razon} value={razon}>
+                                  {razon}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        
+                        <Grid item xs={12} sm={6} md={3}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Sucursal</InputLabel>
+                            <Select
+                              value={filtroSucursalDetalle}
+                              onChange={(e) => {
+                                setFiltroSucursalDetalle(e.target.value);
+                                setPaginaActual(1);
+                              }}
+                              label="Sucursal"
+                            >
+                              <MenuItem value="todos">Todas las sucursales</MenuItem>
+                              {opcionesFiltroDetalle.sucursales.map(sucursal => (
+                                <MenuItem key={sucursal} value={sucursal}>
+                                  {sucursal}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        
+                        <Grid item xs={12} sm={6} md={3}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Registros por página</InputLabel>
+                            <Select
+                              value={empleadosPorPagina}
+                              onChange={(e) => {
+                                setEmpleadosPorPagina(e.target.value);
+                                setPaginaActual(1);
+                              }}
+                              label="Registros por página"
+                            >
+                              <MenuItem value={25}>25</MenuItem>
+                              <MenuItem value={50}>50</MenuItem>
+                              <MenuItem value={100}>100</MenuItem>
+                              <MenuItem value={-1}>Todos</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      </Grid>
+                      
+                      {/* Mostrar filtros activos específicos */}
+                      {(filtroRazonSocialDetalle !== 'todos' || filtroSucursalDetalle !== 'todos' || filtroEmpleados) && (
+                        <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Filtros activos:
+                          </Typography>
+                          {filtroRazonSocialDetalle !== 'todos' && (
+                            <Chip 
+                              label={`Razón: ${filtroRazonSocialDetalle}`}
+                              size="small"
+                              color="info"
+                              onDelete={() => setFiltroRazonSocialDetalle('todos')}
+                            />
+                          )}
+                          {filtroSucursalDetalle !== 'todos' && (
+                            <Chip 
+                              label={`Sucursal: ${filtroSucursalDetalle}`}
+                              size="small"
+                              color="secondary"
+                              onDelete={() => setFiltroSucursalDetalle('todos')}
+                            />
+                          )}
+                          {filtroEmpleados && (
+                            <Chip 
+                              label={`Búsqueda: "${filtroEmpleados}"`}
+                              size="small"
+                              color="primary"
+                              onDelete={() => setFiltroEmpleados('')}
+                            />
+                          )}
+                          <Button
+                            size="small"
+                            startIcon={<ClearAllIcon />}
+                            onClick={() => {
+                              setFiltroEmpleados('');
+                              setFiltroRazonSocialDetalle('todos');
+                              setFiltroSucursalDetalle('todos');
+                              setPaginaActual(1);
+                            }}
+                          >
+                            Limpiar todos
+                          </Button>
+                        </Box>
+                      )}
+                    </Paper>
 
                     <TableContainer component={Paper} sx={{ maxHeight: 600 }}>
                       <Table size="small" stickyHeader>
@@ -2639,10 +3221,9 @@ const RemuneracionesPage = () => {
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Nombre</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Razón Social</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Sucursal</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Sueldo Base</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Total Haberes</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Total Descuentos</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Líquido</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Liquido</TableCell>
                             <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Estado</TableCell>
                           </TableRow>
                         </TableHead>
@@ -2685,7 +3266,6 @@ const RemuneracionesPage = () => {
                                   color={empleado.sucursal_nombre ? 'secondary' : 'default'}
                                 />
                               </TableCell>
-                              <TableCell>{formatMoney(empleado.sueldo_base)}</TableCell>
                               <TableCell>{formatMoney(empleado.total_haberes)}</TableCell>
                               <TableCell>{formatMoney(empleado.total_descuentos)}</TableCell>
                               <TableCell>
@@ -2706,7 +3286,7 @@ const RemuneracionesPage = () => {
                       </Table>
                     </TableContainer>
 
-                    {/* Paginación */}
+                    {/* Paginación mejorada */}
                     {empleadosPorPagina !== -1 && totalPaginas > 1 && (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 2, gap: 2 }}>
                         <Button
@@ -2722,7 +3302,7 @@ const RemuneracionesPage = () => {
                             Página {paginaActual} de {totalPaginas}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            ({empleadosFiltrados.length} registros)
+                            ({empleadosFiltrados.length} registros filtrados de {selectedPeriodo.datos.length} total)
                           </Typography>
                         </Box>
                         

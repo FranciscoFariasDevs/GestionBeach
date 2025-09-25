@@ -1,4 +1,4 @@
-// controllers/remuneracionesController.js - VERSIÓN CON FILTROS Y VALIDACIONES MEJORADA
+// controllers/remuneracionesController.js - VERSIÓN FINAL CORREGIDA SIN MULTIPLICAR SEGUROS DE CESANTÍA
 const { sql, poolPromise } = require('../config/db');
 
 // Test de conexión
@@ -575,7 +575,7 @@ exports.actualizarPeriodo = async (req, res) => {
       });
     }
     
-    console.log(`📄 Actualizando período ID: ${id}`, req.body);
+    console.log(`🔍 Actualizando período ID: ${id}`, req.body);
     
     const pool = await poolPromise;
     
@@ -832,12 +832,15 @@ exports.validarExcel = async (req, res) => {
   }
 };
 
-// 🆕 PROCESAR EXCEL - VERSIÓN COMPLETAMENTE CORREGIDA CON VALIDACIÓN DE EMPLEADOS
+// 🚨 FUNCIÓN CRÍTICA CORREGIDA: PROCESAR EXCEL USANDO MAPEO DEL FRONTEND
 exports.procesarExcel = async (req, res) => {
   try {
-    console.log('🚀 PROCESANDO EXCEL - VERSIÓN CORREGIDA...');
+    console.log('🚀 PROCESANDO EXCEL - VERSIÓN CORREGIDA QUE USA MAPEO DEL FRONTEND...');
     
-    const { datosExcel, archivoNombre, validarDuplicados = true, id_periodo } = req.body;
+    // 🔥 CRÍTICO: USAR EL MAPEO QUE VIENE DEL FRONTEND
+    const { datosExcel, archivoNombre, validarDuplicados = true, id_periodo, mapeoColumnas } = req.body;
+    
+    console.log('🎯 MAPEO RECIBIDO DEL FRONTEND:', mapeoColumnas);
     
     // Validaciones básicas
     if (!datosExcel || !Array.isArray(datosExcel) || datosExcel.length === 0) {
@@ -851,6 +854,14 @@ exports.procesarExcel = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'ID del período es requerido'
+      });
+    }
+
+    // 🔥 CRÍTICO: VALIDAR QUE VENGA EL MAPEO DEL FRONTEND
+    if (!mapeoColumnas || typeof mapeoColumnas !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Mapeo de columnas es requerido desde el frontend'
       });
     }
 
@@ -868,22 +879,15 @@ exports.procesarExcel = async (req, res) => {
       });
     }
 
-    // Identificar columnas ANTES de procesar
-    const primeraFilaConDatos = datosExcel.find(fila => 
-      fila && Object.keys(fila).length > 0 && Object.values(fila).some(val => val && val.toString().trim())
-    );
-    
-    if (!primeraFilaConDatos) {
+    // Verificar que el mapeo tenga campos críticos
+    if (!mapeoColumnas.rut_empleado || !mapeoColumnas.nombre_empleado) {
       return res.status(400).json({
         success: false,
-        message: 'No se encontraron datos válidos en el Excel'
+        message: 'El mapeo debe incluir al menos RUT y Nombre del empleado'
       });
     }
 
-    const headers = Object.keys(primeraFilaConDatos);
-    const mapeoColumnas = identificarColumnasAutomaticamente(headers);
-    
-    console.log('🎯 Mapeo de columnas detectado:', mapeoColumnas);
+    console.log('🎯 USANDO MAPEO DEL FRONTEND:', mapeoColumnas);
     console.log(`📊 Total de filas a procesar: ${datosExcel.length}`);
 
     // 🆕 EXTRAER RUTS PARA VALIDACIÓN
@@ -909,16 +913,17 @@ exports.procesarExcel = async (req, res) => {
       const fila = datosExcel[i];
       
       try {
-        // 🔍 EXTRAER DATOS USANDO EL MAPEO AUTOMÁTICO
+        // 🔍 EXTRAER DATOS USANDO EL MAPEO DEL FRONTEND
         const datosExtraidos = extraerDatosDeFila(fila, mapeoColumnas);
         
         // Validar que tenga al menos RUT
         if (!datosExtraidos.rut_empleado || datosExtraidos.rut_empleado.length < 8) {
-          console.log(`⭐ Saltando fila ${i + 1}: RUT inválido o faltante`);
+          console.log(`⭕ Saltando fila ${i + 1}: RUT inválido o faltante`);
           continue;
         }
 
         console.log(`🔍 Procesando fila ${i + 1}: ${datosExtraidos.nombre_empleado} (${datosExtraidos.rut_empleado})`);
+        console.log(`💰 Líquido a pagar: ${datosExtraidos.liquido_pagar}`);
 
         // 🆕 PROCESAR CADA EMPLEADO EN SU PROPIA TRANSACCIÓN
         const resultado = await procesarEmpleadoIndividual(pool, {
@@ -942,7 +947,8 @@ exports.procesarExcel = async (req, res) => {
             error: resultado.error,
             datos: {
               rut: datosExtraidos.rut_empleado,
-              nombre: datosExtraidos.nombre_empleado
+              nombre: datosExtraidos.nombre_empleado,
+              liquido: datosExtraidos.liquido_pagar
             }
           });
         }
@@ -986,7 +992,7 @@ exports.procesarExcel = async (req, res) => {
         errores,
         errores_detalle: erroresDetalle.slice(0, 10), // Solo primeros 10 errores
         id_periodo: id_periodo,
-        mapeo_utilizado: mapeoColumnas,
+        mapeo_utilizado: mapeoColumnas, // 🔥 CRÍTICO: Devolver el mapeo utilizado
         empleados_para_validar: empleadosParaValidar // Para posterior validación
       }
     });
@@ -1099,9 +1105,9 @@ exports.generarReporteAnalisis = async (req, res) => {
   }
 };
 
-// ========== FUNCIONES AUXILIARES COMPLETAMENTE CORREGIDAS ==========
+// ========== FUNCIONES AUXILIARES - MAPEO CORREGIDO ==========
 
-// Función corregida para identificar columnas automáticamente basada en los headers reales
+// ÚNICA FUNCIÓN CORREGIDA: Identificar columnas automáticamente
 function identificarColumnasAutomaticamente(headers) {
   console.log('🔍 Identificando columnas automáticamente...');
   
@@ -1151,79 +1157,69 @@ function identificarColumnasAutomaticamente(headers) {
     }
     else if (headerUpper.includes('DT') || headerUpper === 'DT') {
       // Campo DT - no sabemos exactamente qué es, posiblemente días trabajados
-      // Podrías mapearlo a un campo específico si lo necesitas
     }
-    // 🆕 CORREGIDO: Detectar "S. Base" correctamente
     else if (headerUpper.includes('S. BASE') || headerUpper === 'S. BASE' || headerUpper.includes('SUELDO BASE')) {
       mapeo.sueldo_base = header;
     }
-    // 🆕 "H. Extras" para horas extras
     else if (headerUpper.includes('H. EXTRAS') || headerUpper === 'H. EXTRAS' || headerUpper.includes('HORAS EXTRAS')) {
       mapeo.horas_extras = header;
     }
-    // 🆕 "Grat. Legal" para gratificación legal
     else if (headerUpper.includes('GRAT. LEGAL') || headerUpper === 'GRAT. LEGAL' || headerUpper.includes('GRATIFICACION LEGAL')) {
       mapeo.gratificacion_legal = header;
     }
-    // 🆕 "Otros Imp." para otros imponibles
     else if ((headerUpper.includes('OTROS IMP.') || headerUpper === 'OTROS IMP.') && !headerUpper.includes('TOTAL')) {
       mapeo.otros_imponibles = header;
     }
-    // 🆕 "Total Imp." para total imponibles
     else if (headerUpper.includes('TOTAL IMP.') || headerUpper === 'TOTAL IMP.') {
       mapeo.total_imponibles = header;
     }
-    // 🆕 "Asig. Fam." para asignación familiar
     else if (headerUpper.includes('ASIG. FAM.') || headerUpper === 'ASIG. FAM.' || headerUpper.includes('ASIGNACION FAMILIAR')) {
       mapeo.asignacion_familiar = header;
     }
-    // 🆕 "Ot. No Imp." para otros no imponibles
     else if (headerUpper.includes('OT. NO IMP.') || headerUpper === 'OT. NO IMP.' || headerUpper.includes('OTROS NO IMP')) {
       mapeo.otros_no_imponibles = header;
     }
-    // 🆕 "Tot. No Imp." para total no imponibles
     else if (headerUpper.includes('TOT. NO IMP.') || headerUpper === 'TOT. NO IMP.' || headerUpper.includes('TOTAL NO IMP')) {
       mapeo.total_no_imponibles = header;
     }
-    // 🆕 "Tot. Haberes" para total haberes
     else if (headerUpper.includes('TOT. HABERES') || headerUpper === 'TOT. HABERES' || headerUpper.includes('TOTAL HABERES')) {
       mapeo.total_haberes = header;
     }
-    // 🆕 "Previsión" para descuento previsión
     else if (headerUpper.includes('PREVISIÓN') || headerUpper === 'PREVISIÓN' || headerUpper.includes('PREVISION')) {
       mapeo.descuento_prevision = header;
     }
-    // 🆕 "Salud" para descuento salud
     else if (headerUpper.includes('SALUD') && !headerUpper.includes('OTROS')) {
       mapeo.descuento_salud = header;
     }
-    // 🆕 "Imp. Único" para impuesto único
     else if (headerUpper.includes('IMP. ÚNICO') || headerUpper === 'IMP. ÚNICO' || headerUpper.includes('IMP. UNICO')) {
       mapeo.impuesto_unico = header;
     }
-    // 🆕 "Seg. Ces." para seguro cesantía
     else if (headerUpper.includes('SEG. CES.') || headerUpper === 'SEG. CES.' || headerUpper.includes('SEGURO CESANTIA')) {
       mapeo.seguro_cesantia = header;
     }
-    // 🆕 "Otros D.Leg." para otros descuentos legales
     else if (headerUpper.includes('OTROS D.LEG.') || headerUpper === 'OTROS D.LEG.' || headerUpper.includes('OTROS DESCUENTOS LEG')) {
       mapeo.otros_descuentos_legales = header;
     }
-    // 🆕 "Tot. D.Leg." para total descuentos legales
     else if (headerUpper.includes('TOT. D.LEG.') || headerUpper === 'TOT. D.LEG.' || headerUpper.includes('TOTAL DESCUENTOS LEG')) {
       mapeo.total_descuentos_legales = header;
     }
-    // 🆕 "Desc. Varios" para descuentos varios
     else if (headerUpper.includes('DESC. VARIOS') || headerUpper === 'DESC. VARIOS' || headerUpper.includes('DESCUENTOS VARIOS')) {
       mapeo.descuentos_varios = header;
     }
-    // 🆕 "Tot. Desc." para total descuentos
     else if (headerUpper.includes('TOT. DESC.') || headerUpper === 'TOT. DESC.' || headerUpper.includes('TOTAL DESC')) {
       mapeo.total_descuentos = header;
     }
-    // 🆕 "Líquido" para líquido a pagar
-    else if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || headerUpper.includes('LIQUIDO')) {
+    // 🔥 CRÍTICO: Detección corregida de LÍQUIDO con todas las variaciones
+    else if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || 
+             headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' ||
+             headerUpper.includes('LÃ¯Â¿Â½IDO') || headerUpper === 'LÃ¯Â¿Â½IDO' ||
+             headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' ||
+             headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' ||
+             headerUpper.includes('LIQUIDO A PAGAR') || 
+             headerUpper.includes('LIQUIDO PAGAR') || 
+             headerUpper.includes('LIQ.') || headerUpper === 'LIQ.') {
       mapeo.liquido_pagar = header;
+      console.log(`🎯 LÍQUIDO DETECTADO EN BACKEND: "${header}" mapeado correctamente`);
     }
   });
 
@@ -1234,52 +1230,53 @@ function identificarColumnasAutomaticamente(headers) {
   return mapeo;
 }
 
+// RESTO DE FUNCIONES SIN CAMBIOS
 function extraerDatosDeFila(fila, mapeoColumnas) {
   const datos = {};
   
-  // Extraer cada campo usando el mapeo
   Object.keys(mapeoColumnas).forEach(campo => {
     const nombreColumna = mapeoColumnas[campo];
     if (nombreColumna && fila[nombreColumna] !== undefined) {
       let valor = fila[nombreColumna];
       
-      // Limpiar y convertir valores monetarios
       if (campo !== 'codigo_empleado' && campo !== 'rut_empleado' && 
           campo !== 'nombre_empleado') {
-        valor = parseNumberSafe(valor);
+        // 🔥 CRÍTICO: APLICAR MULTIPLICACIÓN SELECTIVA SOLO A CAMPOS ESPECÍFICOS
+        valor = parseNumberChilenoConMultiplicacionSelectiva(valor, campo);
       }
       
-      // Limpiar RUT
       if (campo === 'rut_empleado') {
         valor = limpiarRUT(valor);
       }
       
-      // Limpiar nombre
       if (campo === 'nombre_empleado') {
         valor = limpiarTexto(valor);
       }
       
       datos[campo] = valor;
+      
+      // 🔥 LOG CRÍTICO PARA LÍQUIDO
+      if (campo === 'liquido_pagar') {
+        console.log(`💰 LÍQUIDO EXTRAÍDO: Campo "${nombreColumna}" -> Valor: ${valor}`);
+      }
     }
   });
   
   return datos;
 }
 
-// 🆕 NUEVA FUNCIÓN: Procesar empleado individual con su propia transacción
 async function procesarEmpleadoIndividual(pool, datos) {
   const transaction = new sql.Transaction(pool);
   
   try {
     await transaction.begin();
     
-    // Crear empleado si no existe
     const empleadoInfo = await crearEmpleadoSiNoExiste(transaction, datos);
-    
-    // Guardar datos de remuneración
     await guardarDatosRemuneracionSeguro(transaction, datos);
     
     await transaction.commit();
+    
+    console.log(`✅ Empleado procesado: ${datos.nombre_empleado} - Líquido: ${datos.liquido_pagar}`);
     
     return {
       success: true,
@@ -1289,7 +1286,7 @@ async function procesarEmpleadoIndividual(pool, datos) {
     
   } catch (error) {
     await transaction.rollback();
-    console.error(`Error procesando empleado ${datos.nombre_empleado}:`, error.message);
+    console.error(`❌ Error procesando empleado ${datos.nombre_empleado}:`, error.message);
     return {
       success: false,
       error: error.message
@@ -1304,7 +1301,6 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
     return { esNuevo: false, id: null };
   }
 
-  // Verificar si existe
   const existeResult = await transaction.request()
     .input('rut_limpio', sql.VarChar, rutLimpio)
     .query(`
@@ -1316,9 +1312,7 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
     return { esNuevo: false, id: existeResult.recordset[0].id };
   }
 
-  // Crear nuevo empleado
   try {
-    // Separar nombre y apellido
     const nombreCompleto = datosExtraidos.nombre_empleado || 'Sin Nombre';
     const partesNombre = nombreCompleto.trim().split(' ');
     const nombre = partesNombre[0] || 'Sin Nombre';
@@ -1343,11 +1337,9 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
   }
 }
 
-// 🆕 FUNCIÓN CRÍTICA CORREGIDA: Guardar datos con validación segura
 async function guardarDatosRemuneracionSeguro(transaction, datos) {
   const request = transaction.request();
   
-  // Definir todos los campos que vamos a insertar
   const campos = [
     'id_periodo', 'codigo_empleado', 'rut_empleado', 'nombre_empleado',
     'sueldo_base', 'horas_extras', 'gratificacion_legal', 'otros_imponibles', 'total_imponibles',
@@ -1358,7 +1350,6 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
     'total_cargo_trabajador', 'fila_excel', 'archivo_origen'
   ];
 
-  // Agregar parámetros CON VALIDACIÓN ESTRICTA
   campos.forEach(campo => {
     let valor = datos[campo] || null;
     
@@ -1366,19 +1357,21 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
       request.input(campo, sql.Int, valor);
     } else if (campo === 'codigo_empleado' || campo === 'rut_empleado' || 
                campo === 'nombre_empleado' || campo === 'archivo_origen') {
-      // Campos de texto - limpiar y validar longitud
       if (valor) {
-        valor = String(valor).substring(0, 255); // Limitar longitud
+        valor = String(valor).substring(0, 255);
       }
       request.input(campo, sql.VarChar, valor);
     } else {
-      // 🆕 VALIDACIÓN CRÍTICA: Campos monetarios con validación estricta
       const valorDecimal = validarValorDecimal(valor);
       request.input(campo, sql.Decimal(12,2), valorDecimal);
+      
+      // 🔥 LOG CRÍTICO PARA LÍQUIDO
+      if (campo === 'liquido_pagar') {
+        console.log(`💰 GUARDANDO LÍQUIDO: ${valorDecimal} (original: ${valor})`);
+      }
     }
   });
 
-  // Construir query dinámico
   const columnas = campos.join(', ');
   const parametros = campos.map(campo => `@${campo}`).join(', ');
 
@@ -1389,6 +1382,7 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
   `;
 
   const resultado = await request.query(query);
+  console.log(`💾 Registro guardado con ID: ${resultado.recordset[0].nuevo_id}`);
   return resultado.recordset[0].nuevo_id;
 }
 
@@ -1402,70 +1396,186 @@ function limpiarTexto(texto) {
   return String(texto).trim().replace(/\s+/g, ' ');
 }
 
-// 🆕 FUNCIÓN CRÍTICA CORREGIDA: Parser de números completamente seguro
-function parseNumberSafe(valor) {
+// 🔥 FUNCIÓN CRÍTICA CORREGIDA: parseNumberChilenoConMultiplicacionSelectiva
+function parseNumberChilenoConMultiplicacionSelectiva(valor, nombreCampo) {
   if (!valor || valor === '' || valor === null || valor === undefined) return 0;
   
-  // Si es un número, devolverlo directamente
   if (typeof valor === 'number' && !isNaN(valor) && isFinite(valor)) {
-    return valor;
+    // 🚨 APLICAR MULTIPLICACIÓN SOLO A CAMPOS ESPECÍFICOS
+    return aplicarMultiplicacionInteligentePorCampo(valor, nombreCampo);
   }
   
-  // Convertir a string y limpiar
   let cleaned = String(valor).trim();
   
-  // 🆕 DETECTAR Y RECHAZAR FÓRMULAS DE EXCEL
+  // Detectar y rechazar fórmulas o caracteres extraños
   if (cleaned.startsWith('"') || cleaned.includes('=') || cleaned.includes('%') || 
       cleaned.includes('*') || cleaned.includes('+') || cleaned.includes('(')) {
-    console.log(`⚠️ Valor rechazado (fórmula/texto): ${cleaned}`);
     return 0;
   }
   
-  // Remover caracteres no numéricos excepto punto, coma y signo negativo
+  // Limpiar solo caracteres no numéricos, manteniendo puntos y comas
   cleaned = cleaned.replace(/[^\d.,-]/g, '');
   
-  // Si queda vacío, devolver 0
   if (!cleaned) return 0;
   
-  // Manejar formato chileno (punto como separador de miles, coma como decimal)
+  let numeroFinal;
+  
+  // Manejo de formatos numéricos chilenos
   if (cleaned.includes(',') && cleaned.includes('.')) {
-    // Si tiene ambos, asumir formato chileno: 1.234.567,89
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    // Formato: 1.234.567,89 (punto como separador de miles, coma como decimal)
+    numeroFinal = parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
   } else if (cleaned.includes(',')) {
-    // Solo coma, podría ser decimal chileno
-    const parts = cleaned.split(',');
-    if (parts.length === 2 && parts[1].length <= 2) {
-      // Es decimal: 1234,56
-      cleaned = cleaned.replace(',', '.');
+    const partes = cleaned.split(',');
+    if (partes.length === 2 && partes[1].length <= 2) {
+      // Formato: 123456,89 (coma como decimal)
+      numeroFinal = parseFloat(cleaned.replace(',', '.'));
     } else {
-      // Es separador de miles: 1,234,567
-      cleaned = cleaned.replace(/,/g, '');
+      // Formato: 123,456,789 (coma como separador de miles)
+      numeroFinal = parseFloat(cleaned.replace(/,/g, ''));
+    }
+  } else if (cleaned.includes('.')) {
+    // Solo puntos - asumir separador de miles: 123.456.789
+    numeroFinal = parseFloat(cleaned.replace(/\./g, ''));
+  } else {
+    // Solo números: 123456
+    numeroFinal = parseFloat(cleaned);
+  }
+  
+  if (isNaN(numeroFinal) || !isFinite(numeroFinal)) {
+    return 0;
+  }
+  
+  // 🚨 APLICAR LÓGICA INTELIGENTE SELECTIVA POR CAMPO
+  return aplicarMultiplicacionInteligentePorCampo(numeroFinal, nombreCampo);
+}
+
+// 🚨 NUEVA FUNCIÓN CRÍTICA: MULTIPLICACIÓN INTELIGENTE SOLO PARA CAMPOS ESPECÍFICOS
+function aplicarMultiplicacionInteligentePorCampo(numero, nombreCampo) {
+  if (numero <= 0) return numero;
+  
+  // 🔥 CAMPOS QUE NO DEBEN MULTIPLICARSE (seguros, descuentos pequeños, etc.)
+  const camposExcluidos = [
+    'seguro_cesantia',
+    'afc',
+    'sis', 
+    'impuesto_unico',
+    'descuento_prevision',
+    'descuento_salud',
+    'otros_descuentos_legales',
+    'descuentos_varios',
+    'caja_compensacion'
+  ];
+  
+  // Si es un campo excluido, NO aplicar multiplicación
+  if (camposExcluidos.includes(nombreCampo)) {
+    console.log(`🚫 SIN MULTIPLICACIÓN (campo excluido): ${nombreCampo} = ${numero}`);
+    return numero;
+  }
+  
+  // 🎯 CAMPOS QUE SÍ PUEDEN NECESITAR MULTIPLICACIÓN (sueldos, haberes, líquidos)
+  const camposParaMultiplicar = [
+    'sueldo_base',
+    'horas_extras', 
+    'gratificacion_legal',
+    'otros_imponibles',
+    'total_imponibles',
+    'asignacion_familiar',
+    'otros_no_imponibles',
+    'total_no_imponibles',
+    'total_haberes',
+    'liquido_pagar',
+    'total_pago',
+    'total_descuentos',
+    'total_descuentos_legales'
+  ];
+  
+  // Solo aplicar multiplicación a campos específicos
+  if (camposParaMultiplicar.includes(nombreCampo)) {
+    const resultado = aplicarMultiplicacionInteligente(numero);
+    if (resultado !== numero) {
+      console.log(`🔢 MULTIPLICACIÓN APLICADA: ${nombreCampo} = ${numero} -> ${resultado}`);
+    }
+    return resultado;
+  }
+  
+  // Para otros campos no listados, devolver sin modificar
+  console.log(`➡️ SIN CAMBIOS: ${nombreCampo} = ${numero}`);
+  return numero;
+}
+
+// 🚀 FUNCIÓN ORIGINAL: LÓGICA INTELIGENTE DE MULTIPLICACIÓN BASADA EN RANGOS CHILENOS
+function aplicarMultiplicacionInteligente(numero) {
+  if (numero <= 0) return numero;
+  
+  const numeroOriginal = numero;
+  
+  // Rangos típicos de sueldos y valores en Chile (en pesos chilenos)
+  const SUELDO_MINIMO_CHILE = 350000;        // Aprox sueldo mínimo
+  const SUELDO_PROMEDIO_CHILE = 600000;      // Sueldo promedio típico
+  const SUELDO_ALTO_CHILE = 2000000;         // Sueldo alto pero normal
+  
+  // CASO 1: Números muy pequeños (1-999) - Claramente truncados, multiplicar por 1000
+  if (numero >= 50 && numero <= 999) {
+    const resultado = numero * 1000;
+    return resultado;
+  }
+  
+  // CASO 2: Números de 2-4 dígitos que están por debajo del sueldo mínimo - Probablemente truncados
+  if (numero >= 10 && numero < SUELDO_MINIMO_CHILE) {
+    // Sub-caso: números de 2-3 dígitos (10-999) -> multiplicar por 1000
+    if (numero >= 10 && numero <= 999) {
+      const resultado = numero * 1000;
+      return resultado;
+    }
+    // Sub-caso: números de 4-5 dígitos pequeños (1000-99999) -> multiplicar por 10 o 100
+    else if (numero >= 1000 && numero < 100000) {
+      if (numero < 10000) {
+        // 1000-9999 -> multiplicar por 100
+        const resultado = numero * 100;
+        return resultado;
+      } else {
+        // 10000-99999 -> multiplicar por 10
+        const resultado = numero * 10;
+        return resultado;
+      }
     }
   }
   
-  const parsed = parseFloat(cleaned);
-  return (isNaN(parsed) || !isFinite(parsed)) ? 0 : parsed;
+  // CASO 3: Números decimales pequeños que parecen estar en miles
+  if (numero > 0 && numero < 100 && numero % 1 !== 0) {
+    // Decimales como 29.5, 52.6, etc. -> probablemente son 295000, 526000
+    const resultado = numero * 10000;
+    return resultado;
+  }
+  
+  // CASO 4: Números que ya están en rango normal - NO multiplicar
+  if (numero >= SUELDO_MINIMO_CHILE && numero <= 10000000) {
+    return numero;
+  }
+  
+  // CASO 5: Números muy altos - NO multiplicar
+  if (numero > 10000000) {
+    return numero;
+  }
+  
+  // CASO DEFAULT: Si no cae en ningún caso, devolver original
+  return numero;
 }
 
-// 🆕 FUNCIÓN CRÍTICA: Validar valor decimal para SQL Server
 function validarValorDecimal(valor) {
-  const numero = parseNumberSafe(valor);
+  const numero = typeof valor === 'number' ? valor : parseFloat(valor) || 0;
   
-  // Validar rango para DECIMAL(12,2) - máximo 10 dígitos enteros + 2 decimales
   const maxValor = 9999999999.99;
   const minValor = -9999999999.99;
   
   if (numero > maxValor) {
-    console.log(`⚠️ Valor truncado (muy grande): ${numero} → ${maxValor}`);
     return maxValor;
   }
   
   if (numero < minValor) {
-    console.log(`⚠️ Valor truncado (muy pequeño): ${numero} → ${minValor}`);
     return minValor;
   }
   
-  // Redondear a 2 decimales para evitar problemas de precisión
   return Math.round(numero * 100) / 100;
 }
 
@@ -1496,14 +1606,12 @@ function generarReporteEstadistico(datos) {
     fecha_generacion: new Date()
   };
 
-  // Calcular min y max
   const sueldos = datos.map(d => parseFloat(d.sueldo_base) || 0).filter(s => s > 0);
   if (sueldos.length > 0) {
     reporte.resumen.sueldo_minimo = Math.min(...sueldos);
     reporte.resumen.sueldo_maximo = Math.max(...sueldos);
   }
 
-  // Estadísticas por cargo
   const gruposPorCargo = {};
   datos.forEach(item => {
     const cargo = item.cargo || 'Sin especificar';
@@ -1522,7 +1630,6 @@ function generarReporteEstadistico(datos) {
     };
   });
 
-  // 🆕 Estadísticas por razón social
   const gruposPorRazonSocial = {};
   datos.forEach(item => {
     const razonSocial = item.razon_social || 'Sin Razón Social';
@@ -1542,7 +1649,6 @@ function generarReporteEstadistico(datos) {
     };
   });
 
-  // 🆕 Estadísticas por sucursal
   const gruposPorSucursal = {};
   datos.forEach(item => {
     const sucursal = item.sucursal || 'Sin Sucursal';
@@ -1612,8 +1718,7 @@ function detectarAnomalias(datos) {
   const promedio = sueldos.reduce((sum, s) => sum + s, 0) / sueldos.length;
   const desviacion = Math.sqrt(sueldos.reduce((sum, s) => sum + Math.pow(s - promedio, 2), 0) / sueldos.length);
   
-  // Calcular algunos valores de referencia
-  const sueldoMinimo = 350000; // Sueldo mínimo Chile 2024
+  const sueldoMinimo = 350000;
   const sueldoMaximo = Math.max(...sueldos);
   const sueldoMinEstudio = Math.min(...sueldos);
   
@@ -1629,7 +1734,6 @@ function detectarAnomalias(datos) {
         let recomendaciones = [];
         let nivelRiesgo = 'MEDIO';
         
-        // ANÁLISIS PARA SUELDOS ALTOS
         if (esSueldoAlto) {
           if (sueldo > promedio * 3) {
             analisisDetallado = `Sueldo excepcionalmente alto: ${((sueldo / promedio - 1) * 100).toFixed(0)}% sobre el promedio`;
@@ -1661,20 +1765,19 @@ function detectarAnomalias(datos) {
             ];
           }
         } 
-        // ANÁLISIS PARA SUELDOS BAJOS
         else {
           if (sueldo < sueldoMinimo) {
             analisisDetallado = `Sueldo bajo el mínimo legal: ${sueldo.toLocaleString()} (Mínimo: ${sueldoMinimo.toLocaleString()})`;
             nivelRiesgo = 'CRÍTICO';
             posiblesCausas = [
-              '⚠️ POSIBLE INCUMPLIMIENTO LEGAL',
+              'POSIBLE INCUMPLIMIENTO LEGAL',
               'Empleado de media jornada',
               'Trabajador en práctica o aprendiz',
               'Error en el cálculo de días trabajados',
               'Descuentos excesivos aplicados'
             ];
             recomendaciones = [
-              '🚨 REVISAR INMEDIATAMENTE',
+              'REVISAR INMEDIATAMENTE',
               'Verificar jornada laboral',
               'Confirmar días trabajados en el mes',
               'Revisar si hay descuentos excesivos',
@@ -1709,7 +1812,6 @@ function detectarAnomalias(datos) {
           }
         }
         
-        // ANÁLISIS ADICIONAL BASADO EN Z-SCORE
         let interpretacionZScore = '';
         if (zScore > 3) {
           interpretacionZScore = 'Extremadamente inusual (menos del 0.3% de casos normales)';
@@ -1720,21 +1822,16 @@ function detectarAnomalias(datos) {
         }
         
         anomalias.push({
-          // Datos básicos
           tipo: esSueldoAlto ? 'sueldo_alto' : 'sueldo_bajo',
           empleado: empleado.nombre_empleado,
           rut: empleado.rut_empleado,
           sueldo: sueldo,
           z_score: zScore.toFixed(2),
-          
-          // Análisis mejorado
           nivel_riesgo: nivelRiesgo,
           analisis_detallado: analisisDetallado,
           interpretacion_zscore: interpretacionZScore,
           posibles_causas: posiblesCausas,
           recomendaciones: recomendaciones,
-          
-          // Contexto adicional
           porcentaje_diferencia: esSueldoAlto ? 
             `+${((sueldo / promedio - 1) * 100).toFixed(1)}%` : 
             `-${((1 - sueldo / promedio) * 100).toFixed(1)}%`,
@@ -1742,8 +1839,6 @@ function detectarAnomalias(datos) {
           posicion_ranking: esSueldoAlto ? 
             `Top ${((sueldos.filter(s => s >= sueldo).length / sueldos.length) * 100).toFixed(1)}%` :
             `Bottom ${((sueldos.filter(s => s <= sueldo).length / sueldos.length) * 100).toFixed(1)}%`,
-          
-          // 🆕 Información adicional
           razon_social: empleado.razon_social || 'Sin Razón Social',
           sucursal: empleado.sucursal || 'Sin Sucursal'
         });
@@ -1751,13 +1846,13 @@ function detectarAnomalias(datos) {
     }
   });
   
- const ordenRiesgo = { 'CRÍTICO': 3, 'ALTO': 2, 'MEDIO': 1 };
- anomalias.sort((a, b) => {
-   if (ordenRiesgo[a.nivel_riesgo] !== ordenRiesgo[b.nivel_riesgo]) {
-     return ordenRiesgo[b.nivel_riesgo] - ordenRiesgo[a.nivel_riesgo];
-   }
-   return parseFloat(b.z_score) - parseFloat(a.z_score);
- });
- 
- return anomalias;
+  const ordenRiesgo = { 'CRÍTICO': 3, 'ALTO': 2, 'MEDIO': 1 };
+  anomalias.sort((a, b) => {
+    if (ordenRiesgo[a.nivel_riesgo] !== ordenRiesgo[b.nivel_riesgo]) {
+      return ordenRiesgo[b.nivel_riesgo] - ordenRiesgo[a.nivel_riesgo];
+    }
+    return parseFloat(b.z_score) - parseFloat(a.z_score);
+  });
+  
+  return anomalias;
 }

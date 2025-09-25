@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/index.jsx - Versión Corregida Completa con VENTAS ARREGLADO
+// src/pages/EstadoResultados/index.jsx - VERSIÓN ORIGINAL RESTAURADA CON MEJORAS DE CARGA
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -94,11 +94,13 @@ function TabPanel(props) {
 const EstadoResultadosPage = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [selectedSucursal, setSelectedSucursal] = useState('');
+  const [selectedRazonSocial, setSelectedRazonSocial] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
+  const [razonesSocialesDisponibles, setRazonesSocialesDisponibles] = useState([]);
   const [centrosCostos, setCentrosCostos] = useState([]);
   const [datosReales, setDatosReales] = useState({
     compras: null,
@@ -133,11 +135,9 @@ const EstadoResultadosPage = () => {
     if (selectedSucursal) {
       loadResultadosData();
     }
-  }, [selectedMonth, selectedSucursal]);
+  }, [selectedMonth, selectedSucursal, selectedRazonSocial]);
 
-  // ====================================
   // FUNCIONES DE CARGA DE DATOS CORREGIDAS
-  // ====================================
 
   // Función para debugging de APIs
   const debugAPI = async () => {
@@ -172,172 +172,186 @@ const EstadoResultadosPage = () => {
     console.groupEnd();
   };
 
-  // Función corregida para cargar compras
+  // Función para cargar compras (usando controlador centralizado)
   const loadComprasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
-      console.log('🔍 Cargando compras para sucursal:', selectedSucursal);
+      console.log('📦 Cargando compras desde controlador centralizado...');
       
-      // Opción 1: Intentar con filtro de sucursal
-      let comprasResponse;
-      try {
-        comprasResponse = await api.get('/facturas-xml', {
-          params: {
-            fecha_desde: fechaDesde,
-            fecha_hasta: fechaHasta,
-            id_sucursal: selectedSucursal,
-            estado: 'PROCESADA',
-            page: 1,
-            limit: 1000
-          }
-        });
+      const comprasResponse = await api.get('/estado-resultados/compras', {
+        params: {
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta,
+          sucursal_id: selectedSucursal,
+          razon_social_id: selectedRazonSocial || 'todos'
+        }
+      });
+      
+      console.log('📥 Respuesta compras (centralizada):', comprasResponse.data);
+      
+      if (comprasResponse.data.success) {
+        const { resumen } = comprasResponse.data.data;
         
-        console.log('📥 Respuesta compras con filtro:', comprasResponse.data);
+        console.log(`✅ Compras cargadas: ${resumen.cantidad_facturas} facturas, total: $${resumen.total_compras.toLocaleString()}`);
         
-      } catch (error) {
-        console.warn('⚠️ Error con filtro de sucursal, intentando sin filtro:', error.message);
-        
-        // Opción 2: Cargar todas y filtrar manualmente
-        comprasResponse = await api.get('/facturas-xml', {
-          params: {
-            fecha_desde: fechaDesde,
-            fecha_hasta: fechaHasta,
-            estado: 'PROCESADA',
-            page: 1,
-            limit: 1000
-          }
-        });
+        return { 
+          data: comprasResponse.data.data.compras, 
+          total: resumen.total_compras,
+          cantidad: resumen.cantidad_facturas
+        };
       }
-
-      // Procesar respuesta de forma segura
-      let comprasData = [];
-      let totalCompras = 0;
-
-      if (comprasResponse?.data?.success && Array.isArray(comprasResponse.data.data)) {
-        // Filtrar por sucursal si es necesario
-        comprasData = comprasResponse.data.data.filter(factura => {
-          const sucursalFactura = factura.id_sucursal || factura.sucursal_id || factura.sucursal;
-          return sucursalFactura && sucursalFactura.toString() === selectedSucursal.toString();
-        });
-        
-        totalCompras = comprasData.reduce((sum, factura) => {
-          const monto = Number(factura.monto_total || factura.total || factura.monto || 0);
-          return sum + monto;
-        }, 0);
-        
-        console.log(`✅ Compras cargadas: ${comprasData.length} facturas, total: ${totalCompras}`);
-        
-      } else if (Array.isArray(comprasResponse?.data)) {
-        // Formato directo sin wrapper
-        comprasData = comprasResponse.data.filter(factura => {
-          const sucursalFactura = factura.id_sucursal || factura.sucursal_id || factura.sucursal;
-          return sucursalFactura && sucursalFactura.toString() === selectedSucursal.toString();
-        });
-        
-        totalCompras = comprasData.reduce((sum, factura) => {
-          const monto = Number(factura.monto_total || factura.total || factura.monto || 0);
-          return sum + monto;
-        }, 0);
-      }
-
-      return { data: comprasData, total: totalCompras };
+      
+      return { data: [], total: 0, cantidad: 0 };
       
     } catch (error) {
-      console.error('❌ Error crítico en compras:', error);
-      return { data: [], total: 0 };
+      console.error('❌ Error cargando compras desde controlador:', error);
+      
+      // Fallback al método original
+      try {
+        const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+        console.log('🔄 Intentando método fallback para compras...');
+        
+        const comprasResponse = await api.get('/facturas-xml', {
+          params: {
+            fecha_desde: fechaDesde,
+            fecha_hasta: fechaHasta,
+            estado: 'PROCESADA',
+            page: 1,
+            limit: 1000
+          }
+        });
+        
+        let comprasData = [];
+        if (comprasResponse?.data?.success && Array.isArray(comprasResponse.data.data)) {
+          comprasData = comprasResponse.data.data.filter(factura => {
+            const sucursalFactura = factura.id_sucursal || factura.sucursal_id;
+            return sucursalFactura && sucursalFactura.toString() === selectedSucursal.toString();
+          });
+        }
+        
+        const total = comprasData.reduce((sum, factura) => sum + (Number(factura.monto_total || 0)), 0);
+        console.log('✅ Compras cargadas (fallback):', comprasData.length, 'facturas');
+        
+        return { data: comprasData, total, cantidad: comprasData.length };
+        
+      } catch (fallbackError) {
+        console.error('❌ Error en fallback de compras:', fallbackError);
+        return { data: [], total: 0, cantidad: 0 };
+      }
     }
   };
 
-  // Función corregida para cargar remuneraciones
+  // Función para cargar remuneraciones (usando controlador centralizado) CORREGIDA
   const loadRemuneracionesData = async () => {
     try {
       const mesSeleccionado = selectedMonth.getMonth() + 1;
       const anioSeleccionado = selectedMonth.getFullYear();
       
-      console.log('👥 Cargando remuneraciones para:', mesSeleccionado, anioSeleccionado);
+      console.log('👥 Cargando remuneraciones desde controlador centralizado...');
       
-      // Paso 1: Obtener períodos disponibles
-      const periodosResponse = await api.get('/remuneraciones');
-      console.log('📅 Períodos disponibles:', periodosResponse.data);
-      
-      let remuneracionesData = [];
-      let totalRemuneraciones = 0;
-
-      // Verificar estructura de respuesta
-      const periodos = periodosResponse.data?.success ? 
-        periodosResponse.data.data : 
-        Array.isArray(periodosResponse.data) ? periodosResponse.data : [];
-
-      if (periodos.length === 0) {
-        console.warn('⚠️ No hay períodos de remuneraciones disponibles');
-        return { data: [], total: 0 };
-      }
-
-      // Buscar período coincidente
-      const periodoCoincidente = periodos.find(periodo => {
-        const mesCoincide = Number(periodo.mes) === mesSeleccionado;
-        const anioCoincide = Number(periodo.anio || periodo.año) === anioSeleccionado;
-        return mesCoincide && anioCoincide;
+      const remuneracionesResponse = await api.get('/estado-resultados/remuneraciones', {
+        params: {
+          anio: anioSeleccionado,
+          mes: mesSeleccionado,
+          sucursal_id: selectedSucursal,
+          razon_social_id: selectedRazonSocial || 'todos'
+        }
       });
-
-      if (!periodoCoincidente) {
-        console.log(`📅 No hay período de remuneraciones para ${mesSeleccionado}/${anioSeleccionado}`);
-        console.log('📋 Períodos disponibles:', periodos.map(p => `${p.mes}/${p.anio || p.año}`));
-        return { data: [], total: 0 };
+      
+      console.log('📥 Respuesta remuneraciones (centralizada):', remuneracionesResponse.data);
+      
+      if (remuneracionesResponse.data.success) {
+        const { resumen } = remuneracionesResponse.data.data;
+        
+        console.log(`✅ Remuneraciones cargadas: ${resumen.cantidad_empleados} empleados`);
+        console.log(`💰 Total líquidos: ${resumen.total_liquidos.toLocaleString()}`);
+        console.log(`🛡️ Total seguros cesantía: ${resumen.total_seguros_cesantia.toLocaleString()}`);
+        
+        return { 
+          data: remuneracionesResponse.data.data.remuneraciones, 
+          total: resumen.total_liquidos,
+          seguros_cesantia: resumen.total_seguros_cesantia, // ✅ CAPTURAR SEGUROS
+          cantidad: resumen.cantidad_empleados
+        };
       }
-
-      console.log('✅ Período encontrado:', periodoCoincidente);
-
-      // Paso 2: Obtener datos detallados del período
+      
+      return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
+      
+    } catch (error) {
+      console.error('❌ Error cargando remuneraciones desde controlador:', error);
+      
+      // Fallback al método original
       try {
+        console.log('🔄 Intentando método fallback para remuneraciones...');
+        const mesSeleccionado = selectedMonth.getMonth() + 1;
+        const anioSeleccionado = selectedMonth.getFullYear();
+        
+        const periodosResponse = await api.get('/remuneraciones');
+        const periodos = periodosResponse.data?.success ? 
+          periodosResponse.data.data : 
+          Array.isArray(periodosResponse.data) ? periodosResponse.data : [];
+
+        const periodoCoincidente = periodos.find(periodo => {
+          const mesCoincide = Number(periodo.mes) === mesSeleccionado;
+          const anioCoincide = Number(periodo.anio || periodo.año) === anioSeleccionado;
+          return mesCoincide && anioCoincide;
+        });
+
+        if (!periodoCoincidente) {
+          console.log(`📅 No hay período de remuneraciones para ${mesSeleccionado}/${anioSeleccionado}`);
+          return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
+        }
+
         const detalleResponse = await api.get(`/remuneraciones/${periodoCoincidente.id_periodo || periodoCoincidente.id}/datos`);
         
         if (detalleResponse.data?.success && Array.isArray(detalleResponse.data.data)) {
-          remuneracionesData = detalleResponse.data.data;
+          let remuneracionesData = detalleResponse.data.data;
           
-          // Filtrar por sucursal si existe el campo
           if (selectedSucursal) {
             remuneracionesData = remuneracionesData.filter(empleado => {
-              const sucursalEmpleado = empleado.id_sucursal || empleado.sucursal_id || empleado.sucursal;
+              const sucursalEmpleado = empleado.id_sucursal || empleado.sucursal_id;
               return !sucursalEmpleado || sucursalEmpleado.toString() === selectedSucursal.toString();
             });
           }
           
-          // Calcular total
-          totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
-            const liquido = Number(empleado.liquido_pagar || empleado.liquido || empleado.total_liquido || 0);
+          const totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
+            const liquido = Number(empleado.liquido_pagar || empleado.liquido || 0);
             return sum + liquido;
           }, 0);
           
-        } else if (Array.isArray(detalleResponse.data)) {
-          remuneracionesData = detalleResponse.data;
-          totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
-            const liquido = Number(empleado.liquido_pagar || empleado.liquido || empleado.total_liquido || 0);
-            return sum + liquido;
+          // ✅ CALCULAR SEGUROS DE CESANTÍA EN FALLBACK
+          const totalSegurosCesantia = remuneracionesData.reduce((sum, empleado) => {
+            const seguro = Number(empleado.seguro_cesantia || 0);
+            return sum + seguro;
           }, 0);
+          
+          console.log('✅ Remuneraciones cargadas (fallback):', remuneracionesData.length, 'empleados');
+          console.log(`🛡️ Seguros cesantía (fallback): ${totalSegurosCesantia.toLocaleString()}`);
+          
+          return { 
+            data: remuneracionesData, 
+            total: totalRemuneraciones, 
+            seguros_cesantia: totalSegurosCesantia, // ✅ INCLUIR SEGUROS EN FALLBACK
+            cantidad: remuneracionesData.length 
+          };
         }
         
-      } catch (detalleError) {
-        console.warn('⚠️ Error obteniendo detalle, usando total del período:', detalleError.message);
-        totalRemuneraciones = Number(periodoCoincidente.suma_liquidos || periodoCoincidente.total || 0);
+        return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
+        
+      } catch (fallbackError) {
+        console.error('❌ Error en fallback de remuneraciones:', fallbackError);
+        return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
       }
-
-      console.log(`✅ Remuneraciones cargadas: ${remuneracionesData.length} empleados, total: ${totalRemuneraciones}`);
-      return { data: remuneracionesData, total: totalRemuneraciones };
-      
-    } catch (error) {
-      console.error('❌ Error crítico en remuneraciones:', error);
-      return { data: [], total: 0 };
     }
   };
 
-  // 🔧 FUNCIÓN CORREGIDA PARA CARGAR VENTAS - ARREGLADA PARA USAR EL CONTROLLER CORRECTO
+  // 🔧 FUNCIÓN ORIGINAL RESTAURADA PARA CARGAR VENTAS
   const loadVentasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
       console.log('🛒 Cargando ventas para sucursal:', selectedSucursal);
       
-      // ✅ USAR LOS PARÁMETROS CORRECTOS QUE ESPERA EL CONTROLLER
+      // ✅ USAR LOS PARÁMETROS CORRECTOS QUE ESPERA EL CONTROLLER ORIGINAL
       const ventasBody = {
         sucursal_id: parseInt(selectedSucursal), // ✅ Nombre correcto
         start_date: fechaDesde,                  // ✅ Nombre correcto  
@@ -396,7 +410,7 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  // Cargar sucursales y centros de costos disponibles
+  // Cargar sucursales y razones sociales disponibles (MEJORADO)
   const cargarDatosIniciales = async () => {
     try {
       setLoading(true);
@@ -447,7 +461,36 @@ const EstadoResultadosPage = () => {
         console.log('⚠️ Usando sucursales por defecto');
       }
 
-      // 2. CENTROS DE COSTOS
+      // 2. RAZONES SOCIALES
+      try {
+        const razonesRes = await api.get('/razonessociales');
+        if (Array.isArray(razonesRes.data)) {
+          setRazonesSocialesDisponibles([
+            { id: 'todos', nombre_razon: 'Todas las Razones Sociales' },
+            ...razonesRes.data
+          ]);
+          setSelectedRazonSocial('todos');
+          console.log('✅ Razones sociales cargadas');
+        } else if (razonesRes.data.success && Array.isArray(razonesRes.data.data)) {
+          setRazonesSocialesDisponibles([
+            { id: 'todos', nombre_razon: 'Todas las Razones Sociales' },
+            ...razonesRes.data.data
+          ]);
+          setSelectedRazonSocial('todos');
+          console.log('✅ Razones sociales cargadas (formato success)');
+        }
+      } catch (error) {
+        console.warn('⚠️ Error cargando razones sociales:', error.message);
+        // Razones por defecto
+        const razonesDefault = [
+          { id: 'todos', nombre_razon: 'Todas las Razones Sociales' },
+          { id: 1, nombre_razon: 'Razón Social Principal' }
+        ];
+        setRazonesSocialesDisponibles(razonesDefault);
+        setSelectedRazonSocial('todos');
+      }
+
+      // 3. CENTROS DE COSTOS
       try {
         const centrosRes = await api.get('/centros-costos');
         if (centrosRes.data.success && Array.isArray(centrosRes.data.data)) {
@@ -482,7 +525,7 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  // Función principal corregida para cargar datos del estado de resultados
+  // Función principal para cargar datos del estado de resultados
   const loadResultadosData = async () => {
     if (!selectedSucursal) {
       console.warn('⚠️ No hay sucursal seleccionada');
@@ -506,11 +549,15 @@ const EstadoResultadosPage = () => {
       // Cargar datos de forma secuencial para mejor debugging
       const comprasResult = await loadComprasData();
       const remuneracionesResult = await loadRemuneracionesData();
-      const ventasResult = await loadVentasData(); // ✅ Función corregida
+      const ventasResult = await loadVentasData(); // ✅ Función original restaurada
 
       console.log('📊 Resumen de datos cargados:', {
         compras: { cantidad: comprasResult.data.length, total: comprasResult.total },
-        remuneraciones: { cantidad: remuneracionesResult.data.length, total: remuneracionesResult.total },
+        remuneraciones: { 
+          cantidad: remuneracionesResult.data.length, 
+          total: remuneracionesResult.total,
+          seguros_cesantia: remuneracionesResult.seguros_cesantia || 0
+        },
         ventas: { cantidad: ventasResult.data.length, total: ventasResult.total }
       });
 
@@ -568,49 +615,120 @@ const EstadoResultadosPage = () => {
     }
   };
 
-  // Construir estado de resultados con datos reales
+  // Construir estado de resultados con datos reales CORREGIDO
   const construirEstadoResultados = ({ compras, remuneraciones, ventas }) => {
     const sucursalSeleccionada = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal);
     
-    // Usar la nueva función que solo maneja datos reales
-    const datosReales = {
-      ventas: {
-        total: ventas.total || 0,
-        cantidad: ventas.data?.length || 0
+    // CONSTRUCCIÓN MANUAL CORREGIDA para incluir sueldos y seguros específicos
+    const totalSueldos = remuneraciones.total || 0;
+    const totalSegurosCesantia = remuneraciones.seguros_cesantia || 0; // De nuestro controlador
+    
+    // Distribución de sueldos (50% administrativos, 50% ventas)
+    const sueldosAdministrativos = totalSueldos * 0.5;
+    const sueldosVentas = totalSueldos * 0.5;
+    
+    console.log('🗃️ Construyendo estado de resultados con:', {
+      ventas: ventas.total,
+      compras: compras.total,
+      totalSueldos,
+      totalSegurosCesantia,
+      sueldosAdministrativos,
+      sueldosVentas
+    });
+    
+    // Crear estructura completa del estado de resultados
+    const estadoResultados = {
+      sucursal: sucursalSeleccionada?.nombre || 'Sucursal Desconocida',
+      periodo: selectedMonth.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }),
+      
+      ingresos: {
+        ventas: ventas.total || 0,
+        otrosIngresos: {
+          fletes: 0,
+          total: 0
+        },
+        totalIngresos: ventas.total || 0
       },
-      compras: {
-        total: compras.total || 0,
-        cantidad: compras.data?.length || 0
+      
+      costos: {
+        costoVentas: (compras.total || 0) * 0.81, // 80% como costo directo
+        compras: compras.total || 0,
+        mermaVenta: 0,
+        totalCostos: (compras.total || 0) * 0.81
       },
-      remuneraciones: {
-        total: remuneraciones.total || 0,
-        cantidad: remuneraciones.data?.length || 0
+      
+      utilidadBruta: (ventas.total || 0) - ((compras.total || 0) * 0.81),
+      
+      gastosOperativos: {
+        gastosVenta: {
+          sueldos: sueldosVentas, // ✅ Sueldos de ventas desde remuneraciones
+          fletes: 0,
+          finiquitos: 0,
+          mantenciones: 0,
+          publicidad: 0,
+          total: sueldosVentas
+        },
+        gastosAdministrativos: {
+          sueldos: sueldosAdministrativos, // ✅ Sueldos administrativos desde remuneraciones
+          seguros: totalSegurosCesantia,   // ✅ Seguros cesantía específicos
+          gastosComunes: 0,
+          electricidad: 0,
+          agua: 0,
+          telefonia: 0,
+          alarma: 0,
+          internet: 0,
+          facturasNet: 0,
+          transbank: 0,
+          patenteMunicipal: 0,
+          contribuciones: 0,
+          petroleo: 0,
+          otros: 0,
+          total: sueldosAdministrativos + totalSegurosCesantia
+        },
+        totalGastosOperativos: sueldosVentas + sueldosAdministrativos + totalSegurosCesantia
+      },
+      
+      utilidadOperativa: 0, // Se calculará abajo
+      costoArriendo: 0,
+      otrosIngresosFinancieros: 0,
+      utilidadAntesImpuestos: 0,
+      impuestos: 0,
+      utilidadNeta: 0,
+      
+      estado: "borrador",
+      fechaCreacion: new Date().toISOString(),
+      fechaModificacion: new Date().toISOString(),
+      
+      // Datos originales con información específica
+      datosOriginales: {
+        totalCompras: compras.total || 0,
+        totalRemuneraciones: totalSueldos,
+        totalSegurosCesantia: totalSegurosCesantia, // ✅ Información específica
+        totalVentas: ventas.total || 0,
+        numeroFacturas: compras.cantidad || 0,
+        numeroVentas: ventas.data?.length || 0,
+        numeroEmpleados: remuneraciones.cantidad || 0,
+        fechaConsulta: new Date().toISOString(),
+        sucursal: selectedSucursal,
+        periodo: {
+          mes: selectedMonth.getMonth() + 1,
+          año: selectedMonth.getFullYear()
+        }
       }
     };
     
-    console.log('🗏️ Construyendo estado de resultados con:', datosReales);
+    // Calcular utilidades
+    estadoResultados.utilidadOperativa = estadoResultados.utilidadBruta - estadoResultados.gastosOperativos.totalGastosOperativos;
+    estadoResultados.utilidadAntesImpuestos = estadoResultados.utilidadOperativa - estadoResultados.costoArriendo + estadoResultados.otrosIngresosFinancieros;
+    estadoResultados.impuestos = Math.max(0, Math.round(estadoResultados.utilidadAntesImpuestos * 0.19));
+    estadoResultados.utilidadNeta = estadoResultados.utilidadAntesImpuestos - estadoResultados.impuestos;
     
-    const estadoResultados = crearEstadoResultadosConDatosReales(datosReales);
-    
-    // Completar información del período
-    estadoResultados.sucursal = sucursalSeleccionada?.nombre || 'Sucursal Desconocida';
-    estadoResultados.periodo = selectedMonth.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-    
-    // Agregar información adicional de origen
-    estadoResultados.datosOriginales = {
-      totalCompras: compras.total || 0,
-      totalRemuneraciones: remuneraciones.total || 0,
-      totalVentas: ventas.total || 0,
-      numeroFacturas: compras.data?.length || 0,
-      numeroVentas: ventas.data?.length || 0,
-      numeroEmpleados: remuneraciones.data?.length || 0,
-      fechaConsulta: new Date().toISOString(),
-      sucursal: selectedSucursal,
-      periodo: {
-        mes: selectedMonth.getMonth() + 1,
-        año: selectedMonth.getFullYear()
-      }
-    };
+    console.log('✅ Estado de resultados construido:', {
+      utilidadBruta: estadoResultados.utilidadBruta,
+      gastosOperativos: estadoResultados.gastosOperativos.totalGastosOperativos,
+      utilidadOperativa: estadoResultados.utilidadOperativa,
+      utilidadNeta: estadoResultados.utilidadNeta
+    });
     
     return estadoResultados;
   };
@@ -1008,7 +1126,7 @@ const EstadoResultadosPage = () => {
         </Typography>
         
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
               <DatePicker
                 label="Período de Análisis"
@@ -1030,7 +1148,7 @@ const EstadoResultadosPage = () => {
             </LocalizationProvider>
           </Grid>
           
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <FormControl fullWidth size="small">
               <InputLabel>Sucursal</InputLabel>
               <Select
@@ -1049,7 +1167,26 @@ const EstadoResultadosPage = () => {
             </FormControl>
           </Grid>
           
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Razón Social</InputLabel>
+              <Select
+                value={selectedRazonSocial}
+                label="Razón Social"
+                onChange={(e) => setSelectedRazonSocial(e.target.value)}
+                disabled={loading}
+                sx={{ borderRadius: 2 }}
+              >
+                {razonesSocialesDisponibles.map((razon) => (
+                  <MenuItem key={razon.id} value={razon.id.toString()}>
+                    {razon.nombre_razon}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          <Grid item xs={12} sm={3}>
             <Button
               variant="contained"
               fullWidth

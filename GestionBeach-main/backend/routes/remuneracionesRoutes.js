@@ -1,19 +1,43 @@
-// routes/remuneracionesRoutes.js - Versión con Filtros y Validaciones
+// routes/remuneracionesRoutes.js - Versión Corregida con Autenticación Condicional
 const express = require('express');
 const router = express.Router();
 const remuneracionesController = require('../controllers/remuneracionesController');
-const authMiddleware = require('../middleware/authMiddleware');
 
-// Aplicar middleware de autenticación a todas las rutas
+// Middleware de autenticación condicional
+const authMiddleware = (req, res, next) => {
+  const publicRoutes = ['/test', '/ping'];
+  const isPublicRoute = publicRoutes.some(route => req.path === route);
+  
+  if (isPublicRoute) {
+    console.log(`🔓 Ruta pública: ${req.path}`);
+    return next();
+  }
+  
+  // Aplicar autenticación para rutas protegidas
+  const authMiddlewareActual = require('../middleware/authMiddleware');
+  return authMiddlewareActual(req, res, next);
+};
+
+// Aplicar middleware condicional
 router.use(authMiddleware);
 
-// ========== RUTAS ESPECÍFICAS PRIMERO (evitar colisiones) ==========
-
-// Test y estadísticas
+// ========== RUTAS PÚBLICAS DE DIAGNÓSTICO ==========
 router.get('/test', remuneracionesController.test);
+router.get('/ping', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Endpoint de remuneraciones funcionando',
+    timestamp: new Date().toISOString(),
+    path: req.originalUrl
+  });
+});
+
+// ========== RUTAS PROTEGIDAS ==========
+
+// Estadísticas
 router.get('/estadisticas', remuneracionesController.estadisticas);
 
-// 🆕 NUEVAS RUTAS PARA FILTROS Y VALIDACIONES
+// Filtros y validaciones
 router.get('/opciones-filtros', remuneracionesController.obtenerOpcionesFiltros);
 router.post('/validar-empleados-sin-asignacion', remuneracionesController.validarEmpleadosSinAsignacion);
 router.post('/asignar-razon-social-sucursal', remuneracionesController.asignarRazonSocialYSucursal);

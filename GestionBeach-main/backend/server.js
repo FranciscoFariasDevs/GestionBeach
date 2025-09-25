@@ -9,18 +9,18 @@ dotenv.config();
 // Crear aplicación Express
 const app = express();
 
-// ✅ CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
-const allowedOrigins = [
-  'http://localhost:3000',           // Desarrollo local
-  'http://192.168.100.150:3000',     // Frontend en red local
-  'http://190.102.248.163:80',       // Frontend público puerto 80
-  'http://190.102.248.163',          // Frontend público (puerto 80 implícito)
-];
+  // CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
+  const allowedOrigins = [
+    'http://localhost:3000',           // Desarrollo local
+    'http://192.168.100.150:3000',     // Frontend en red local
+    'http://190.102.248.163:80',       // Frontend público puerto 80
+    'http://190.102.248.163',          // Frontend público (puerto 80 implícito)
+  ];
 
 const corsOptions = {
   origin: (origin, callback) => {
     console.log(`🔍 CORS Request from origin: ${origin}`);
-    
+       
     // Si no hay origin (Postman, apps móviles, etc.), permitir
     if (!origin) {
       console.log('✅ CORS: No origin, allowing request');
@@ -53,13 +53,13 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// 🔧 FUNCIÓN PARA VERIFICAR RUTAS MEJORADA
+// FUNCIÓN PARA VERIFICAR RUTAS MEJORADA
 const loadRoute = (path, routePath) => {
   try {
     const route = require(path);
     const routeType = typeof route;
     
-    console.log(`🔍 Cargando ${routePath}: tipo = ${routeType}`);
+    console.log(`🔄 Cargando ${routePath}: tipo = ${routeType}`);
     
     if (routeType !== 'function') {
       console.error(`❌ ERROR: ${routePath} exporta ${routeType}, debe ser function (Router)`);
@@ -77,7 +77,7 @@ const loadRoute = (path, routePath) => {
   }
 };
 
-// ✅ RUTAS ESENCIALES CON MANEJO DE ERRORES
+// RUTAS ESENCIALES CON MANEJO DE ERRORES
 console.log('🚀 === CARGANDO RUTAS ESENCIALES ===');
 
 // Cargar rutas críticas primero
@@ -104,12 +104,14 @@ const optionalRoutes = [
   { path: './routes/perfilesRoutes', route: '/api/perfiles' },
   { path: './routes/remuneracionesRoutes', route: '/api/remuneraciones' },
   { path: './routes/modulosRoutes', route: '/api/modulos' },
-  { path: './routes/inventarioRoutes', route: '/api/inventario' }, // ← LÍNEA AGREGADA PARA INVENTARIO
+  { path: './routes/inventarioRoutes', route: '/api/inventario' },
   { path: './routes/losMasVendidosRoutes', route: '/api/losmasvendidos' },
   { path: './routes/razonesSocialesRoutes', route: '/api/razonessociales' },
   { path: './routes/facturaXMLRoutes', route: '/api/facturas-xml' },
   { path: './routes/centrosCostosRoutes', route: '/api/centros-costos' },
-  { path: './routes/monitoreoRoutes', route: '/api/monitoreo' }
+  { path: './routes/monitoreoRoutes', route: '/api/monitoreo' },
+  // 🆕 NUEVA RUTA PARA ESTADO DE RESULTADOS
+  { path: './routes/estadoResultadosRoutes', route: '/api/estado-resultados' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -121,7 +123,7 @@ optionalRoutes.forEach(({ path, route }) => {
 
 console.log('✅ === RUTAS CARGADAS ===');
 
-// ✅ RUTA DE DIAGNÓSTICO MEJORADA
+// RUTA DE DIAGNÓSTICO MEJORADA
 app.get('/api/check-db', async (req, res) => {
   try {
     const { sql, poolPromise } = require('./config/db');
@@ -154,7 +156,7 @@ app.get('/api/check-db', async (req, res) => {
     let sucursalesTest = null;
     try {
       const sucResult = await pool.request()
-        .query('SELECT COUNT(*) as total FROM sucursales WHERE activo = 1');
+        .query('SELECT COUNT(*) as total FROM sucursales');
       sucursalesTest = {
         success: true,
         count: sucResult.recordset[0].total
@@ -193,7 +195,7 @@ app.get('/api/check-db', async (req, res) => {
   }
 });
 
-// ✅ NUEVA RUTA DE TEST RÁPIDO PARA SUCURSALES
+// NUEVA RUTA DE TEST RÁPIDO PARA SUCURSALES
 app.get('/api/sucursales-quick-test', async (req, res) => {
   try {
     const { sql, poolPromise } = require('./config/db');
@@ -203,7 +205,6 @@ app.get('/api/sucursales-quick-test', async (req, res) => {
       .query(`
         SELECT TOP 5 id, nombre, tipo_sucursal
         FROM sucursales
-        WHERE activo = 1
         ORDER BY nombre
       `);
     
@@ -223,14 +224,14 @@ app.get('/api/sucursales-quick-test', async (req, res) => {
   }
 });
 
-// ✅ NUEVA RUTA PARA TEST DE CONECTIVIDAD PÚBLICA
+// NUEVA RUTA PARA TEST DE CONECTIVIDAD PÚBLICA
 app.get('/api/ping', (req, res) => {
   const clientIP = req.headers['x-forwarded-for'] || 
                    req.connection.remoteAddress || 
                    req.socket.remoteAddress ||
                    (req.connection.socket ? req.connection.socket.remoteAddress : null);
   
-  console.log(`🏓 Ping recibido desde: ${clientIP}`);
+  console.log(`🔍 Ping recibido desde: ${clientIP}`);
   
   res.json({
     success: true,
@@ -244,7 +245,27 @@ app.get('/api/ping', (req, res) => {
   });
 });
 
-// ✅ NUEVA RUTA DE TEST PARA INVENTARIO
+// 🆕 NUEVA RUTA DE TEST PARA ESTADO DE RESULTADOS
+app.get('/api/test-estado-resultados', (req, res) => {
+  console.log('🧪 Test de estado de resultados solicitado');
+  
+  res.json({
+    success: true,
+    message: 'Ruta de test de estado de resultados funcionando',
+    timestamp: new Date().toISOString(),
+    rutas_estado_resultados: [
+      '/api/estado-resultados/test',
+      '/api/estado-resultados/sucursales',
+      '/api/estado-resultados/razones-sociales',
+      '/api/estado-resultados/ventas',
+      '/api/estado-resultados/compras',
+      '/api/estado-resultados/remuneraciones',
+      '/api/estado-resultados/generar'
+    ]
+  });
+});
+
+// NUEVA RUTA DE TEST PARA INVENTARIO
 app.get('/api/test-inventario', (req, res) => {
   console.log('🧪 Test de inventario solicitado');
   
@@ -273,7 +294,7 @@ if (process.env.NODE_ENV === 'production') {
 // Puerto
 const PORT = process.env.PORT || 5000;
 
-// ✅ INICIAR SERVIDOR CON VERIFICACIÓN
+// INICIAR SERVIDOR CON VERIFICACIÓN
 const startServer = async () => {
   try {
     // Verificar conexión DB al inicio
@@ -294,17 +315,18 @@ const startServer = async () => {
       console.log('\n🚀 ===== SERVIDOR INICIADO =====');
       console.log(`🌐 Servidor corriendo en http://0.0.0.0:${PORT}`);
       console.log(`🏠 Red local: http://192.168.100.150:${PORT}`);
-      console.log(`🌍 IP pública: http://190.102.248.163:${PORT}`);
+      console.log(`🌐 IP pública: http://190.102.248.163:${PORT}`);
       console.log(`🖥️ Frontend local: http://192.168.100.150:3000`);
       console.log(`🖥️ Frontend público: http://190.102.248.163`);
       console.log('\n📊 === RUTAS DE DIAGNÓSTICO ===');
-      console.log(`🏓 Ping: http://190.102.248.163:${PORT}/api/ping`);
+      console.log(`🔍 Ping: http://190.102.248.163:${PORT}/api/ping`);
       console.log(`🔧 Diagnóstico BD: http://190.102.248.163:${PORT}/api/check-db`);
       console.log(`🏢 Test Sucursales: http://190.102.248.163:${PORT}/api/sucursales-quick-test`);
       console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
+      console.log(`📈 Test Estado Resultados: http://190.102.248.163:${PORT}/api/test-estado-resultados`);
       console.log('\n✅ === SERVIDOR LISTO ===\n');
       
-      // ✅ CORS permitidos para referencia
+      // CORS permitidos para referencia
       console.log('🔒 CORS Origins permitidos:');
       allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
       console.log(`   - Y cualquier origin en modo development\n`);
@@ -314,7 +336,7 @@ const startServer = async () => {
     console.error('💥 Error crítico al iniciar servidor:', error);
     process.exit(1);
   }
-};
+}; 
 
 // Iniciar servidor
 startServer();

@@ -1,5 +1,5 @@
-// FacturasXMLPage.jsx - REFACTORIZADO PARA USAR API.JS
-import React, { useState, useEffect, useCallback } from 'react';
+// FacturasXMLPage.jsx - VERSIÓN CORREGIDA CON FILTRO LOCAL
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -70,46 +70,35 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { es } from 'date-fns/locale';
-import api from '../api/api'; // ✅ USANDO API.JS COMPARTIDO
+import api from '../api/api';
 
-// COMPONENTE DE FILTRO DE FECHAS Y BÚSQUEDA
+// COMPONENTE DE FILTRO DE FECHAS Y BÚSQUEDA CORREGIDO
 const DateRangeSearchFilter = ({ 
   fechaInicio, 
   fechaFin, 
   onFechaInicioChange, 
   onFechaFinChange,
-  onSearch, 
+  onLoadData, // Cambiado de onSearch a onLoadData
   onClear, 
   isLoading, 
-  activeFilter, 
   totalResults,
-  searchText,
-  setSearchText,
+  filtroTextoLocal, // Nuevo: filtro de texto local
+  setFiltroTextoLocal, // Nuevo: setter para filtro local
   empresaInfo 
 }) => {
   const [filtrosAplicados, setFiltrosAplicados] = useState(false);
 
   useEffect(() => {
-    setFiltrosAplicados(fechaInicio || fechaFin || activeFilter);
-  }, [fechaInicio, fechaFin, activeFilter]);
+    setFiltrosAplicados(fechaInicio || fechaFin);
+  }, [fechaInicio, fechaFin]);
 
-  const handleTextChange = (event) => {
-    setSearchText(event.target.value);
-  };
-
-  const handleSearch = () => {
-    onSearch(searchText.trim());
+  const handleLoadData = () => {
+    onLoadData(); // Solo carga datos por fecha, no por texto
   };
 
   const handleClear = () => {
-    setSearchText('');
-    onClear();
-  };
-
-  const handleKeyPress = (event) => {
-    if (event.key === 'Enter') {
-      handleSearch();
-    }
+    setFiltroTextoLocal(''); // Limpiar filtro local
+    onClear(); // Limpiar filtros de fecha
   };
 
   const formatDate = (date) => {
@@ -149,15 +138,23 @@ const DateRangeSearchFilter = ({
         </Typography>
         {filtrosAplicados && (
           <Chip 
-            label="Filtros activos" 
+            label="Período aplicado" 
             color="primary" 
             size="small" 
             sx={{ ml: 2 }}
           />
         )}
+        {filtroTextoLocal && (
+          <Chip 
+            label="Filtro de texto activo" 
+            color="secondary" 
+            size="small" 
+            sx={{ ml: 1 }}
+          />
+        )}
       </Box>
 
-      {/* Filtros de fecha */}
+      {/* PASO 1: Filtros de fecha para cargar datos */}
       <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={12} sm={4}>
@@ -209,8 +206,8 @@ const DateRangeSearchFilter = ({
             <Box sx={{ display: 'flex', gap: 1, height: '100%', alignItems: 'center' }}>
               <Button
                 variant="contained"
-                onClick={handleSearch}
-                disabled={isLoading || (!fechaInicio && !fechaFin && !searchText.trim())}
+                onClick={handleLoadData}
+                disabled={isLoading || (!fechaInicio && !fechaFin)}
                 startIcon={<DateRangeIcon />}
                 sx={{
                   backgroundColor: '#f37d16',
@@ -219,7 +216,7 @@ const DateRangeSearchFilter = ({
                   fontWeight: 'bold'
                 }}
               >
-                {isLoading ? 'Aplicando...' : 'Aplicar Filtros'}
+                {isLoading ? 'Cargando...' : 'Cargar Datos'}
               </Button>
               
               {filtrosAplicados && (
@@ -243,41 +240,49 @@ const DateRangeSearchFilter = ({
         </Grid>
       </LocalizationProvider>
 
-      {/* Búsqueda por texto */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <TextField
-          fullWidth
-          placeholder="Buscar facturas por folio, emisor, RUT..."
-          value={searchText}
-          onChange={handleTextChange}
-          onKeyPress={handleKeyPress}
-          disabled={isLoading}
-          variant="outlined"
-          size="medium"
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon color={isLoading ? 'disabled' : 'action'} />
-              </InputAdornment>
-            ),
-            endAdornment: searchText && (
-              <InputAdornment position="end">
-                <IconButton 
-                  size="small" 
-                  onClick={() => setSearchText('')}
-                  disabled={isLoading}
-                >
-                  <ClearIcon />
-                </IconButton>
-              </InputAdornment>
-            ),
-            sx: { backgroundColor: 'white' }
-          }}
-        />
-      </Box>
+      {/* PASO 2: Búsqueda por texto LOCAL (solo cuando hay datos cargados) */}
+      {totalResults > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
+            <Typography variant="body2">
+              💡 <strong>Filtro inteligente:</strong> El texto filtra los {totalResults} registros ya cargados en tiempo real. 
+              No es necesario hacer clic en ningún botón adicional.
+            </Typography>
+          </Alert>
+          
+          <TextField
+            fullWidth
+            placeholder={`Filtrar entre los ${totalResults} registros cargados (folio, emisor, RUT, receptor...):`}
+            value={filtroTextoLocal}
+            onChange={(e) => setFiltroTextoLocal(e.target.value)}
+            disabled={isLoading}
+            variant="outlined"
+            size="medium"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color={isLoading ? 'disabled' : 'action'} />
+                </InputAdornment>
+              ),
+              endAdornment: filtroTextoLocal && (
+                <InputAdornment position="end">
+                  <IconButton 
+                    size="small" 
+                    onClick={() => setFiltroTextoLocal('')}
+                    disabled={isLoading}
+                  >
+                    <ClearIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+              sx: { backgroundColor: 'white' }
+            }}
+          />
+        </Box>
+      )}
 
       {/* Información de filtros aplicados */}
-      {filtrosAplicados && (
+      {(filtrosAplicados || filtroTextoLocal) && (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
           {fechaInicio && (
             <Chip
@@ -297,26 +302,23 @@ const DateRangeSearchFilter = ({
               size="small"
             />
           )}
-          {activeFilter && (
+          {filtroTextoLocal && (
             <Chip
-              label={`Texto: "${activeFilter}"`}
-              onDelete={handleClear}
+              label={`Filtro: "${filtroTextoLocal}"`}
+              onDelete={() => setFiltroTextoLocal('')}
               color="secondary"
               variant="outlined"
               size="small"
             />
           )}
-          <Typography variant="body2" color="text.secondary" sx={{ ml: 1, alignSelf: 'center' }}>
-            {totalResults} resultados encontrados
-          </Typography>
         </Box>
       )}
 
       {!filtrosAplicados && (
         <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
           <Typography variant="body2">
-            💡 <strong>Para optimizar el rendimiento:</strong> Selecciona un rango de fechas antes de cargar las facturas.
-            También puedes buscar por número de folio, nombre del emisor o RUT.
+            💡 <strong>Para comenzar:</strong> Selecciona un rango de fechas y haz clic en "Cargar Datos". 
+            Luego podrás filtrar por texto de forma instantánea.
           </Typography>
         </Alert>
       )}
@@ -327,8 +329,15 @@ const DateRangeSearchFilter = ({
 const FacturasXMLPage = () => {
   // Estados principales
   const [currentTab, setCurrentTab] = useState(0);
-  const [facturasPendientes, setFacturasPendientes] = useState([]);
-  const [facturasProceadas, setFacturasProcesadas] = useState([]);
+  
+  // Estados para datos originales (cargados desde servidor)
+  const [facturasPendientesOriginales, setFacturasPendientesOriginales] = useState([]);
+  const [facturasProceadasOriginales, setFacturasProcesadasOriginales] = useState([]);
+  
+  // Estados para datos filtrados (mostrados en las tablas)
+  const [facturasPendientesFiltradas, setFacturasPendientesFiltradas] = useState([]);
+  const [facturasProceadasFiltradas, setFacturasProcesadasFiltradas] = useState([]);
+  
   const [estadisticas, setEstadisticas] = useState(null);
   const [centrosCostos, setCentrosCostos] = useState([]);
   const [sucursales, setSucursales] = useState([]);
@@ -338,10 +347,10 @@ const FacturasXMLPage = () => {
   // Estados para filtros de fecha
   const [fechaInicio, setFechaInicio] = useState(null);
   const [fechaFin, setFechaFin] = useState(null);
-  const [searchText, setSearchText] = useState('');
-  const [filtroActivo, setFiltroActivo] = useState('');
-  const [buscandoFacturas, setBuscandoFacturas] = useState(false);
   const [datosInicializados, setDatosInicializados] = useState(false);
+
+  // Estados para filtro de texto LOCAL
+  const [filtroTextoLocal, setFiltroTextoLocal] = useState('');
 
   // Información de empresa
   const [empresaInfo, setEmpresaInfo] = useState(null);
@@ -376,12 +385,46 @@ const FacturasXMLPage = () => {
     severity: 'success'
   });
 
+  // FILTRADO LOCAL EN TIEMPO REAL
+  const filtrarFacturas = useCallback((facturas, filtroTexto) => {
+    if (!filtroTexto || !filtroTexto.trim()) {
+      return facturas;
+    }
+
+    const textoBusqueda = filtroTexto.toLowerCase().trim();
+    
+    return facturas.filter(factura => {
+      const campos = [
+        factura.FOLIO?.toString() || factura.folio?.toString() || '',
+        factura.RZN_EMISOR || factura.emisor_razon_social || '',
+        factura.RUT_EMISOR || factura.emisor_rut || '',
+        factura.RZN_RECEPTOR || factura.receptor_razon_social || '',
+        factura.RUT_RECEPTOR || factura.receptor_rut || '',
+        factura.centro_costo_nombre || '',
+        factura.sucursal_nombre || ''
+      ];
+      
+      return campos.some(campo => 
+        campo.toLowerCase().includes(textoBusqueda)
+      );
+    });
+  }, []);
+
+  // Aplicar filtro local cuando cambia el texto o los datos originales
+  useEffect(() => {
+    if (currentTab === 0) {
+      const facturasFiltradas = filtrarFacturas(facturasPendientesOriginales, filtroTextoLocal);
+      setFacturasPendientesFiltradas(facturasFiltradas);
+    } else if (currentTab === 1) {
+      const facturasFiltradas = filtrarFacturas(facturasProceadasOriginales, filtroTextoLocal);
+      setFacturasProcesadasFiltradas(facturasFiltradas);
+    }
+  }, [filtroTextoLocal, facturasPendientesOriginales, facturasProceadasOriginales, currentTab, filtrarFacturas]);
+
   // ==================== FUNCIONES DE CARGA DE DATOS ====================
 
   const cargarInformacionEmpresa = async () => {
     try {
-      // Simular carga de información de empresa
-      // En un caso real, esto vendría de la API
       setEmpresaInfo({
         razon_social: "Empresa Ejemplo S.A.",
         rut: "76.123.456-7",
@@ -392,24 +435,22 @@ const FacturasXMLPage = () => {
     }
   };
 
-  const cargarFacturasPendientes = async (aplicarFiltros = false) => {
-    if (!aplicarFiltros && !datosInicializados) {
-      // No cargar datos si no se han aplicado filtros inicialmente
+  const cargarFacturasPendientes = async () => {
+    if (!fechaInicio && !fechaFin) {
+      console.log('No hay filtros de fecha aplicados');
       return;
     }
 
     setLoading(true);
-    setBuscandoFacturas(true);
     
     try {
-      console.log('📄 Cargando facturas pendientes con filtros...');
+      console.log('📄 Cargando facturas pendientes por período...');
       
       const params = {
-        page: paginationPendientes.page + 1,
-        limit: paginationPendientes.rowsPerPage
+        page: 1, // Siempre cargar desde la primera página
+        limit: 5000 // Cargar más registros para filtrar localmente
       };
       
-      // Agregar filtros de fecha si están definidos
       if (fechaInicio) {
         params.fecha_desde = fechaInicio.toISOString().split('T')[0];
       }
@@ -418,53 +459,55 @@ const FacturasXMLPage = () => {
         params.fecha_hasta = fechaFin.toISOString().split('T')[0];
       }
       
-      // Agregar filtro de búsqueda si existe
-      if (filtroActivo && filtroActivo.trim()) {
-        params.search = filtroActivo.trim();
-      }
-      
       const response = await api.get('/facturas-xml/pendientes', { params });
       
       if (response.data.success) {
-        setFacturasPendientes(response.data.data || []);
+        const facturasOriginales = response.data.data || [];
+        setFacturasPendientesOriginales(facturasOriginales);
+        
+        // Aplicar filtro de texto si existe
+        const facturasFiltradas = filtrarFacturas(facturasOriginales, filtroTextoLocal);
+        setFacturasPendientesFiltradas(facturasFiltradas);
         
         setPaginationPendientes(prev => ({
           ...prev,
-          total: response.data.pagination.totalRecords,
-          page: response.data.pagination.currentPage - 1
+          total: facturasOriginales.length,
+          page: 0
         }));
         
-        console.log(`✅ ${response.data.data.length || 0} facturas pendientes cargadas`);
+        console.log(`✅ ${facturasOriginales.length} facturas pendientes cargadas desde servidor`);
         setError(null);
         setDatosInicializados(true);
       } else {
-        setFacturasPendientes([]);
+        setFacturasPendientesOriginales([]);
+        setFacturasPendientesFiltradas([]);
         setPaginationPendientes(prev => ({ ...prev, total: 0 }));
       }
     } catch (err) {
       console.error('❌ Error al cargar facturas pendientes:', err);
       setError('Error al cargar facturas pendientes');
-      setFacturasPendientes([]);
+      setFacturasPendientesOriginales([]);
+      setFacturasPendientesFiltradas([]);
       setPaginationPendientes(prev => ({ ...prev, total: 0 }));
     } finally {
       setLoading(false);
-      setBuscandoFacturas(false);
     }
   };
 
-  const cargarFacturasProcesadas = async (aplicarFiltros = false) => {
-    if (!aplicarFiltros && !datosInicializados) {
+  const cargarFacturasProcesadas = async () => {
+    if (!fechaInicio && !fechaFin) {
+      console.log('No hay filtros de fecha aplicados');
       return;
     }
 
     setLoading(true);
     
     try {
-      console.log('📄 Cargando facturas procesadas con filtros...');
+      console.log('📄 Cargando facturas procesadas por período...');
       
       const params = {
-        page: paginationProcesadas.page + 1,
-        limit: paginationProcesadas.rowsPerPage
+        page: 1,
+        limit: 5000
       };
       
       if (fechaInicio) {
@@ -478,35 +521,38 @@ const FacturasXMLPage = () => {
       const response = await api.get('/facturas-xml', { params });
       
       if (response.data.success) {
-        setFacturasProcesadas(response.data.data || []);
+        const facturasOriginales = response.data.data || [];
+        setFacturasProcesadasOriginales(facturasOriginales);
+        
+        const facturasFiltradas = filtrarFacturas(facturasOriginales, filtroTextoLocal);
+        setFacturasProcesadasFiltradas(facturasFiltradas);
+        
         setPaginationProcesadas(prev => ({
           ...prev,
-          total: response.data.pagination.totalRecords
+          total: facturasOriginales.length,
+          page: 0
         }));
-        console.log(`✅ ${response.data.data.length || 0} facturas procesadas cargadas`);
+        
+        console.log(`✅ ${facturasOriginales.length} facturas procesadas cargadas desde servidor`);
       }
     } catch (err) {
       console.error('❌ Error al cargar facturas procesadas:', err);
-      setFacturasProcesadas([]);
+      setFacturasProcesadasOriginales([]);
+      setFacturasProcesadasFiltradas([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const aplicarFiltros = async () => {
-    console.log('🔍 Aplicando filtros de fecha y búsqueda');
+  const cargarDatosPorPeriodo = async () => {
+    console.log('🔍 Cargando datos por período de fechas');
     setFacturasSeleccionadas([]);
-    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
-    setPaginationProcesadas(prev => ({ ...prev, page: 0 }));
-    
-    if (searchText.trim()) {
-      setFiltroActivo(searchText.trim());
-    }
+    setFiltroTextoLocal(''); // Limpiar filtro de texto al cargar nuevos datos
     
     if (currentTab === 0) {
-      await cargarFacturasPendientes(true);
+      await cargarFacturasPendientes();
     } else if (currentTab === 1) {
-      await cargarFacturasProcesadas(true);
+      await cargarFacturasProcesadas();
     }
     
     // Actualizar estadísticas con filtros
@@ -517,20 +563,17 @@ const FacturasXMLPage = () => {
     console.log('🧹 Limpiando todos los filtros');
     setFechaInicio(null);
     setFechaFin(null);
-    setSearchText('');
-    setFiltroActivo('');
+    setFiltroTextoLocal('');
     setFacturasSeleccionadas([]);
-    setPaginationPendientes(prev => ({ ...prev, page: 0 }));
-    setPaginationProcesadas(prev => ({ ...prev, page: 0 }));
+    setFacturasPendientesOriginales([]);
+    setFacturasProcesadasOriginales([]);
+    setFacturasPendientesFiltradas([]);
+    setFacturasProcesadasFiltradas([]);
+    setDatosInicializados(false);
+    setPaginationPendientes(prev => ({ ...prev, page: 0, total: 0 }));
+    setPaginationProcesadas(prev => ({ ...prev, page: 0, total: 0 }));
     
-    // Recargar sin filtros
-    if (currentTab === 0) {
-      await cargarFacturasPendientes(true);
-    } else if (currentTab === 1) {
-      await cargarFacturasProcesadas(true);
-    }
-    
-    await cargarEstadisticas(true);
+    await cargarEstadisticas(false);
   };
 
   const cargarDatosIniciales = async () => {
@@ -626,14 +669,16 @@ const FacturasXMLPage = () => {
 
   const handleSelectAll = useCallback((event) => {
     if (event.target.checked) {
-      setFacturasSeleccionadas(facturasPendientes.map(f => f.ID));
+      // Seleccionar solo las facturas filtradas visibles
+      const idsVisibles = facturasPendientesFiltradas.map(f => f.ID);
+      setFacturasSeleccionadas(idsVisibles);
     } else {
       setFacturasSeleccionadas([]);
     }
-  }, [facturasPendientes]);
+  }, [facturasPendientesFiltradas]);
 
-  const isIndeterminate = facturasSeleccionadas.length > 0 && facturasSeleccionadas.length < facturasPendientes.length;
-  const isAllSelected = facturasPendientes.length > 0 && facturasSeleccionadas.length === facturasPendientes.length;
+  const isIndeterminate = facturasSeleccionadas.length > 0 && facturasSeleccionadas.length < facturasPendientesFiltradas.length;
+  const isAllSelected = facturasPendientesFiltradas.length > 0 && facturasSeleccionadas.length === facturasPendientesFiltradas.length;
 
   const procesarFacturasSeleccionadas = async () => {
     if (facturasSeleccionadas.length === 0) {
@@ -671,8 +716,7 @@ const FacturasXMLPage = () => {
         }
 
         // Refrescar datos
-        cargarFacturasPendientes(true);
-        cargarEstadisticas(true);
+        await cargarDatosPorPeriodo();
         
         // Limpiar selección
         setFacturasSeleccionadas([]);
@@ -720,25 +764,16 @@ const FacturasXMLPage = () => {
 
   useEffect(() => {
     if (datosInicializados) {
+      // Al cambiar de tab, aplicar el filtro de texto a los datos correspondientes
       if (currentTab === 0) {
-        cargarFacturasPendientes(true);
+        const facturasFiltradas = filtrarFacturas(facturasPendientesOriginales, filtroTextoLocal);
+        setFacturasPendientesFiltradas(facturasFiltradas);
       } else if (currentTab === 1) {
-        cargarFacturasProcesadas(true);
+        const facturasFiltradas = filtrarFacturas(facturasProceadasOriginales, filtroTextoLocal);
+        setFacturasProcesadasFiltradas(facturasFiltradas);
       }
     }
-  }, [currentTab]);
-
-  useEffect(() => {
-    if (datosInicializados && currentTab === 0) {
-      cargarFacturasPendientes(true);
-    }
-  }, [paginationPendientes.page, paginationPendientes.rowsPerPage]);
-
-  useEffect(() => {
-    if (datosInicializados && currentTab === 1) {
-      cargarFacturasProcesadas(true);
-    }
-  }, [paginationProcesadas.page, paginationProcesadas.rowsPerPage]);
+  }, [currentTab, datosInicializados, facturasPendientesOriginales, facturasProceadasOriginales, filtroTextoLocal, filtrarFacturas]);
 
   // ==================== FUNCIONES DE UTILIDAD ====================
 
@@ -793,6 +828,13 @@ const FacturasXMLPage = () => {
       }));
     };
 
+    // Datos para mostrar con paginación local
+    const facturasPaginadas = useMemo(() => {
+      const start = paginationPendientes.page * paginationPendientes.rowsPerPage;
+      const end = start + paginationPendientes.rowsPerPage;
+      return facturasPendientesFiltradas.slice(start, end);
+    }, [facturasPendientesFiltradas, paginationPendientes.page, paginationPendientes.rowsPerPage]);
+
     return (
       <Box>
         <DateRangeSearchFilter
@@ -800,13 +842,12 @@ const FacturasXMLPage = () => {
           fechaFin={fechaFin}
           onFechaInicioChange={setFechaInicio}
           onFechaFinChange={setFechaFin}
-          onSearch={aplicarFiltros}
+          onLoadData={cargarDatosPorPeriodo}
           onClear={limpiarFiltros}
-          isLoading={buscandoFacturas || loading}
-          activeFilter={filtroActivo}
-          totalResults={facturasPendientes.length}
-          searchText={searchText}
-          setSearchText={setSearchText}
+          isLoading={loading}
+          totalResults={facturasPendientesOriginales.length}
+          filtroTextoLocal={filtroTextoLocal}
+          setFiltroTextoLocal={setFiltroTextoLocal}
           empresaInfo={empresaInfo}
         />
         
@@ -834,12 +875,12 @@ const FacturasXMLPage = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {(loading || buscandoFacturas) ? (
+              {loading ? (
                 <TableRow>
                   <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <CircularProgress size={40} />
                     <Typography variant="body2" sx={{ mt: 2 }}>
-                      {buscandoFacturas ? 'Aplicando filtros...' : 'Cargando facturas pendientes...'}
+                      Cargando facturas pendientes...
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -851,28 +892,28 @@ const FacturasXMLPage = () => {
                       Selecciona un rango de fechas para comenzar
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
-                      Para optimizar el rendimiento, aplicar filtros de fecha antes de cargar los datos
+                      Después podrás filtrar por texto de forma instantánea
                     </Typography>
                   </TableCell>
                 </TableRow>
-              ) : facturasPendientes.length === 0 ? (
+              ) : facturasPaginadas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
-                    {filtroActivo || fechaInicio || fechaFin ? (
+                    {filtroTextoLocal ? (
                       <>
                         <SearchIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
                         <Typography variant="h6" color="textSecondary">
-                          No se encontraron resultados
+                          No hay facturas que coincidan con "{filtroTextoLocal}"
                         </Typography>
                         <Typography variant="body2" color="textSecondary">
-                          No hay facturas que coincidan con los filtros aplicados
+                          Modifica el filtro de texto o límpialo para ver todas las facturas cargadas
                         </Typography>
                         <Button 
-                          onClick={limpiarFiltros} 
+                          onClick={() => setFiltroTextoLocal('')} 
                           sx={{ mt: 2 }}
                           variant="outlined"
                         >
-                          Limpiar filtros
+                          Limpiar filtro de texto
                         </Button>
                       </>
                     ) : (
@@ -889,7 +930,7 @@ const FacturasXMLPage = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                facturasPendientes.map((factura) => (
+                facturasPaginadas.map((factura) => (
                   <TableRow 
                     key={factura.ID}
                     hover
@@ -972,17 +1013,21 @@ const FacturasXMLPage = () => {
             </TableBody>
           </Table>
           
-          {datosInicializados && (
+          {datosInicializados && facturasPendientesFiltradas.length > 0 && (
             <TablePagination
               component="div"
-              count={paginationPendientes.total}
+              count={facturasPendientesFiltradas.length}
               page={paginationPendientes.page}
               onPageChange={handleChangePage}
               rowsPerPage={paginationPendientes.rowsPerPage}
               onRowsPerPageChange={handleChangeRowsPerPage}
               labelRowsPerPage="Filas por página:"
-              labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}${filtroActivo || fechaInicio || fechaFin ? ` (filtrados)` : ''}`}
-              rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
+              labelDisplayedRows={({ from, to, count }) => {
+                const totalOriginales = facturasPendientesOriginales.length;
+                const mostrandoFiltradas = count < totalOriginales;
+                return `${from}-${to} de ${count}${mostrandoFiltradas ? ` (filtradas de ${totalOriginales})` : ''}`;
+              }}
+              rowsPerPageOptions={[25, 50, 100, 250, 500]}
               ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
                 <Box sx={{ display: 'flex', ml: 1 }}>
                   <IconButton
@@ -1035,6 +1080,13 @@ const FacturasXMLPage = () => {
       }));
     };
 
+    // Datos para mostrar con paginación local
+    const facturasPaginadas = useMemo(() => {
+      const start = paginationProcesadas.page * paginationProcesadas.rowsPerPage;
+      const end = start + paginationProcesadas.rowsPerPage;
+      return facturasProceadasFiltradas.slice(start, end);
+    }, [facturasProceadasFiltradas, paginationProcesadas.page, paginationProcesadas.rowsPerPage]);
+
     return (
       <Box>
         <DateRangeSearchFilter
@@ -1042,13 +1094,12 @@ const FacturasXMLPage = () => {
           fechaFin={fechaFin}
           onFechaInicioChange={setFechaInicio}
           onFechaFinChange={setFechaFin}
-          onSearch={aplicarFiltros}
+          onLoadData={cargarDatosPorPeriodo}
           onClear={limpiarFiltros}
           isLoading={loading}
-          activeFilter={filtroActivo}
-          totalResults={facturasProceadas.length}
-          searchText={searchText}
-          setSearchText={setSearchText}
+          totalResults={facturasProceadasOriginales.length}
+          filtroTextoLocal={filtroTextoLocal}
+          setFiltroTextoLocal={setFiltroTextoLocal}
           empresaInfo={empresaInfo}
         />
 
@@ -1087,24 +1138,45 @@ const FacturasXMLPage = () => {
                       Selecciona un rango de fechas para comenzar
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
-                      Para optimizar el rendimiento, aplicar filtros de fecha antes de cargar los datos
+                      Después podrás filtrar por texto de forma instantánea
                     </Typography>
                   </TableCell>
                 </TableRow>
-              ) : facturasProceadas.length === 0 ? (
+              ) : facturasPaginadas.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
-                    <ProcessedIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-                    <Typography variant="h6" color="textSecondary">
-                      No hay facturas procesadas
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary">
-                      Las facturas procesadas en el rango seleccionado aparecerán aquí
-                    </Typography>
+                    {filtroTextoLocal ? (
+                      <>
+                        <SearchIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                        <Typography variant="h6" color="textSecondary">
+                          No hay facturas que coincidan con "{filtroTextoLocal}"
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Modifica el filtro de texto o límpialo para ver todas las facturas cargadas
+                        </Typography>
+                        <Button 
+                          onClick={() => setFiltroTextoLocal('')} 
+                          sx={{ mt: 2 }}
+                          variant="outlined"
+                        >
+                          Limpiar filtro de texto
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <ProcessedIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+                        <Typography variant="h6" color="textSecondary">
+                          No hay facturas procesadas
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Las facturas procesadas en el rango seleccionado aparecerán aquí
+                        </Typography>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
-                facturasProceadas.map((factura) => (
+                facturasPaginadas.map((factura) => (
                   <TableRow key={factura.id} hover>
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
@@ -1195,17 +1267,21 @@ const FacturasXMLPage = () => {
             </TableBody>
           </Table>
           
-          {datosInicializados && (
+          {datosInicializados && facturasProceadasFiltradas.length > 0 && (
             <TablePagination
               component="div"
-              count={paginationProcesadas.total}
+              count={facturasProceadasFiltradas.length}
               page={paginationProcesadas.page}
               onPageChange={handleChangePage}
               rowsPerPage={paginationProcesadas.rowsPerPage}
               onRowsPerPageChange={handleChangeRowsPerPage}
               labelRowsPerPage="Filas por página:"
-              labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
-              rowsPerPageOptions={[100, 500, 1000, 1500, 2000]}
+              labelDisplayedRows={({ from, to, count }) => {
+                const totalOriginales = facturasProceadasOriginales.length;
+                const mostrandoFiltradas = count < totalOriginales;
+                return `${from}-${to} de ${count}${mostrandoFiltradas ? ` (filtradas de ${totalOriginales})` : ''}`;
+              }}
+              rowsPerPageOptions={[25, 50, 100, 250, 500]}
               ActionsComponent={({ count, page, rowsPerPage, onPageChange }) => (
                 <Box sx={{ display: 'flex', ml: 1 }}>
                   <IconButton
@@ -1502,7 +1578,7 @@ const FacturasXMLPage = () => {
                 Sistema de Facturas Electrónicas
               </Typography>
               <Typography variant="subtitle1" sx={{ opacity: 0.9 }}>
-                Gestión optimizada con filtros de fecha y búsqueda avanzada
+                Gestión optimizada con filtros de fecha y búsqueda
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2 }}>
@@ -1694,6 +1770,14 @@ const FacturasXMLPage = () => {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                 Facturas Pendientes de Procesamiento
+                {filtroTextoLocal && facturasPendientesFiltradas.length !== facturasPendientesOriginales.length && (
+                  <Chip 
+                    label={`${facturasPendientesFiltradas.length} de ${facturasPendientesOriginales.length} mostradas`}
+                    size="small"
+                    color="info"
+                    sx={{ ml: 2 }}
+                  />
+                )}
               </Typography>
               {facturasSeleccionadas.length > 0 && (
                 <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -1720,8 +1804,10 @@ const FacturasXMLPage = () => {
             
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                <strong>Facturas descargadas automáticamente por el bot desde correos</strong><br/>
-                Usa los filtros de fecha para optimizar la carga de datos. Selecciona facturas para asignarles centro de costos y sucursal.
+                <strong>Sistema de filtrado inteligente:</strong><br/>
+                1. Selecciona un período de fechas y carga los datos<br/>
+                2. Usa el filtro de texto para buscar instantáneamente sin hacer nuevas consultas<br/>
+                3. Selecciona facturas para asignarles centro de costos y sucursal
               </Typography>
             </Alert>
 
@@ -1733,12 +1819,22 @@ const FacturasXMLPage = () => {
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3 }}>
               Facturas Procesadas (Con Centro de Costos y Sucursal)
+              {filtroTextoLocal && facturasProceadasFiltradas.length !== facturasProceadasOriginales.length && (
+                <Chip 
+                  label={`${facturasProceadasFiltradas.length} de ${facturasProceadasOriginales.length} mostradas`}
+                  size="small"
+                  color="info"
+                  sx={{ ml: 2 }}
+                />
+              )}
             </Typography>
             
             <Alert severity="success" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                <strong>Facturas ya procesadas con centro de costos y sucursal asignados</strong><br/>
-                Usa los filtros de fecha para encontrar facturas específicas. Estas facturas están listas para reportes contables.
+                <strong>Facturas procesadas con filtro inteligente:</strong><br/>
+                1. Selecciona un período de fechas y carga los datos<br/>
+                2. Usa el filtro de texto para encontrar facturas específicas de forma instantánea<br/>
+                3. Estas facturas están listas para reportes contables
               </Typography>
             </Alert>
             
