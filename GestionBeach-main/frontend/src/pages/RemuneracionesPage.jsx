@@ -1,4 +1,4 @@
-// RemuneracionesPage.jsx - VERSIÓN COMPLETA CORREGIDA SIN MOSTRAR SUELDO BASE EN VISTA PREVIA
+// RemuneracionesPage.jsx - VERSIÓN COMPLETA CORREGIDA CON PORCENTAJES OBLIGATORIOS Y UNICODE
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -52,7 +52,8 @@ import {
   TablePagination,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  InputAdornment
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
@@ -87,12 +88,16 @@ import {
   PersonAdd as PersonAddIcon,
   Store as StoreIcon,
   AccountTree as AccountTreeIcon,
-  Apartment as ApartmentIcon
+  Apartment as ApartmentIcon,
+  Percent as PercentIcon,
+  Upload as UploadIcon,
+  AutoFixHigh as AutoFixHighIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 import * as XLSX from 'xlsx';
 import api from '../api/api';
 
-// CONFIGURACIÓN COMPLETA - API centralizada con nuevos endpoints
+// CONFIGURACIÓN COMPLETA - API centralizada con endpoints para porcentajes
 const remuneracionesAPI = {
   test: () => api.get('/remuneraciones/test'),
   obtenerPeriodos: (filtros = {}) => api.get('/remuneraciones', { params: filtros }),
@@ -107,7 +112,10 @@ const remuneracionesAPI = {
   validarExcel: (datos) => api.post('/remuneraciones/validar-excel', datos),
   procesarExcel: (datos) => api.post('/remuneraciones/procesar-excel', datos),
   validarEmpleadosSinAsignacion: (ruts) => api.post('/remuneraciones/validar-empleados-sin-asignacion', { ruts_empleados: ruts }),
-  asignarRazonSocialYSucursal: (asignaciones) => api.post('/remuneraciones/asignar-razon-social-sucursal', { asignaciones })
+  asignarRazonSocialYSucursal: (asignaciones) => api.post('/remuneraciones/asignar-razon-social-sucursal', { asignaciones }),
+  // NUEVOS ENDPOINTS PARA PORCENTAJES
+  obtenerPorcentajesPorPeriodo: (id_periodo, id_razon_social) => api.get(`/remuneraciones/porcentajes/${id_periodo}/${id_razon_social}`),
+  guardarPorcentajesPorPeriodo: (datos) => api.post('/remuneraciones/porcentajes', datos)
 };
 
 // API para razones sociales y sucursales
@@ -116,12 +124,13 @@ const catalogosAPI = {
   getSucursales: () => api.get('/sucursales')
 };
 
-// Pasos del proceso de carga profesional
+// Pasos del proceso de carga profesional CON PORCENTAJES OBLIGATORIOS
 const pasosCarga = [
   'Seleccionar Período',
   'Cargar Archivo',
   'Análisis Automático',
   'Configurar Mapeo',
+  'Configurar Porcentajes OBLIGATORIO', // NUEVO PASO CRÍTICO
   'Procesar Nómina',
   'Asignar Empleados'
 ];
@@ -162,6 +171,18 @@ const RemuneracionesPage = () => {
   const [mapeoColumnas, setMapeoColumnas] = useState({});
   const [columnasDetectadas, setColumnasDetectadas] = useState([]);
   const [periodoSeleccionado, setPeriodoSeleccionado] = useState('');
+  
+  // NUEVOS ESTADOS PARA PORCENTAJES OBLIGATORIOS
+  const [razonSocialSeleccionada, setRazonSocialSeleccionada] = useState('');
+  const [porcentajes, setPorcentajes] = useState({
+    caja_compen: '',
+    afc: '',
+    sis: '',
+    ach: '',
+    imposiciones: ''
+  });
+  const [porcentajesValidos, setPorcentajesValidos] = useState(false);
+  const [porcentajesExistentes, setPorcentajesExistentes] = useState(null);
   
   // ESTADOS PARA MODAL DE ASIGNACIÓN
   const [openAsignacionDialog, setOpenAsignacionDialog] = useState(false);
@@ -209,6 +230,106 @@ const RemuneracionesPage = () => {
     severity: 'success'
   });
 
+  // FUNCIÓN SHOWSNACKBAR - DEBE ESTAR DEFINIDA ANTES DE SU USO
+  const showSnackbar = useCallback((message, severity = 'success') => {
+    setSnackbar({ open: false, message: '', severity: 'success' });
+    
+    setTimeout(() => {
+      setSnackbar({ 
+        open: true, 
+        message: message.length > 300 ? message.substring(0, 300) + '...' : message, 
+        severity 
+      });
+    }, 100);
+  }, []);
+
+  // FUNCIÓN CRÍTICA: LIMPIAR UNICODE EN FRONTEND
+  const limpiarUnicode = (texto) => {
+    if (!texto) return '';
+    
+    return String(texto)
+      // Normalizar Unicode a forma canónica
+      .normalize('NFD')
+      // Reemplazar caracteres problemáticos comunes
+      .replace(/Ã±/g, 'ñ')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ã/g, 'Ñ')
+      .replace(/Ã/g, 'Á')
+      .replace(/Ã‰/g, 'É')
+      .replace(/Ã/g, 'Í')
+      .replace(/Ã"/g, 'Ó')
+      .replace(/Ãš/g, 'Ú')
+      // Limpiar caracteres de control y espacios extra
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  // FUNCIÓN CRÍTICA: PROCESAR VALORES MONETARIOS CHILENOS SIN TRUNCAR
+  const procesarValorMonetarioChileno = (valor) => {
+    if (!valor || valor === '' || valor === null || valor === undefined) return '0';
+    
+    // MANTENER COMO STRING PARA EVITAR TRUNCAMIENTO
+    let valorString = String(valor).trim();
+    
+    // Limpiar Unicode
+    valorString = limpiarUnicode(valorString);
+    
+    // Remover caracteres no numéricos excepto puntos y comas
+    valorString = valorString.replace(/[^\d.,-]/g, '');
+    
+    if (!valorString) return '0';
+    
+    // EN CHILE: punto es separador de miles, coma es decimal
+    // Pero Excel puede variar, por eso aplicamos lógica inteligente
+    
+    if (valorString.includes(',') && valorString.includes('.')) {
+      const ultimaComa = valorString.lastIndexOf(',');
+      const ultimoPunto = valorString.lastIndexOf('.');
+      
+      if (ultimoPunto > ultimaComa) {
+        // Formato americano: 1,234,567.89 -> remover comas
+        valorString = valorString.replace(/,/g, '');
+      } else {
+        // Formato chileno: 1.234.567,89 -> convertir
+        valorString = valorString.replace(/\./g, '').replace(',', '.');
+      }
+    } else if (valorString.includes(',')) {
+      const partes = valorString.split(',');
+      if (partes.length === 2 && partes[1].length <= 2) {
+        // Formato decimal: 123456,89
+        valorString = valorString.replace(',', '.');
+      } else {
+        // Separador de miles: 123,456,789
+        valorString = valorString.replace(/,/g, '');
+      }
+    } else if (valorString.includes('.')) {
+      const partes = valorString.split('.');
+      if (partes.length === 2 && partes[1].length <= 2 && partes[0].length <= 6) {
+        // Podría ser decimal: 123456.89
+        // Mantener como está
+      } else {
+        // Separador de miles: 123.456.789
+        valorString = valorString.replace(/\./g, '');
+      }
+    }
+    
+    // Convertir a número para validar
+    const numero = parseFloat(valorString);
+    
+    if (isNaN(numero) || !isFinite(numero)) {
+      console.warn(`Valor no convertible: "${valor}" -> "0"`);
+      return '0';
+    }
+    
+    // RETORNAR COMO STRING PARA EVITAR TRUNCAMIENTO EN EL BACKEND
+    return numero.toString();
+  };
+
   // FUNCIONES DE CARGA MEJORADAS CON MANEJO DE ERRORES
   const testConexion = useCallback(async () => {
     try {
@@ -228,7 +349,7 @@ const RemuneracionesPage = () => {
       showSnackbar(errorMsg, 'error');
       return false;
     }
-  }, []);
+  }, [showSnackbar]);
 
   // CARGAR OPCIONES PARA FILTROS
   const cargarOpcionesFiltros = useCallback(async () => {
@@ -283,7 +404,7 @@ const RemuneracionesPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [filtros]);
+  }, [filtros, showSnackbar]);
 
   const cargarEstadisticas = useCallback(async () => {
     try {
@@ -299,19 +420,6 @@ const RemuneracionesPage = () => {
     } catch (err) {
       console.error('Error al cargar estadísticas:', err);
     }
-  }, []);
-
-  // FUNCTION SHOWSNACKBAR - DEBE ESTAR DEFINIDA ANTES DE SU USO
-  const showSnackbar = useCallback((message, severity = 'success') => {
-    setSnackbar({ open: false, message: '', severity: 'success' });
-    
-    setTimeout(() => {
-      setSnackbar({ 
-        open: true, 
-        message: message.length > 300 ? message.substring(0, 300) + '...' : message, 
-        severity 
-      });
-    }, 100);
   }, []);
 
   // EFFECT MEJORADO CON MEJOR MANEJO DE ERRORES
@@ -353,6 +461,70 @@ const RemuneracionesPage = () => {
       estado: 'todos'
     });
   };
+
+  // NUEVAS FUNCIONES PARA GESTIÓN DE PORCENTAJES
+  const cargarPorcentajesExistentes = async (id_periodo, id_razon_social) => {
+    if (!id_periodo || !id_razon_social) return;
+    
+    try {
+      console.log(`Cargando porcentajes existentes para período ${id_periodo} y razón social ${id_razon_social}`);
+      
+      const response = await remuneracionesAPI.obtenerPorcentajesPorPeriodo(id_periodo, id_razon_social);
+      
+      if (response.data.success && response.data.data) {
+        const porcentajesDB = response.data.data;
+        setPorcentajesExistentes(porcentajesDB);
+        setPorcentajes({
+          caja_compen: porcentajesDB.caja_compen || '',
+          afc: porcentajesDB.afc || '',
+          sis: porcentajesDB.sis || '',
+          ach: porcentajesDB.ach || '',
+          imposiciones: porcentajesDB.imposiciones || ''
+        });
+        console.log('Porcentajes existentes cargados:', porcentajesDB);
+        showSnackbar('Porcentajes existentes cargados desde la base de datos', 'info');
+      } else {
+        setPorcentajesExistentes(null);
+        setPorcentajes({
+          caja_compen: '',
+          afc: '',
+          sis: '',
+          ach: '',
+          imposiciones: ''
+        });
+        console.log('No hay porcentajes existentes, se debe configurar');
+      }
+    } catch (error) {
+      console.error('Error cargando porcentajes existentes:', error);
+      setPorcentajesExistentes(null);
+    }
+  };
+
+  const validarPorcentajes = () => {
+    const { caja_compen, afc, sis, ach, imposiciones } = porcentajes;
+    
+    const porcentajesValores = [caja_compen, afc, sis, ach, imposiciones];
+    const algunoValido = porcentajesValores.some(p => {
+      const numero = parseFloat(p);
+      return !isNaN(numero) && numero >= 0 && numero <= 100;
+    });
+    
+    setPorcentajesValidos(algunoValido);
+    return algunoValido;
+  };
+
+  const handlePorcentajeChange = (campo, valor) => {
+    if (valor === '' || (!isNaN(parseFloat(valor)) && parseFloat(valor) >= 0 && parseFloat(valor) <= 100)) {
+      setPorcentajes(prev => ({
+        ...prev,
+        [campo]: valor
+      }));
+    }
+  };
+
+  useEffect(() => {
+    validarPorcentajes();
+  }, [porcentajes]);
 
   // CREAR NUEVO PERÍODO MEJORADO
   const crearPeriodo = async () => {
@@ -584,7 +756,7 @@ const RemuneracionesPage = () => {
     }
   };
 
-  // PROCESAMIENTO DE EXCEL COMPLETAMENTE MEJORADO Y CORREGIDO
+  // PROCESAMIENTO DE EXCEL COMPLETAMENTE MEJORADO Y CORREGIDO CON UNICODE
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -625,14 +797,14 @@ const RemuneracionesPage = () => {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
-        setProcessingStatus('Procesando datos...');
+        setProcessingStatus('Procesando datos con soporte Unicode...');
         
-        // LEER CON MANEJO MEJORADO DE DATOS VACÍOS
+        // CRÍTICO: LEER CON MANEJO MEJORADO Y UNICODE - COMO STRING PARA EVITAR TRUNCAMIENTO
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
           header: 1, 
           defval: '', 
           blankrows: false,
-          raw: false
+          raw: false // Importante: tratamos todo como string inicialmente
         });
         
         console.log('Datos raw del Excel (primeras 10 filas):', jsonData.slice(0, 10));
@@ -641,30 +813,31 @@ const RemuneracionesPage = () => {
           throw new Error('El archivo debe tener al menos 2 filas (encabezados + datos)');
         }
 
-        // BÚSQUEDA INTELIGENTE DE HEADERS MEJORADA CON DETECCIÓN DE "Líquido"
-        let headerRowIndex = await buscarFilaHeaders(jsonData);
+        // BÚSQUEDA INTELIGENTE DE HEADERS CON UNICODE
+        let headerRowIndex = buscarFilaHeadersConUnicode(jsonData);
 
         if (headerRowIndex === -1) {
           throw new Error('No se encontraron encabezados válidos. El archivo debe contener columnas RUT, NOMBRE y campos monetarios');
         }
 
+        // LIMPIAR HEADERS CON UNICODE
         const headers = jsonData[headerRowIndex]
-          .map(h => h ? String(h).trim() : '')
+          .map(h => h ? limpiarUnicode(String(h).trim()) : '')
           .filter(h => h && h !== '');
         
-        const rows = await procesarFilasDatos(jsonData, headerRowIndex);
+        const rows = procesarFilasDatosConUnicode(jsonData, headerRowIndex);
         
-        console.log(`Headers detectados (${headers.length}):`, headers.slice(0, 10));
+        console.log(`Headers detectados con Unicode (${headers.length}):`, headers.slice(0, 10));
         console.log(`Filas de datos válidas: ${rows.length}`);
         
         if (headers.length < 3) {
           throw new Error('No se detectaron suficientes columnas válidas en los encabezados');
         }
 
-        // CONVERSIÓN MEJORADA A OBJETOS
-        const formattedData = await convertirDatosAObjetos(rows, headers);
+        // CONVERSIÓN MEJORADA A OBJETOS CON UNICODE - MANTENER TODO COMO STRING
+        const formattedData = convertirDatosAObjetosConUnicode(rows, headers);
 
-        console.log('Datos formateados (primeros 3):', formattedData.slice(0, 3));
+        console.log('Datos formateados con Unicode (primeros 3):', formattedData.slice(0, 3));
 
         if (formattedData.length === 0) {
           throw new Error('No se encontraron filas de datos válidas después del procesamiento');
@@ -674,13 +847,12 @@ const RemuneracionesPage = () => {
         setPreviewData(formattedData.slice(0, 20));
         setColumnasDetectadas(headers);
         
-        // Realizar análisis automático
-        setProcessingStatus('Realizando análisis automático...');
-        await realizarAnalisisAutomatico(headers, formattedData.slice(0, 5));
+        setProcessingStatus('Realizando análisis automático con Unicode...');
+        await realizarAnalisisAutomaticoConUnicode(headers, formattedData.slice(0, 5));
         
         setActiveStep(3);
         
-        showSnackbar(`Excel cargado exitosamente: ${formattedData.length} registros encontrados`, 'success');
+        showSnackbar(`Excel cargado exitosamente con soporte Unicode: ${formattedData.length} registros encontrados`, 'success');
       } catch (error) {
         console.error('Error al leer Excel:', error);
         showSnackbar('Error al procesar el archivo Excel: ' + error.message, 'error');
@@ -698,19 +870,18 @@ const RemuneracionesPage = () => {
     reader.readAsArrayBuffer(file);
   };
 
-  // FUNCIÓN AUXILIAR CORREGIDA: Buscar fila de headers con detección mejorada de "Líquido"
-  const buscarFilaHeaders = async (jsonData) => {
+  // FUNCIÓN AUXILIAR: Buscar fila de headers con Unicode
+  const buscarFilaHeadersConUnicode = (jsonData) => {
     for (let i = 0; i < Math.min(15, jsonData.length); i++) {
       const row = jsonData[i];
       if (row && Array.isArray(row) && row.length > 5) {
-        const rowStr = row.join(' ').toUpperCase();
-        // Buscar patrones específicos de nómina chilena incluyendo variaciones de "Líquido"
+        const rowStr = row.map(cell => limpiarUnicode(String(cell || ''))).join(' ').toUpperCase();
+        
         if ((rowStr.includes('RUT') || rowStr.includes('R.U.T')) && 
             rowStr.includes('NOMBRE') && 
             (rowStr.includes('BASE') || rowStr.includes('LIQUIDO') || 
-             rowStr.includes('LÍQUIDO') || rowStr.includes('LÃ¯Â¿Â½IDO') ||
-             rowStr.includes('LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO') || rowStr.includes('HABERES'))) {
-          console.log(`Headers encontrados en fila ${i + 1}: ${row.slice(0, 8).join(', ')}...`);
+             rowStr.includes('HABERES') || rowStr.includes('PAGAR'))) {
+          console.log(`Headers encontrados con Unicode en fila ${i + 1}: ${row.slice(0, 8).join(', ')}...`);
           return i;
         }
       }
@@ -718,84 +889,75 @@ const RemuneracionesPage = () => {
     return -1;
   };
 
-  // FUNCIÓN AUXILIAR: Procesar filas de datos
-  const procesarFilasDatos = async (jsonData, headerRowIndex) => {
+  // FUNCIÓN AUXILIAR: Procesar filas de datos con Unicode
+  const procesarFilasDatosConUnicode = (jsonData, headerRowIndex) => {
     return jsonData.slice(headerRowIndex + 1)
       .filter(row => {
         if (!row || !Array.isArray(row) || row.length < 3) return false;
         
-        // Debe tener al menos 3 celdas con contenido
-        const cellsWithData = row.filter(cell => 
-          cell !== null && cell !== undefined && 
-          String(cell).trim() !== '' && String(cell).trim() !== '0'
-        );
+        const cellsWithData = row.filter(cell => {
+          if (cell === null || cell === undefined) return false;
+          const cellStr = limpiarUnicode(String(cell).trim());
+          return cellStr !== '' && cellStr !== '0';
+        });
         
         return cellsWithData.length >= 3;
       });
   };
 
-  // FUNCIÓN AUXILIAR: Convertir datos a objetos
-  const convertirDatosAObjetos = async (rows, headers) => {
+  // FUNCIÓN AUXILIAR: Convertir datos a objetos con Unicode
+  const convertirDatosAObjetosConUnicode = (rows, headers) => {
     return rows
       .map((row, index) => {
         const obj = {};
         headers.forEach((header, colIndex) => {
           const value = row[colIndex];
+          // CRÍTICO: MANTENER COMO STRING PARA EVITAR TRUNCAMIENTO DE NÚMEROS GRANDES
           obj[header] = (value !== null && value !== undefined) ? 
-            String(value).trim() : '';
+            limpiarUnicode(String(value).trim()) : '';
         });
         return obj;
       })
       .filter(obj => {
-        // Solo objetos que tengan RUT o nombre válidos
         const rutValue = Object.values(obj).find(val => 
           val && String(val).match(/\d{7,8}[-]?[0-9kK]/i)
         );
         const nombreValue = Object.values(obj).find(val => 
-          val && String(val).length > 5 && /[a-zA-Z]/.test(val)
+          val && String(val).length > 5 && /[a-zA-ZñÑáéíóúÁÉÍÓÚ]/.test(val)
         );
         
         return rutValue || nombreValue;
       });
   };
 
-  // FUNCIÓN CRÍTICA CORREGIDA: Crear mapeo mejorado que detecte todas las variaciones de "Líquido"
-  const crearMapeoMejorado = (headers, mapeoBackend) => {
+  // FUNCIÓN CRÍTICA CORREGIDA: Crear mapeo mejorado con Unicode
+  const crearMapeoMejoradoConUnicode = (headers, mapeoBackend) => {
     const mapeoMejorado = { ...mapeoBackend };
     
-    // Buscar específicamente la columna de líquido con todas las variaciones posibles
     headers.forEach(header => {
-      const headerUpper = header.toUpperCase().trim();
-      const headerOriginal = header.trim();
+      const headerLimpio = limpiarUnicode(header);
+      const headerUpper = headerLimpio.toUpperCase().trim();
       
-      // Detectar "Líquido" y todas sus variaciones incluyendo problemas de encoding
-      if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || 
-          headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' ||
-          headerUpper.includes('LÃ¯Â¿Â½IDO') || headerUpper === 'LÃ¯Â¿Â½IDO' ||
-          headerUpper.includes('LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO') || headerUpper === 'LÃƒÂ¯Ã‚Â¿Ã‚Â½IDO' ||
-          headerUpper.includes('LÃƒQUIDO') || headerUpper === 'LÃƒQUIDO' ||
+      // DETECCIÓN CRÍTICA DE LÍQUIDO CON UNICODE
+      if (headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' || 
           headerUpper.includes('LIQUIDO A PAGAR') || 
           headerUpper.includes('LIQUIDO PAGAR') || 
           headerUpper.includes('LIQ.') || headerUpper === 'LIQ.' ||
-          headerUpper.includes('LÍQUIDO A PAGAR') ||
-          headerUpper.includes('NET') || headerUpper.includes('NETO') ||
-          // Detectar patrones adicionales comunes en nóminas
-          (headerUpper.includes('PAGAR') && (headerUpper.includes('LIQ') || headerUpper.includes('NET'))) ||
-          // Detectar por posición si contiene caracteres especiales que podrían ser "í"
-          /L[\w\Ã¯Â¿Â½\ÃƒÂ¯\Ã‚Â¿\Ã‚Â½\ÃƒÂ£]*[QU]+[I]*[D]*O/i.test(headerOriginal)) {
+          headerUpper.includes('NETO') || headerUpper.includes('NET') ||
+          (headerUpper.includes('PAGAR') && headerUpper.includes('LIQ'))) {
         
         mapeoMejorado.liquido_pagar = header;
-        console.log(`FRONTEND: Líquido detectado correctamente: "${header}" (original: "${headerOriginal}")`);
+        console.log(`FRONTEND: Líquido detectado con Unicode: "${header}" (limpio: "${headerLimpio}")`);
       }
     });
     
     return mapeoMejorado;
   };
 
-  // ANÁLISIS AUTOMÁTICO MEJORADO CON MAPEO CORREGIDO
-  const realizarAnalisisAutomatico = async (headers, sampleData) => {
+  // ANÁLISIS AUTOMÁTICO CON UNICODE
+  const realizarAnalisisAutomaticoConUnicode = async (headers, sampleData) => {
     try {
-      console.log('Realizando análisis automático...');
+      console.log('Realizando análisis automático con Unicode...');
       
       const response = await remuneracionesAPI.validarExcel({
         headers,
@@ -806,26 +968,24 @@ const RemuneracionesPage = () => {
         const analisis = response.data.data;
         setAnalisisExcel(analisis);
         
-        // CRÍTICO: Crear mapeo mejorado que detecte todas las variaciones de "Líquido"
-        const mapeoMejorado = crearMapeoMejorado(headers, analisis.mapeo_sugerido || {});
+        // CRÍTICO: Crear mapeo mejorado con Unicode
+        const mapeoMejorado = crearMapeoMejoradoConUnicode(headers, analisis.mapeo_sugerido || {});
         setMapeoColumnas(mapeoMejorado);
         
-        // Mostrar resultados del análisis
         if (analisis.errores && analisis.errores.length > 0) {
           showSnackbar(`Análisis completado con ${analisis.errores.length} errores críticos`, 'error');
         } else if (analisis.advertencias && analisis.advertencias.length > 0) {
           showSnackbar(`Análisis completado con ${analisis.advertencias.length} advertencias`, 'warning');
         } else {
-          showSnackbar('Análisis completado - Excel válido para procesar', 'success');
+          showSnackbar('Análisis completado - Excel válido para procesar con soporte Unicode', 'success');
         }
 
-        // Mensaje especial si se detectó el líquido
         if (mapeoMejorado.liquido_pagar) {
-          showSnackbar(`Líquido detectado: "${mapeoMejorado.liquido_pagar}"`, 'info');
+          showSnackbar(`Líquido detectado con Unicode: "${mapeoMejorado.liquido_pagar}"`, 'info');
         }
 
-        console.log('Análisis automático completado:', analisis);
-        console.log('Mapeo mejorado:', mapeoMejorado);
+        console.log('Análisis automático con Unicode completado:', analisis);
+        console.log('Mapeo mejorado con Unicode:', mapeoMejorado);
       } else {
         throw new Error(response.data.message || 'Error en el análisis automático');
       }
@@ -836,7 +996,7 @@ const RemuneracionesPage = () => {
     }
   };
 
-  // PROCESAMIENTO DE EXCEL CON MAPEO CORREGIDO - ENVÍA MAPEO DEL FRONTEND AL BACKEND
+  // PROCESAMIENTO DE EXCEL CON PORCENTAJES OBLIGATORIOS
   const procesarExcel = async () => {
     if (!excelData.length) {
       showSnackbar('No hay datos para procesar', 'error');
@@ -848,49 +1008,88 @@ const RemuneracionesPage = () => {
       return;
     }
 
-    // Validar mapeo crítico
+    if (!razonSocialSeleccionada) {
+      showSnackbar('Debe seleccionar una razón social', 'error');
+      return;
+    }
+
+    if (!porcentajesValidos) {
+      showSnackbar('Debe configurar al menos un porcentaje válido', 'error');
+      return;
+    }
+
     if (!mapeoColumnas.rut_empleado || !mapeoColumnas.nombre_empleado) {
       showSnackbar('RUT y Nombre son campos obligatorios para el procesamiento', 'error');
       return;
     }
 
     setLoading(true);
-    setActiveStep(4);
+    setActiveStep(5); // Paso de procesamiento
     setUploadProgress(0);
 
     try {
-      // PROGRESO REALISTA CON VALIDACIÓN PREVIA
       const etapas = [
-        { progreso: 15, mensaje: 'Validando datos...', delay: 200 },
-        { progreso: 30, mensaje: 'Verificando período...', delay: 300 },
-        { progreso: 50, mensaje: 'Procesando empleados...', delay: 500 },
-        { progreso: 75, mensaje: 'Guardando remuneraciones...', delay: 800 },
-        { progreso: 90, mensaje: 'Finalizando proceso...', delay: 400 },
+        { progreso: 15, mensaje: 'Validando datos y porcentajes...', delay: 200 },
+        { progreso: 30, mensaje: 'Verificando período y razón social...', delay: 300 },
+        { progreso: 50, mensaje: 'Procesando empleados con Unicode...', delay: 500 },
+        { progreso: 70, mensaje: 'Guardando remuneraciones y porcentajes...', delay: 800 },
+        { progreso: 85, mensaje: 'Calculando costos totales...', delay: 400 },
         { progreso: 100, mensaje: 'Completado', delay: 200 }
       ];
 
-      // Simular progreso visual
       for (const etapa of etapas) {
         setUploadProgress(etapa.progreso);
         setProcessingStatus(etapa.mensaje);
         await new Promise(resolve => setTimeout(resolve, etapa.delay));
       }
 
-      console.log('Enviando datos al servidor:', {
-        totalFilas: excelData.length,
-        periodo: periodoSeleccionado,
-        archivo: excelFile.name,
-        mapeoColumnas: mapeoColumnas,
-        primeraFila: excelData[0]
+      // PROCESAR DATOS APLICANDO CONVERSIÓN DE VALORES MONETARIOS
+      const datosConVertidos = excelData.map(fila => {
+        const filaProcesada = { ...fila };
+        
+        // Aplicar conversión monetaria a campos específicos
+        Object.keys(fila).forEach(columna => {
+          const valor = fila[columna];
+          const columnaLimpia = limpiarUnicode(columna).toUpperCase();
+          
+          // Detectar campos monetarios y procesarlos
+          if (columnaLimpia.includes('BASE') || columnaLimpia.includes('HABERES') || 
+              columnaLimpia.includes('DESCUENTO') || columnaLimpia.includes('LIQUIDO') ||
+              columnaLimpia.includes('TOTAL') || columnaLimpia.includes('PAGAR') ||
+              columnaLimpia.includes('IMPOSICION') || columnaLimpia.includes('AFC') ||
+              columnaLimpia.includes('PREVISION') || columnaLimpia.includes('SALUD')) {
+            
+            filaProcesada[columna] = procesarValorMonetarioChileno(valor);
+            
+            // Log para campos críticos
+            if (columnaLimpia.includes('LIQUIDO') || columnaLimpia.includes('BASE')) {
+              console.log(`Procesando ${columna}: "${valor}" -> "${filaProcesada[columna]}"`);
+            }
+          }
+        });
+        
+        return filaProcesada;
       });
 
-      // CRÍTICO: Enviar el mapeo del frontend al backend
+      console.log('Enviando datos al servidor con porcentajes:', {
+        totalFilas: datosConVertidos.length,
+        periodo: periodoSeleccionado,
+        razonSocial: razonSocialSeleccionada,
+        archivo: excelFile.name,
+        mapeoColumnas: mapeoColumnas,
+        porcentajes: porcentajes,
+        primeraFila: datosConVertidos[0]
+      });
+
+      // CRÍTICO: Enviar datos completos con porcentajes
       const response = await remuneracionesAPI.procesarExcel({
-        datosExcel: excelData,
+        datosExcel: datosConVertidos, // USAR DATOS CONVERTIDOS
         archivoNombre: excelFile.name,
         validarDuplicados,
         id_periodo: periodoSeleccionado,
-        mapeoColumnas: mapeoColumnas  // ESTO ES LO CRÍTICO - Enviar mapeo
+        id_razon_social: razonSocialSeleccionada, // OBLIGATORIO
+        mapeoColumnas: mapeoColumnas,
+        porcentajes: porcentajes // OBLIGATORIO
       });
 
       if (response.data.success) {
@@ -907,13 +1106,13 @@ const RemuneracionesPage = () => {
           
           if (validacionResponse.data.success && validacionResponse.data.data.requiere_asignacion) {
             setEmpleadosSinAsignacion(validacionResponse.data.data.empleados_sin_asignacion);
-            setActiveStep(5); // Ir al paso de asignación
+            setActiveStep(6); // Ir al paso de asignación
             return; // No cerrar el dialog aún
           }
         }
         
-        // MENSAJE MEJORADO CON ESTADÍSTICAS DETALLADAS
-        let mensaje = `Procesamiento exitoso: ${resultado.procesados}/${resultado.total_filas} registros`;
+        // MENSAJE MEJORADO CON PORCENTAJES
+        let mensaje = `Procesamiento exitoso con porcentajes: ${resultado.procesados}/${resultado.total_filas} registros`;
         
         if (resultado.empleados_creados > 0) {
           mensaje += `\n${resultado.empleados_creados} empleados nuevos creados`;
@@ -927,24 +1126,13 @@ const RemuneracionesPage = () => {
           mensaje += `\n${resultado.errores} registros con errores`;
         }
         
+        if (resultado.porcentajes_guardados) {
+          mensaje += `\nPorcentajes guardados para la razón social`;
+        }
+        
         const severity = resultado.errores > resultado.procesados * 0.1 ? 'warning' : 'success';
         showSnackbar(mensaje, severity);
         
-        // MOSTRAR ERRORES DETALLADOS SI EXISTEN
-        if (resultado.errores_detalle && resultado.errores_detalle.length > 0) {
-          console.log('Errores detallados:', resultado.errores_detalle);
-          
-          setTimeout(() => {
-            const erroresResumen = resultado.errores_detalle
-              .slice(0, 5)
-              .map(err => `Fila ${err.fila}: ${err.error}`)
-              .join('\n');
-            
-            showSnackbar(`Detalles de errores:\n${erroresResumen}`, 'info');
-          }, 2000);
-        }
-        
-        // Actualizar datos
         await Promise.all([
           cargarPeriodos(),
           cargarEstadisticas()
@@ -1039,6 +1227,17 @@ const RemuneracionesPage = () => {
     setEmpleadosSinAsignacion([]);
     setAsignacionesTemporales({});
     setResultadoProcesamiento(null);
+    // RESETEAR ESTADOS DE PORCENTAJES
+    setRazonSocialSeleccionada('');
+    setPorcentajes({
+      caja_compen: '',
+      afc: '',
+      sis: '',
+      ach: '',
+      imposiciones: ''
+    });
+    setPorcentajesValidos(false);
+    setPorcentajesExistentes(null);
   };
 
   const handleCloseExcelDialog = () => {
@@ -1150,7 +1349,7 @@ const RemuneracionesPage = () => {
     return empleadosFiltrados.slice(inicio, fin);
   }, [empleadosFiltrados, paginaActual, empleadosPorPagina]);
 
-  // 🔥 FUNCIÓN CRÍTICA CORREGIDA: Filtrar columnas para ocultar sueldo base en vista previa
+  // FUNCIÓN CRÍTICA CORREGIDA: Filtrar columnas para ocultar sueldo base en vista previa
   const obtenerColumnasParaVistaPrevia = useCallback(() => {
     if (!previewData || previewData.length === 0) return [];
     
@@ -1158,26 +1357,26 @@ const RemuneracionesPage = () => {
     
     // FILTRAR SUELDO BASE - buscamos todas las posibles variaciones
     const columnasOcultas = todasLasColumnas.filter(columna => {
-      const colUpper = columna.toUpperCase().trim();
+      const colUpper = limpiarUnicode(columna).toUpperCase().trim();
       return (
         colUpper.includes('S. BASE') || 
         colUpper === 'S. BASE' ||
         colUpper.includes('SUELDO BASE') ||
         colUpper.includes('SUELDO_BASE') ||
         colUpper === 'SUELDO BASE' ||
-        mapeoColumnas.sueldo_base === columna  // También excluir si está mapeado como sueldo_base
+        mapeoColumnas.sueldo_base === columna
       );
     });
     
     const columnasVisible = todasLasColumnas.filter(col => !columnasOcultas.includes(col));
     
-    console.log('🚫 Columnas de sueldo base ocultas:', columnasOcultas);
-    console.log('✅ Columnas visibles en vista previa:', columnasVisible.length);
+    console.log('Columnas de sueldo base ocultas:', columnasOcultas);
+    console.log('Columnas visibles en vista previa:', columnasVisible.length);
     
     return columnasVisible;
   }, [previewData, mapeoColumnas]);
 
-  // 🔥 FUNCIÓN PARA OBTENER DATOS FILTRADOS SIN SUELDO BASE
+  // FUNCIÓN PARA OBTENER DATOS FILTRADOS SIN SUELDO BASE
   const obtenerDatosVistaPrevia = useCallback(() => {
     if (!previewData || previewData.length === 0) return [];
     
@@ -1192,7 +1391,188 @@ const RemuneracionesPage = () => {
     });
   }, [previewData, obtenerColumnasParaVistaPrevia]);
 
-  // COMPONENTES DE RENDERIZADO MEJORADOS
+  // COMPONENTE PARA CONFIGURAR PORCENTAJES
+  const renderConfiguracionPorcentajes = () => (
+    <Box>
+      <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+        <PercentIcon sx={{ mr: 1, color: '#f37d16' }} />
+        Configuración de Porcentajes Obligatoria
+      </Typography>
+      
+      <Alert severity="warning" sx={{ mb: 3 }}>
+        <Typography variant="h6">¡Configuración Obligatoria!</Typography>
+        <Typography>
+          Debe seleccionar la razón social y configurar los porcentajes antes de procesar la nómina.
+          Estos porcentajes se usarán para calcular los costos totales.
+        </Typography>
+      </Alert>
+
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <FormControl fullWidth required>
+            <InputLabel>Razón Social *</InputLabel>
+            <Select
+              value={razonSocialSeleccionada}
+              onChange={(e) => {
+                setRazonSocialSeleccionada(e.target.value);
+                if (e.target.value && periodoSeleccionado) {
+                  cargarPorcentajesExistentes(periodoSeleccionado, e.target.value);
+                }
+              }}
+              label="Razón Social *"
+              required
+            >
+              {razonesSociales.map(razon => (
+                <MenuItem key={razon.id} value={razon.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <BusinessIcon sx={{ mr: 1, fontSize: 16 }} />
+                    {razon.nombre_razon}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {razonSocialSeleccionada && (
+          <>
+            {porcentajesExistentes && (
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="h6">Porcentajes Existentes Encontrados</Typography>
+                  <Typography>
+                    Se encontraron porcentajes previamente configurados para esta razón social y período.
+                    Puede modificarlos si es necesario.
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    <strong>Última actualización:</strong> {new Date(porcentajesExistentes.updated_at || porcentajesExistentes.created_at).toLocaleString()}
+                  </Typography>
+                </Alert>
+              </Grid>
+            )}
+
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" gutterBottom>
+                Porcentajes del Empleador (%)
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <TextField
+                fullWidth
+                label="Caja Compensación (%)"
+                type="number"
+                value={porcentajes.caja_compen}
+                onChange={(e) => handlePorcentajeChange('caja_compen', e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText="Típico: 4.0%"
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <TextField
+                fullWidth
+                label="AFC (%)"
+                type="number"
+                value={porcentajes.afc}
+                onChange={(e) => handlePorcentajeChange('afc', e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText="Típico: 0.6%"
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <TextField
+                fullWidth
+                label="SIS (%)"
+                type="number"
+                value={porcentajes.sis}
+                onChange={(e) => handlePorcentajeChange('sis', e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText="Típico: 0.95%"
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <TextField
+                fullWidth
+                label="ACH (%)"
+                type="number"
+                value={porcentajes.ach}
+                onChange={(e) => handlePorcentajeChange('ach', e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText="Típico: 0.0%"
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <TextField
+                fullWidth
+                label="Imposiciones (%)"
+                type="number"
+                value={porcentajes.imposiciones}
+                onChange={(e) => handlePorcentajeChange('imposiciones', e.target.value)}
+                inputProps={{ min: 0, max: 100, step: 0.01 }}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                helperText="Típico: 10.0%"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Box sx={{ p: 2, bgcolor: porcentajesValidos ? '#e8f5e8' : '#ffebee', borderRadius: 2 }}>
+                <Typography variant="body1" color={porcentajesValidos ? 'success.main' : 'error.main'}>
+                  <strong>Estado:</strong> {porcentajesValidos ? 
+                    '✅ Porcentajes configurados correctamente' : 
+                    '❌ Debe configurar al menos un porcentaje válido (0-100%)'}
+                </Typography>
+                
+                {porcentajesValidos && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Vista previa del cálculo:</strong> Para un sueldo base de $500,000
+                    </Typography>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      {porcentajes.caja_compen && (
+                        <li>Caja Compensación: ${(500000 * parseFloat(porcentajes.caja_compen) / 100).toLocaleString()}</li>
+                      )}
+                      {porcentajes.afc && (
+                        <li>AFC: ${(500000 * parseFloat(porcentajes.afc) / 100).toLocaleString()}</li>
+                      )}
+                      {porcentajes.sis && (
+                        <li>SIS: ${(500000 * parseFloat(porcentajes.sis) / 100).toLocaleString()}</li>
+                      )}
+                      {porcentajes.ach && (
+                        <li>ACH: ${(500000 * parseFloat(porcentajes.ach) / 100).toLocaleString()}</li>
+                      )}
+                      {porcentajes.imposiciones && (
+                        <li>Imposiciones: ${(500000 * parseFloat(porcentajes.imposiciones) / 100).toLocaleString()}</li>
+                      )}
+                    </ul>
+                  </Box>
+                )}
+              </Box>
+            </Grid>
+          </>
+        )}
+      </Grid>
+    </Box>
+  );
+
+  // COMPONENTES DE RENDERIZADO MEJORADOS (mantener todos los existentes)
   const renderFiltros = () => (
     <Paper sx={{ 
       p: 3, 
@@ -1681,158 +2061,10 @@ const RemuneracionesPage = () => {
     </Box>
   );
 
-  const renderPeriodosCards = () => (
-    <Grid container spacing={3}>
-      {periodosFiltrados.map((periodo) => (
-        <Grid item xs={12} sm={6} md={4} key={periodo.id_periodo}>
-          <Card sx={{ 
-            height: '100%',
-            transition: 'all 0.3s ease',
-            '&:hover': {
-              transform: 'translateY(-4px)',
-              boxShadow: '0 12px 35px rgba(0,0,0,0.15)'
-            },
-            border: '1px solid rgba(0,0,0,0.05)'
-          }}>
-            <CardHeader
-              avatar={
-                <Avatar sx={{ 
-                  bgcolor: '#f37d16', 
-                  width: 56, 
-                  height: 56,
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                  color: 'white'
-                }}>
-                  {obtenerInicialMes(periodo.mes)}
-                </Avatar>
-              }
-              title={
-                <Typography variant="h6" component="div">
-                  {periodo.descripcion}
-                </Typography>
-              }
-              subheader={
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {periodo.mes}/{periodo.anio}
-                  </Typography>
-                  {periodo.nombre_razon && periodo.nombre_razon !== 'Sin Razón Social' && (
-                    <Chip 
-                      label={periodo.nombre_razon} 
-                      size="small" 
-                      color="info"
-                      sx={{ mt: 0.5, mr: 0.5 }}
-                    />
-                  )}
-                  {periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' && (
-                    <Chip 
-                      label={periodo.sucursal_nombre} 
-                      size="small" 
-                      color="secondary"
-                      sx={{ mt: 0.5 }}
-                    />
-                  )}
-                </Box>
-              }
-              action={
-                <Chip 
-                  label={periodo.estado} 
-                  color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
-                  size="small"
-                />
-              }
-            />
-            <CardContent>
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="primary">
-                      {periodo.total_registros || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Registros
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="success.main">
-                      {periodo.empleados_encontrados || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Empleados
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="warning.main">
-                      {periodo.empleados_faltantes || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Faltantes
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Nómina:</strong> {formatMoney(periodo.suma_liquidos)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Haberes:</strong> {formatMoney(periodo.suma_total_haberes)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Descuentos:</strong> {formatMoney(periodo.suma_total_descuentos)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Cargado:</strong> {periodo.fecha_carga ? 
-                    new Date(periodo.fecha_carga).toLocaleDateString('es-CL') : 
-                    'N/A'
-                  }
-                </Typography>
-              </Box>
-              
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 0.5 }}>
-                <Tooltip title="Ver detalles">
-                  <IconButton size="small" color="primary" onClick={() => handleVerPeriodo(periodo)}>
-                    <VisibilityIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Análisis estadístico">
-                  <IconButton size="small" color="info" onClick={() => handleAnalisisPeriodo(periodo)}>
-                    <PieChartIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Editar período">
-                  <IconButton size="small" color="primary" onClick={() => handleEditarPeriodo(periodo)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Descargar datos">
-                  <IconButton size="small" color="success" onClick={() => descargarDatos(periodo)}>
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Eliminar período">
-                  <IconButton size="small" color="error" onClick={() => handleEliminarPeriodo(periodo)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      ))}
-    </Grid>
-  );
-
   // MODAL DE ASIGNACIÓN DE RAZÓN SOCIAL Y SUCURSAL
   const renderModalAsignacion = () => (
     <Dialog 
-      open={activeStep === 5 && empleadosSinAsignacion.length > 0} 
+      open={activeStep === 6 && empleadosSinAsignacion.length > 0} 
       maxWidth="lg" 
       fullWidth
       PaperProps={{
@@ -1843,19 +2075,6 @@ const RemuneracionesPage = () => {
         }      
       }}
     >
-      <DialogTitle sx={{ 
-        background: 'linear-gradient(135deg, #f37d16 0%, #e06c00 100%)',
-        color: 'white',
-        textAlign: 'center'
-      }}>
-        <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-          Asignar Razón Social y Sucursal
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
-          {empleadosSinAsignacion.length} empleados requieren asignación
-        </Typography>
-      </DialogTitle>
-      
       <DialogContent sx={{ p: 3 }}>
         <Alert severity="warning" sx={{ mb: 3 }}>
           <Typography variant="h6">Empleados sin asignación completa</Typography>
@@ -2404,7 +2623,7 @@ const RemuneracionesPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog profesional para cargar y analizar Excel CON VISTA PREVIA SIN SUELDO BASE */}
+      {/* Dialog profesional para cargar y analizar Excel CON PORCENTAJES OBLIGATORIOS */}
       <Dialog 
         open={openExcelDialog} 
         onClose={handleCloseExcelDialog} 
@@ -2425,10 +2644,10 @@ const RemuneracionesPage = () => {
           position: 'relative'
         }}>
           <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-            Procesador Automático de Nóminas CORREGIDO
+            Procesador Automático de Nóminas CORREGIDO CON PORCENTAJES
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.9, mt: 1 }}>
-            Sistema con identificación automática de columnas - Sin mostrar sueldo base en vista previa
+            Sistema con identificación automática de columnas - Porcentajes obligatorios
           </Typography>
         </DialogTitle>
         
@@ -2922,15 +3141,20 @@ const RemuneracionesPage = () => {
             </Box>
           )}
 
-          {/* Paso 4: Procesando */}
+          {/* Paso 4: CONFIGURACIÓN DE PORCENTAJES OBLIGATORIOS */}
           {activeStep === 4 && (
+            renderConfiguracionPorcentajes()
+          )}
+
+          {/* Paso 5: Procesando */}
+          {activeStep === 5 && (
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <CircularProgress size={80} sx={{ mb: 3, color: '#f37d16' }} />
               <Typography variant="h5" gutterBottom>
-                Procesando Nómina con Mapeo Corregido
+                Procesando Nómina con Porcentajes y Unicode
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                Guardando datos en la base de datos con el mapeo mejorado...
+                Guardando datos en la base de datos con porcentajes y valores corregidos...
               </Typography>
               
               {uploadProgress > 0 && (
@@ -2995,20 +3219,36 @@ const RemuneracionesPage = () => {
                 
                 {tabValue === 2 && (
                   <Button
-                    onClick={procesarExcel}
+                    onClick={() => setActiveStep(4)}
                     variant="contained"
                     disabled={loading || analisisExcel?.errores?.length > 0 || !mapeoColumnas.liquido_pagar}
-                    startIcon={loading ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+                    startIcon={<PercentIcon />}
                     sx={{ 
                       bgcolor: '#f37d16', 
                       '&:hover': { bgcolor: '#e06c00' },
                       minWidth: 160
                     }}
                   >
-                    {loading ? 'Procesando...' : 'Procesar Nómina'}
+                    Configurar Porcentajes
                   </Button>
                 )}
               </>
+            )}
+
+            {activeStep === 4 && (
+              <Button
+                onClick={procesarExcel}
+                variant="contained"
+                disabled={loading || !razonSocialSeleccionada || !porcentajesValidos}
+                startIcon={loading ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+                sx={{ 
+                  bgcolor: '#f37d16', 
+                  '&:hover': { bgcolor: '#e06c00' },
+                  minWidth: 160
+                }}
+              >
+                {loading ? 'Procesando...' : 'Procesar Nómina'}
+              </Button>
             )}
           </Box>
         </DialogActions>
@@ -3664,5 +3904,154 @@ const RemuneracionesPage = () => {
     </Box>
   );
 };
+
+// NUEVA FUNCIÓN PARA RENDERIZAR PERÍODOS CARDS (que se usa en el renderizado principal)
+const renderPeriodosCards = () => (
+  <Grid container spacing={3}>
+    {periodosFiltrados.map((periodo) => (
+      <Grid item xs={12} sm={6} md={4} key={periodo.id_periodo}>
+        <Card sx={{ 
+          height: '100%',
+          transition: 'all 0.3s ease',
+          '&:hover': {
+            transform: 'translateY(-4px)',
+            boxShadow: '0 12px 35px rgba(0,0,0,0.15)'
+          },
+          border: '1px solid rgba(0,0,0,0.05)'
+        }}>
+          <CardHeader
+            avatar={
+              <Avatar sx={{ 
+                bgcolor: '#f37d16', 
+                width: 56, 
+                height: 56,
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                color: 'white'
+              }}>
+                {obtenerInicialMes(periodo.mes)}
+              </Avatar>
+            }
+            title={
+              <Typography variant="h6" component="div">
+                {periodo.descripcion}
+              </Typography>
+            }
+            subheader={
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  {periodo.mes}/{periodo.anio}
+                </Typography>
+                {periodo.nombre_razon && periodo.nombre_razon !== 'Sin Razón Social' && (
+                  <Chip 
+                    label={periodo.nombre_razon} 
+                    size="small" 
+                    color="info"
+                    sx={{ mt: 0.5, mr: 0.5 }}
+                  />
+                )}
+                {periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' && (
+                  <Chip 
+                    label={periodo.sucursal_nombre} 
+                    size="small" 
+                    color="secondary"
+                    sx={{ mt: 0.5 }}
+                  />
+                )}
+              </Box>
+            }
+            action={
+              <Chip 
+                label={periodo.estado} 
+                color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
+                size="small"
+              />
+            }
+          />
+          <CardContent>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="primary">
+                    {periodo.total_registros || 0}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Registros
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="success.main">
+                    {periodo.empleados_encontrados || 0}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Empleados
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="warning.main">
+                    {periodo.empleados_faltantes || 0}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Faltantes
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Total Nómina:</strong> {formatMoney(periodo.suma_liquidos)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Total Haberes:</strong> {formatMoney(periodo.suma_total_haberes)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Total Descuentos:</strong> {formatMoney(periodo.suma_total_descuentos)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Cargado:</strong> {periodo.fecha_carga ? 
+                  new Date(periodo.fecha_carga).toLocaleDateString('es-CL') : 
+                  'N/A'
+                }
+              </Typography>
+            </Box>
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 0.5 }}>
+              <Tooltip title="Ver detalles">
+                <IconButton size="small" color="primary" onClick={() => handleVerPeriodo(periodo)}>
+                  <VisibilityIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Análisis estadístico">
+                <IconButton size="small" color="info" onClick={() => handleAnalisisPeriodo(periodo)}>
+                  <PieChartIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Editar período">
+                <IconButton size="small" color="primary" onClick={() => handleEditarPeriodo(periodo)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Descargar datos">
+                <IconButton size="small" color="success" onClick={() => descargarDatos(periodo)}>
+                  <DownloadIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Eliminar período">
+                <IconButton size="small" color="error" onClick={() => handleEliminarPeriodo(periodo)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+    ))}
+  </Grid>
+);
 
 export default RemuneracionesPage;

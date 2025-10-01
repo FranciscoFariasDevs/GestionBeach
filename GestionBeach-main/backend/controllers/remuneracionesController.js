@@ -1,4 +1,4 @@
-// controllers/remuneracionesController.js - VERSIÓN FINAL CORREGIDA SIN MULTIPLICAR SEGUROS DE CESANTÍA
+// controllers/remuneracionesController.js - VERSIÓN FINAL CORREGIDA CON PORCENTAJES Y UNICODE
 const { sql, poolPromise } = require('../config/db');
 
 // Test de conexión
@@ -13,7 +13,7 @@ exports.test = async (req, res) => {
       SELECT TABLE_NAME 
       FROM INFORMATION_SCHEMA.TABLES 
       WHERE TABLE_TYPE = 'BASE TABLE'
-      AND TABLE_NAME IN ('periodos_remuneracion', 'datos_remuneraciones', 'empleados_remuneraciones', 'empleados', 'razones_sociales', 'sucursales')
+      AND TABLE_NAME IN ('periodos_remuneracion', 'datos_remuneraciones', 'empleados_remuneraciones', 'empleados', 'razones_sociales', 'sucursales', 'porcentajes_por_periodo')
     `);
     
     const tablas = tablesResult.recordset.map(row => row.TABLE_NAME);
@@ -27,7 +27,7 @@ exports.test = async (req, res) => {
       timestamp: new Date(),
       db_test: testResult.recordset[0],
       tablas_disponibles: tablas,
-      listo_para_procesar: tablas.length >= 4
+      listo_para_procesar: tablas.length >= 5
     });
   } catch (error) {
     console.error('❌ Error de conexión DB - Remuneraciones:', error.message);
@@ -48,7 +48,6 @@ exports.obtenerPeriodos = async (req, res) => {
     
     const pool = await poolPromise;
     
-    // 🆕 QUERY MEJORADA BASADA EN TU CTE
     let baseQuery = `
       ;WITH sucursal_unica AS (
         SELECT 
@@ -102,7 +101,6 @@ exports.obtenerPeriodos = async (req, res) => {
     const whereConditions = [];
     const request = pool.request();
     
-    // 🆕 APLICAR FILTROS DINÁMICOS
     if (razon_social_id && razon_social_id !== 'todos') {
       whereConditions.push('RS.id = @razon_social_id');
       request.input('razon_social_id', sql.Int, parseInt(razon_social_id));
@@ -123,7 +121,6 @@ exports.obtenerPeriodos = async (req, res) => {
       request.input('estado', sql.VarChar, estado);
     }
     
-    // Agregar WHERE si hay filtros
     if (whereConditions.length > 0) {
       baseQuery += ` WHERE ${whereConditions.join(' AND ')}`;
     }
@@ -165,14 +162,12 @@ exports.obtenerOpcionesFiltros = async (req, res) => {
     
     const pool = await poolPromise;
     
-    // Obtener años disponibles
     const aniosResult = await pool.request().query(`
       SELECT DISTINCT anio 
       FROM periodos_remuneracion 
       ORDER BY anio DESC
     `);
     
-    // Obtener razones sociales con períodos
     const razonesResult = await pool.request().query(`
       SELECT DISTINCT RS.id, RS.nombre_razon
       FROM razones_sociales RS
@@ -184,7 +179,6 @@ exports.obtenerOpcionesFiltros = async (req, res) => {
       ORDER BY RS.nombre_razon
     `);
     
-    // Obtener sucursales con períodos
     const sucursalesResult = await pool.request().query(`
       SELECT DISTINCT SU.id, SU.nombre
       FROM sucursales SU
@@ -244,7 +238,6 @@ exports.crearPeriodo = async (req, res) => {
     
     const pool = await poolPromise;
     
-    // 🆕 VERIFICAR SI EXISTE CONSIDERANDO RAZÓN SOCIAL Y SUCURSAL
     let checkQuery = `
       SELECT id_periodo, descripcion 
       FROM periodos_remuneracion 
@@ -255,7 +248,6 @@ exports.crearPeriodo = async (req, res) => {
       .input('mes', sql.Int, mes)
       .input('anio', sql.Int, anio);
     
-    // Si se especifica razón social y sucursal, verificar unicidad
     if (id_razon_social && id_sucursal) {
       checkQuery += ` AND id_razon_social = @id_razon_social AND id_sucursal = @id_sucursal`;
       request.input('id_razon_social', sql.Int, id_razon_social);
@@ -279,12 +271,10 @@ exports.crearPeriodo = async (req, res) => {
       });
     }
 
-    // Crear descripción automática
     const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     let descripcionFinal = descripcion || `${meses[mes - 1]} ${anio}`;
     
-    // 🆕 AGREGAR RAZÓN SOCIAL Y SUCURSAL A LA DESCRIPCIÓN SI EXISTEN
     if (id_razon_social || id_sucursal) {
       const detalles = [];
       
@@ -311,7 +301,6 @@ exports.crearPeriodo = async (req, res) => {
       }
     }
     
-    // Insertar período
     const insertRequest = pool.request()
       .input('mes', sql.Int, mes)
       .input('anio', sql.Int, anio)
@@ -325,7 +314,6 @@ exports.crearPeriodo = async (req, res) => {
       VALUES (@mes, @anio, @descripcion, 'ACTIVO', GETDATE()
     `;
     
-    // 🆕 AGREGAR CAMPOS OPCIONALES
     if (id_razon_social) {
       insertQuery += ', id_razon_social';
       valuesQuery += ', @id_razon_social';
@@ -466,7 +454,6 @@ exports.asignarRazonSocialYSucursal = async (req, res) => {
       for (const asignacion of asignaciones) {
         const { id_empleado, id_razon_social, id_sucursal } = asignacion;
         
-        // Actualizar razón social del empleado
         if (id_razon_social) {
           await transaction.request()
             .input('id_empleado', sql.Int, id_empleado)
@@ -478,14 +465,11 @@ exports.asignarRazonSocialYSucursal = async (req, res) => {
             `);
         }
         
-        // Asignar sucursal
         if (id_sucursal) {
-          // Primero eliminar sucursales existentes
           await transaction.request()
             .input('id_empleado', sql.Int, id_empleado)
             .query('DELETE FROM empleados_sucursales WHERE id_empleado = @id_empleado');
           
-          // Luego insertar la nueva sucursal
           await transaction.request()
             .input('id_empleado', sql.Int, id_empleado)
             .input('id_sucursal', sql.Int, id_sucursal)
@@ -516,6 +500,143 @@ exports.asignarRazonSocialYSucursal = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al asignar razón social y sucursal',
+      error: error.message
+    });
+  }
+};
+
+// 🆕 GESTIÓN DE PORCENTAJES POR PERÍODO Y RAZÓN SOCIAL
+exports.obtenerPorcentajesPorPeriodo = async (req, res) => {
+  try {
+    const { id_periodo, id_razon_social } = req.params;
+    
+    console.log(`🔍 Obteniendo porcentajes para período ${id_periodo} y razón social ${id_razon_social}`);
+    
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id_periodo', sql.Int, parseInt(id_periodo))
+      .input('id_razon_social', sql.Int, parseInt(id_razon_social))
+      .query(`
+        SELECT 
+          ppp.*,
+          pr.descripcion as periodo_descripcion,
+          rs.nombre_razon
+        FROM porcentajes_por_periodo ppp
+        INNER JOIN periodos_remuneracion pr ON ppp.id_periodo = pr.id_periodo
+        INNER JOIN razones_sociales rs ON ppp.id_razon_social = rs.id
+        WHERE ppp.id_periodo = @id_periodo 
+        AND ppp.id_razon_social = @id_razon_social
+        AND ppp.activo = 1
+      `);
+    
+    return res.json({
+      success: true,
+      data: result.recordset.length > 0 ? result.recordset[0] : null
+    });
+  } catch (error) {
+    console.error('Error al obtener porcentajes:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener porcentajes',
+      error: error.message
+    });
+  }
+};
+
+exports.guardarPorcentajesPorPeriodo = async (req, res) => {
+  try {
+    const { id_periodo, id_razon_social, porcentajes, observaciones } = req.body;
+    
+    console.log('💾 Guardando porcentajes:', { id_periodo, id_razon_social, porcentajes });
+    
+    // Validar datos requeridos
+    if (!id_periodo || !id_razon_social || !porcentajes) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID período, ID razón social y porcentajes son requeridos'
+      });
+    }
+    
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+    
+    try {
+      await transaction.begin();
+      
+      // Verificar si ya existe un registro
+      const existeResult = await transaction.request()
+        .input('id_periodo', sql.Int, id_periodo)
+        .input('id_razon_social', sql.Int, id_razon_social)
+        .query(`
+          SELECT id FROM porcentajes_por_periodo 
+          WHERE id_periodo = @id_periodo AND id_razon_social = @id_razon_social
+        `);
+      
+      if (existeResult.recordset.length > 0) {
+        // Actualizar registro existente
+        await transaction.request()
+          .input('id_periodo', sql.Int, id_periodo)
+          .input('id_razon_social', sql.Int, id_razon_social)
+          .input('caja_compen', sql.Decimal(5,2), porcentajes.caja_compen || 0)
+          .input('afc', sql.Decimal(5,2), porcentajes.afc || 0)
+          .input('sis', sql.Decimal(5,2), porcentajes.sis || 0)
+          .input('ach', sql.Decimal(5,2), porcentajes.ach || 0)
+          .input('imposiciones', sql.Decimal(5,2), porcentajes.imposiciones || 0)
+          .input('observaciones', sql.VarChar, observaciones || null)
+          .query(`
+            UPDATE porcentajes_por_periodo 
+            SET 
+              caja_compen = @caja_compen,
+              afc = @afc,
+              sis = @sis,
+              ach = @ach,
+              imposiciones = @imposiciones,
+              observaciones = @observaciones,
+              updated_at = GETDATE()
+            WHERE id_periodo = @id_periodo AND id_razon_social = @id_razon_social
+          `);
+        
+        console.log('✅ Porcentajes actualizados');
+      } else {
+        // Crear nuevo registro
+        await transaction.request()
+          .input('id_periodo', sql.Int, id_periodo)
+          .input('id_razon_social', sql.Int, id_razon_social)
+          .input('caja_compen', sql.Decimal(5,2), porcentajes.caja_compen || 0)
+          .input('afc', sql.Decimal(5,2), porcentajes.afc || 0)
+          .input('sis', sql.Decimal(5,2), porcentajes.sis || 0)
+          .input('ach', sql.Decimal(5,2), porcentajes.ach || 0)
+          .input('imposiciones', sql.Decimal(5,2), porcentajes.imposiciones || 0)
+          .input('observaciones', sql.VarChar, observaciones || null)
+          .query(`
+            INSERT INTO porcentajes_por_periodo (
+              id_periodo, id_razon_social, caja_compen, afc, sis, ach, 
+              imposiciones, observaciones, activo, created_at
+            )
+            VALUES (
+              @id_periodo, @id_razon_social, @caja_compen, @afc, @sis, @ach,
+              @imposiciones, @observaciones, 1, GETDATE()
+            )
+          `);
+        
+        console.log('✅ Porcentajes creados');
+      }
+      
+      await transaction.commit();
+      
+      return res.json({
+        success: true,
+        message: 'Porcentajes guardados exitosamente'
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error al guardar porcentajes:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al guardar porcentajes',
       error: error.message
     });
   }
@@ -562,7 +683,6 @@ exports.obtenerPeriodoPorId = async (req, res) => {
   }
 };
 
-// Actualizar período
 exports.actualizarPeriodo = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -575,11 +695,10 @@ exports.actualizarPeriodo = async (req, res) => {
       });
     }
     
-    console.log(`🔍 Actualizando período ID: ${id}`, req.body);
+    console.log(`🔄 Actualizando período ID: ${id}`, req.body);
     
     const pool = await poolPromise;
     
-    // Verificar que el período existe
     const existeResult = await pool.request()
       .input('id', sql.Int, id)
       .query('SELECT id_periodo FROM periodos_remuneracion WHERE id_periodo = @id');
@@ -617,7 +736,6 @@ exports.actualizarPeriodo = async (req, res) => {
   }
 };
 
-// Eliminar período
 exports.eliminarPeriodo = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -637,7 +755,6 @@ exports.eliminarPeriodo = async (req, res) => {
     try {
       await transaction.begin();
       
-      // Verificar que el período existe
       const existeResult = await transaction.request()
         .input('id_periodo', sql.Int, id)
         .query('SELECT id_periodo FROM periodos_remuneracion WHERE id_periodo = @id_periodo');
@@ -650,7 +767,12 @@ exports.eliminarPeriodo = async (req, res) => {
         });
       }
       
-      // Eliminar primero los datos de remuneraciones asociados
+      // Eliminar porcentajes asociados
+      await transaction.request()
+        .input('id_periodo', sql.Int, id)
+        .query('DELETE FROM porcentajes_por_periodo WHERE id_periodo = @id_periodo');
+      
+      // Eliminar datos de remuneraciones asociados
       const deleteRemuneracionesResult = await transaction.request()
         .input('id_periodo', sql.Int, id)
         .query('DELETE FROM datos_remuneraciones WHERE id_periodo = @id_periodo');
@@ -684,7 +806,6 @@ exports.eliminarPeriodo = async (req, res) => {
   }
 };
 
-// Obtener datos de un período específico
 exports.obtenerDatosPeriodo = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -746,10 +867,10 @@ exports.obtenerDatosPeriodo = async (req, res) => {
   }
 };
 
-// 🆕 VALIDAR EXCEL CON IDENTIFICACIÓN AUTOMÁTICA MEJORADA
+// 🆕 VALIDAR EXCEL CON IDENTIFICACIÓN AUTOMÁTICA MEJORADA Y UNICODE
 exports.validarExcel = async (req, res) => {
   try {
-    console.log('🔍 VALIDANDO EXCEL CON IDENTIFICACIÓN AUTOMÁTICA...');
+    console.log('🔍 VALIDANDO EXCEL CON IDENTIFICACIÓN AUTOMÁTICA Y UNICODE...');
     
     const { headers, sampleData } = req.body;
     
@@ -763,20 +884,25 @@ exports.validarExcel = async (req, res) => {
     console.log('📋 Headers detectados:', headers);
     console.log('📊 Datos de muestra:', sampleData?.slice(0, 2));
 
-    // 🆕 IDENTIFICAR AUTOMÁTICAMENTE LAS COLUMNAS MEJORADO
-    const mapeoDetectado = identificarColumnasAutomaticamente(headers);
+    // 🆕 LIMPIAR UNICODE EN HEADERS
+    const headersLimpios = headers.map(header => limpiarUnicode(header));
+    console.log('🧹 Headers después de limpiar Unicode:', headersLimpios);
+
+    // 🆕 IDENTIFICAR AUTOMÁTICAMENTE LAS COLUMNAS MEJORADO CON UNICODE
+    const mapeoDetectado = identificarColumnasAutomaticamenteConUnicode(headersLimpios);
     
     const analisis = {
-      total_columnas: headers.length,
-      columnas_detectadas: headers,
+      total_columnas: headersLimpios.length,
+      columnas_detectadas: headersLimpios,
+      headers_originales: headers,
       mapeo_sugerido: mapeoDetectado,
       errores: [],
       advertencias: [],
       calidad_datos: 'buena',
-      formato_detectado: 'nomina_chilena_automatico'
+      formato_detectado: 'nomina_chilena_automatico_unicode'
     };
 
-    console.log('🎯 Mapeo automático detectado:', mapeoDetectado);
+    console.log('🎯 Mapeo automático detectado con Unicode:', mapeoDetectado);
 
     // Validar campos críticos
     if (!mapeoDetectado.rut_empleado) {
@@ -805,18 +931,19 @@ exports.validarExcel = async (req, res) => {
 
     // Generar recomendaciones
     analisis.recomendaciones = [
-      '✅ Identificación automática de columnas activada',
+      '✅ Identificación automática de columnas con soporte Unicode activada',
       '📋 Se procesarán solo las filas con datos válidos',
       '🔧 Los empleados se pueden crear automáticamente si es necesario',
       `🎯 Se detectaron ${camposDetectados.length} campos relevantes`,
-      '🛡️ Validación mejorada de valores decimales'
+      '🛡️ Validación mejorada de valores decimales y separadores de miles',
+      '🌐 Soporte completo para caracteres especiales (ñ, tildes)'
     ];
 
     if (analisis.errores.length === 0) {
       analisis.recomendaciones.push('✅ Archivo listo para procesar');
     }
 
-    console.log('✅ Análisis automático completado');
+    console.log('✅ Análisis automático completado con soporte Unicode');
     
     return res.json({
       success: true,
@@ -832,17 +959,23 @@ exports.validarExcel = async (req, res) => {
   }
 };
 
-// 🚨 FUNCIÓN CRÍTICA CORREGIDA: PROCESAR EXCEL USANDO MAPEO DEL FRONTEND
+// 🚨 FUNCIÓN CRÍTICA CORREGIDA: PROCESAR EXCEL CON PORCENTAJES OBLIGATORIOS Y UNICODE
 exports.procesarExcel = async (req, res) => {
   try {
-    console.log('🚀 PROCESANDO EXCEL - VERSIÓN CORREGIDA QUE USA MAPEO DEL FRONTEND...');
+    console.log('🚀 PROCESANDO EXCEL - VERSIÓN CORREGIDA CON PORCENTAJES Y UNICODE...');
     
-    // 🔥 CRÍTICO: USAR EL MAPEO QUE VIENE DEL FRONTEND
-    const { datosExcel, archivoNombre, validarDuplicados = true, id_periodo, mapeoColumnas } = req.body;
+    const { datosExcel, archivoNombre, validarDuplicados = true, id_periodo, mapeoColumnas, porcentajes, id_razon_social } = req.body;
     
-    console.log('🎯 MAPEO RECIBIDO DEL FRONTEND:', mapeoColumnas);
+    console.log('🎯 DATOS RECIBIDOS:', {
+      totalFilas: datosExcel?.length,
+      periodo: id_periodo,
+      archivo: archivoNombre,
+      razonSocial: id_razon_social,
+      porcentajes: porcentajes,
+      mapeoColumnas: mapeoColumnas
+    });
     
-    // Validaciones básicas
+    // 🔥 VALIDACIONES CRÍTICAS
     if (!datosExcel || !Array.isArray(datosExcel) || datosExcel.length === 0) {
       return res.status(400).json({
         success: false,
@@ -857,7 +990,20 @@ exports.procesarExcel = async (req, res) => {
       });
     }
 
-    // 🔥 CRÍTICO: VALIDAR QUE VENGA EL MAPEO DEL FRONTEND
+    if (!id_razon_social) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de razón social es requerido'
+      });
+    }
+
+    if (!porcentajes) {
+      return res.status(400).json({
+        success: false,
+        message: 'Porcentajes son obligatorios para procesar la nómina'
+      });
+    }
+
     if (!mapeoColumnas || typeof mapeoColumnas !== 'object') {
       return res.status(400).json({
         success: false,
@@ -867,7 +1013,7 @@ exports.procesarExcel = async (req, res) => {
 
     const pool = await poolPromise;
     
-    // Verificar que el período existe ANTES de iniciar procesamiento
+    // Verificar que el período existe
     const periodoResult = await pool.request()
       .input('id_periodo', sql.Int, id_periodo)
       .query('SELECT id_periodo, descripcion FROM periodos_remuneracion WHERE id_periodo = @id_periodo');
@@ -887,13 +1033,27 @@ exports.procesarExcel = async (req, res) => {
       });
     }
 
-    console.log('🎯 USANDO MAPEO DEL FRONTEND:', mapeoColumnas);
+    console.log('🆕 GUARDANDO PORCENTAJES EN BASE DE DATOS...');
+    
+    // 🔥 GUARDAR PORCENTAJES OBLIGATORIAMENTE
+    try {
+      await guardarPorcentajesEnBD(pool, id_periodo, id_razon_social, porcentajes);
+      console.log('✅ Porcentajes guardados exitosamente');
+    } catch (porcentajesError) {
+      console.error('❌ Error guardando porcentajes:', porcentajesError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error al guardar porcentajes: ' + porcentajesError.message
+      });
+    }
+
+    console.log('🎯 USANDO MAPEO DEL FRONTEND CON UNICODE:', mapeoColumnas);
     console.log(`📊 Total de filas a procesar: ${datosExcel.length}`);
 
-    // 🆕 EXTRAER RUTS PARA VALIDACIÓN
+    // 🆕 EXTRAER RUTS PARA VALIDACIÓN CON UNICODE
     const rutsParaValidar = [];
     for (const fila of datosExcel) {
-      const datosExtraidos = extraerDatosDeFila(fila, mapeoColumnas);
+      const datosExtraidos = extraerDatosDeFilaConUnicode(fila, mapeoColumnas);
       if (datosExtraidos.rut_empleado && datosExtraidos.rut_empleado.length >= 8) {
         rutsParaValidar.push(datosExtraidos.rut_empleado);
       }
@@ -908,13 +1068,13 @@ exports.procesarExcel = async (req, res) => {
     let errores = 0;
     const erroresDetalle = [];
 
-    // 🆕 PROCESAR CADA FILA DE FORMA INDIVIDUAL (sin transacción global)
+    // 🆕 PROCESAR CADA FILA CON UNICODE Y CÁLCULO DE TOTAL_COSTO
     for (let i = 0; i < datosExcel.length; i++) {
       const fila = datosExcel[i];
       
       try {
-        // 🔍 EXTRAER DATOS USANDO EL MAPEO DEL FRONTEND
-        const datosExtraidos = extraerDatosDeFila(fila, mapeoColumnas);
+        // 🔍 EXTRAER DATOS USANDO EL MAPEO DEL FRONTEND CON UNICODE
+        const datosExtraidos = extraerDatosDeFilaConUnicode(fila, mapeoColumnas);
         
         // Validar que tenga al menos RUT
         if (!datosExtraidos.rut_empleado || datosExtraidos.rut_empleado.length < 8) {
@@ -925,9 +1085,16 @@ exports.procesarExcel = async (req, res) => {
         console.log(`🔍 Procesando fila ${i + 1}: ${datosExtraidos.nombre_empleado} (${datosExtraidos.rut_empleado})`);
         console.log(`💰 Líquido a pagar: ${datosExtraidos.liquido_pagar}`);
 
+        // 🆕 CALCULAR TOTAL_COSTO USANDO LOS PORCENTAJES
+        const totalCosto = calcularTotalCosto(datosExtraidos, porcentajes);
+        datosExtraidos.total_costo = totalCosto;
+
+        console.log(`💹 Total costo calculado: ${totalCosto}`);
+
         // 🆕 PROCESAR CADA EMPLEADO EN SU PROPIA TRANSACCIÓN
-        const resultado = await procesarEmpleadoIndividual(pool, {
+        const resultado = await procesarEmpleadoIndividualConUnicode(pool, {
           id_periodo: id_periodo,
+          id_razon_social: id_razon_social,
           fila_excel: i + 1,
           archivo_origen: archivoNombre,
           ...datosExtraidos
@@ -964,7 +1131,7 @@ exports.procesarExcel = async (req, res) => {
       }
     }
 
-    // Actualizar fecha de carga del período (solo si hubo procesamientos exitosos)
+    // Actualizar fecha de carga del período
     if (procesados > 0) {
       try {
         await pool.request()
@@ -975,30 +1142,32 @@ exports.procesarExcel = async (req, res) => {
       }
     }
 
-    console.log('✅ PROCESAMIENTO INDIVIDUAL COMPLETADO');
+    console.log('✅ PROCESAMIENTO INDIVIDUAL COMPLETADO CON PORCENTAJES');
     console.log(`📊 Estadísticas: ${procesados} procesados, ${empleadosCreados} empleados creados, ${errores} errores`);
 
-    // 🆕 VERIFICAR SI HAY EMPLEADOS SIN RAZÓN SOCIAL O SUCURSAL
-    const empleadosParaValidar = rutsParaValidar.slice(0, 10); // Validar solo una muestra para no sobrecargar
+    // 🆕 VERIFICAR SI HAY EMPLEADOS SIN ASIGNACIÓN
+    const empleadosParaValidar = rutsParaValidar.slice(0, 10);
     
     return res.json({
       success: true,
-      message: `Excel procesado: ${procesados}/${datosExcel.length} registros exitosos`,
+      message: `Excel procesado: ${procesados}/${datosExcel.length} registros exitosos con porcentajes guardados`,
       data: {
         total_filas: datosExcel.length,
         procesados,
         empleados_creados: empleadosCreados,
         empleados_encontrados: empleadosEncontrados,
         errores,
-        errores_detalle: erroresDetalle.slice(0, 10), // Solo primeros 10 errores
+        errores_detalle: erroresDetalle.slice(0, 10),
         id_periodo: id_periodo,
-        mapeo_utilizado: mapeoColumnas, // 🔥 CRÍTICO: Devolver el mapeo utilizado
-        empleados_para_validar: empleadosParaValidar // Para posterior validación
+        id_razon_social: id_razon_social,
+        porcentajes_guardados: porcentajes,
+        mapeo_utilizado: mapeoColumnas,
+        empleados_para_validar: empleadosParaValidar
       }
     });
 
   } catch (error) {
-    console.error('💥 ERROR EN PROCESAMIENTO:', error.message);
+    console.error('💥 ERROR EN PROCESAMIENTO CON PORCENTAJES:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Error procesando Excel',
@@ -1040,7 +1209,6 @@ exports.estadisticas = async (req, res) => {
   }
 };
 
-// Generar reporte de análisis
 exports.generarReporteAnalisis = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -1105,11 +1273,37 @@ exports.generarReporteAnalisis = async (req, res) => {
   }
 };
 
-// ========== FUNCIONES AUXILIARES - MAPEO CORREGIDO ==========
+// ========== FUNCIONES AUXILIARES MEJORADAS CON UNICODE ==========
 
-// ÚNICA FUNCIÓN CORREGIDA: Identificar columnas automáticamente
-function identificarColumnasAutomaticamente(headers) {
-  console.log('🔍 Identificando columnas automáticamente...');
+// 🆕 FUNCIÓN PARA LIMPIAR UNICODE Y CARACTERES ESPECIALES
+function limpiarUnicode(texto) {
+  if (!texto) return '';
+  
+  return String(texto)
+    // Normalizar Unicode a forma canónica
+    .normalize('NFD')
+    // Reemplazar caracteres problemáticos comunes
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã/g, 'Ñ')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã"/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    // Limpiar caracteres de control y espacios extra
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ÚNICA FUNCIÓN CORREGIDA: Identificar columnas automáticamente con Unicode
+function identificarColumnasAutomaticamenteConUnicode(headers) {
+  console.log('🔍 Identificando columnas automáticamente con soporte Unicode...');
   
   const mapeo = {
     codigo_empleado: null,
@@ -1143,9 +1337,10 @@ function identificarColumnasAutomaticamente(headers) {
   };
 
   headers.forEach((header, index) => {
-    const headerUpper = header.toUpperCase().trim();
+    const headerLimpio = limpiarUnicode(header);
+    const headerUpper = headerLimpio.toUpperCase().trim();
     
-    // 🆕 IDENTIFICACIÓN MEJORADA BASADA EN LOS HEADERS REALES
+    // 🆕 IDENTIFICACIÓN MEJORADA CON SOPORTE UNICODE
     if (headerUpper.includes('COD') && !headerUpper.includes('NOMBRE')) {
       mapeo.codigo_empleado = header;
     }
@@ -1154,9 +1349,6 @@ function identificarColumnasAutomaticamente(headers) {
     }
     else if (headerUpper.includes('NOMBRE') && !headerUpper.includes('CODIGO')) {
       mapeo.nombre_empleado = header;
-    }
-    else if (headerUpper.includes('DT') || headerUpper === 'DT') {
-      // Campo DT - no sabemos exactamente qué es, posiblemente días trabajados
     }
     else if (headerUpper.includes('S. BASE') || headerUpper === 'S. BASE' || headerUpper.includes('SUELDO BASE')) {
       mapeo.sueldo_base = header;
@@ -1185,13 +1377,13 @@ function identificarColumnasAutomaticamente(headers) {
     else if (headerUpper.includes('TOT. HABERES') || headerUpper === 'TOT. HABERES' || headerUpper.includes('TOTAL HABERES')) {
       mapeo.total_haberes = header;
     }
-    else if (headerUpper.includes('PREVISIÓN') || headerUpper === 'PREVISIÓN' || headerUpper.includes('PREVISION')) {
+    else if (headerUpper.includes('PREVISION') || headerUpper === 'PREVISION' || headerUpper.includes('PREVISION')) {
       mapeo.descuento_prevision = header;
     }
     else if (headerUpper.includes('SALUD') && !headerUpper.includes('OTROS')) {
       mapeo.descuento_salud = header;
     }
-    else if (headerUpper.includes('IMP. ÚNICO') || headerUpper === 'IMP. ÚNICO' || headerUpper.includes('IMP. UNICO')) {
+    else if (headerUpper.includes('IMP. UNICO') || headerUpper === 'IMP. UNICO' || headerUpper.includes('IMP. UNICO')) {
       mapeo.impuesto_unico = header;
     }
     else if (headerUpper.includes('SEG. CES.') || headerUpper === 'SEG. CES.' || headerUpper.includes('SEGURO CESANTIA')) {
@@ -1209,29 +1401,27 @@ function identificarColumnasAutomaticamente(headers) {
     else if (headerUpper.includes('TOT. DESC.') || headerUpper === 'TOT. DESC.' || headerUpper.includes('TOTAL DESC')) {
       mapeo.total_descuentos = header;
     }
-    // 🔥 CRÍTICO: Detección corregida de LÍQUIDO con todas las variaciones
-    else if (headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' || 
-             headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' ||
-             headerUpper.includes('LÃ¯Â¿Â½IDO') || headerUpper === 'LÃ¯Â¿Â½IDO' ||
-             headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' ||
-             headerUpper.includes('LÍQUIDO') || headerUpper === 'LÍQUIDO' ||
+    // 🔥 CRÍTICO: Detección corregida de LÍQUIDO con Unicode
+    else if (headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' || 
              headerUpper.includes('LIQUIDO A PAGAR') || 
              headerUpper.includes('LIQUIDO PAGAR') || 
-             headerUpper.includes('LIQ.') || headerUpper === 'LIQ.') {
+             headerUpper.includes('LIQ.') || headerUpper === 'LIQ.' ||
+             headerUpper.includes('NETO') || headerUpper.includes('NET') ||
+             (headerUpper.includes('PAGAR') && headerUpper.includes('LIQ'))) {
       mapeo.liquido_pagar = header;
-      console.log(`🎯 LÍQUIDO DETECTADO EN BACKEND: "${header}" mapeado correctamente`);
+      console.log(`🎯 LÍQUIDO DETECTADO CON UNICODE: "${header}" mapeado correctamente`);
     }
   });
 
   // Log del mapeo detectado
   const camposDetectados = Object.keys(mapeo).filter(key => mapeo[key]);
-  console.log(`🎯 Detectados ${camposDetectados.length} campos:`, camposDetectados);
+  console.log(`🎯 Detectados ${camposDetectados.length} campos con Unicode:`, camposDetectados);
 
   return mapeo;
 }
 
-// RESTO DE FUNCIONES SIN CAMBIOS
-function extraerDatosDeFila(fila, mapeoColumnas) {
+// 🆕 FUNCIÓN PARA EXTRAER DATOS CON UNICODE Y COMO STRINGS
+function extraerDatosDeFilaConUnicode(fila, mapeoColumnas) {
   const datos = {};
   
   Object.keys(mapeoColumnas).forEach(campo => {
@@ -1241,8 +1431,8 @@ function extraerDatosDeFila(fila, mapeoColumnas) {
       
       if (campo !== 'codigo_empleado' && campo !== 'rut_empleado' && 
           campo !== 'nombre_empleado') {
-        // 🔥 CRÍTICO: APLICAR MULTIPLICACIÓN SELECTIVA SOLO A CAMPOS ESPECÍFICOS
-        valor = parseNumberChilenoConMultiplicacionSelectiva(valor, campo);
+        // 🔥 CRÍTICO: TRATAR COMO STRING PRIMERO Y LUEGO CONVERTIR
+        valor = parseNumberChilenoMejoradoConString(valor, campo);
       }
       
       if (campo === 'rut_empleado') {
@@ -1250,14 +1440,14 @@ function extraerDatosDeFila(fila, mapeoColumnas) {
       }
       
       if (campo === 'nombre_empleado') {
-        valor = limpiarTexto(valor);
+        valor = limpiarTextoConUnicode(valor);
       }
       
       datos[campo] = valor;
       
       // 🔥 LOG CRÍTICO PARA LÍQUIDO
       if (campo === 'liquido_pagar') {
-        console.log(`💰 LÍQUIDO EXTRAÍDO: Campo "${nombreColumna}" -> Valor: ${valor}`);
+        console.log(`💰 LÍQUIDO EXTRAÍDO CON UNICODE: Campo "${nombreColumna}" -> Valor: ${valor}`);
       }
     }
   });
@@ -1265,18 +1455,280 @@ function extraerDatosDeFila(fila, mapeoColumnas) {
   return datos;
 }
 
-async function procesarEmpleadoIndividual(pool, datos) {
+// 🆕 FUNCIÓN PARA LIMPIAR TEXTO CON UNICODE
+function limpiarTextoConUnicode(texto) {
+  if (!texto) return '';
+  return limpiarUnicode(String(texto)).replace(/\s+/g, ' ');
+}
+
+// 🔥 FUNCIÓN CRÍTICA: PARSE DE NÚMEROS CHILENOS COMO STRING PRIMERO
+function parseNumberChilenoMejoradoConString(valor, nombreCampo) {
+  if (!valor || valor === '' || valor === null || valor === undefined) return 0;
+  
+  // Convertir a string primero para evitar truncamiento
+  let valorString = String(valor).trim();
+  
+  // Limpiar Unicode
+  valorString = limpiarUnicode(valorString);
+  
+  // Si ya es un número y es razonable, aplicar lógica inteligente
+  if (typeof valor === 'number' && !isNaN(valor) && isFinite(valor)) {
+    return aplicarMultiplicacionInteligentePorCampo(valor, nombreCampo);
+  }
+  
+  // Detectar y rechazar fórmulas o caracteres extraños
+  if (valorString.startsWith('"') || valorString.includes('=') || valorString.includes('%') || 
+      valorString.includes('*') || valorString.includes('+') || valorString.includes('(')) {
+    return 0;
+  }
+  
+  // Limpiar solo caracteres no numéricos, manteniendo puntos y comas
+  valorString = valorString.replace(/[^\d.,-]/g, '');
+  
+  if (!valorString) return 0;
+  
+  let numeroFinal;
+  
+  // 🆕 MANEJO MEJORADO DE SEPARADORES CHILENOS
+  if (valorString.includes(',') && valorString.includes('.')) {
+    // Formato: 1.234.567,89 (punto como separador de miles, coma como decimal)
+    // O formato: 1,234,567.89 (coma como separador de miles, punto como decimal)
+    const ultimaComa = valorString.lastIndexOf(',');
+    const ultimoPunto = valorString.lastIndexOf('.');
+    
+    if (ultimoPunto > ultimaComa) {
+      // Formato americano: 1,234,567.89
+      numeroFinal = parseFloat(valorString.replace(/,/g, ''));
+    } else {
+      // Formato chileno: 1.234.567,89
+      numeroFinal = parseFloat(valorString.replace(/\./g, '').replace(',', '.'));
+    }
+  } else if (valorString.includes(',')) {
+    const partes = valorString.split(',');
+    if (partes.length === 2 && partes[1].length <= 2) {
+      // Formato: 123456,89 (coma como decimal)
+      numeroFinal = parseFloat(valorString.replace(',', '.'));
+    } else {
+      // Formato: 123,456,789 (coma como separador de miles)
+      numeroFinal = parseFloat(valorString.replace(/,/g, ''));
+    }
+  } else if (valorString.includes('.')) {
+    const partes = valorString.split('.');
+    if (partes.length === 2 && partes[1].length <= 2) {
+      // Podría ser decimal: 123456.89
+      numeroFinal = parseFloat(valorString);
+    } else {
+      // Separador de miles: 123.456.789
+      numeroFinal = parseFloat(valorString.replace(/\./g, ''));
+    }
+  } else {
+    // Solo números: 123456
+    numeroFinal = parseFloat(valorString);
+  }
+  
+  if (isNaN(numeroFinal) || !isFinite(numeroFinal)) {
+    console.log(`⚠️ Valor no convertible: "${valor}" -> 0`);
+    return 0;
+  }
+  
+  // 🚨 APLICAR LÓGICA INTELIGENTE SELECTIVA POR CAMPO
+  return aplicarMultiplicacionInteligentePorCampo(numeroFinal, nombreCampo);
+}
+
+// 🚨 FUNCIÓN CRÍTICA: MULTIPLICACIÓN INTELIGENTE SOLO PARA CAMPOS ESPECÍFICOS
+function aplicarMultiplicacionInteligentePorCampo(numero, nombreCampo) {
+  if (numero <= 0) return numero;
+  
+  // 🔥 CAMPOS QUE NO DEBEN MULTIPLICARSE
+  const camposExcluidos = [
+    'seguro_cesantia',
+    'afc',
+    'sis', 
+    'impuesto_unico',
+    'descuento_prevision',
+    'descuento_salud',
+    'otros_descuentos_legales',
+    'descuentos_varios',
+    'caja_compensacion'
+  ];
+  
+  if (camposExcluidos.includes(nombreCampo)) {
+    console.log(`🚫 SIN MULTIPLICACIÓN (campo excluido): ${nombreCampo} = ${numero}`);
+    return numero;
+  }
+  
+  // 🎯 CAMPOS QUE SÍ PUEDEN NECESITAR MULTIPLICACIÓN
+  const camposParaMultiplicar = [
+    'sueldo_base',
+    'horas_extras', 
+    'gratificacion_legal',
+    'otros_imponibles',
+    'total_imponibles',
+    'asignacion_familiar',
+    'otros_no_imponibles',
+    'total_no_imponibles',
+    'total_haberes',
+    'liquido_pagar',
+    'total_pago',
+    'total_descuentos',
+    'total_descuentos_legales'
+  ];
+  
+  if (camposParaMultiplicar.includes(nombreCampo)) {
+    const resultado = aplicarMultiplicacionInteligente(numero);
+    if (resultado !== numero) {
+      console.log(`🔢 MULTIPLICACIÓN APLICADA: ${nombreCampo} = ${numero} -> ${resultado}`);
+    }
+    return resultado;
+  }
+  
+  console.log(`➡️ SIN CAMBIOS: ${nombreCampo} = ${numero}`);
+  return numero;
+}
+
+// 🚀 FUNCIÓN ORIGINAL: LÓGICA INTELIGENTE DE MULTIPLICACIÓN
+function aplicarMultiplicacionInteligente(numero) {
+  if (numero <= 0) return numero;
+  
+  const SUELDO_MINIMO_CHILE = 350000;
+  const SUELDO_PROMEDIO_CHILE = 600000;
+  const SUELDO_ALTO_CHILE = 2000000;
+  
+  if (numero >= 50 && numero <= 999) {
+    return numero * 1000;
+  }
+  
+  if (numero >= 10 && numero < SUELDO_MINIMO_CHILE) {
+    if (numero >= 10 && numero <= 999) {
+      return numero * 1000;
+    } else if (numero >= 1000 && numero < 100000) {
+      if (numero < 10000) {
+        return numero * 100;
+      } else {
+        return numero * 10;
+      }
+    }
+  }
+  
+  if (numero > 0 && numero < 100 && numero % 1 !== 0) {
+    return numero * 10000;
+  }
+  
+  if (numero >= SUELDO_MINIMO_CHILE && numero <= 10000000) {
+    return numero;
+  }
+  
+  if (numero > 10000000) {
+    return numero;
+  }
+  
+  return numero;
+}
+
+// 🆕 FUNCIÓN PARA CALCULAR TOTAL_COSTO USANDO PORCENTAJES
+function calcularTotalCosto(datosRemuneracion, porcentajes) {
+  try {
+    const sueldoBase = parseFloat(datosRemuneracion.sueldo_base || 0);
+    
+    // Calcular costos del empleador basados en porcentajes
+    const costoCajaCompensacion = sueldoBase * (parseFloat(porcentajes.caja_compen || 0) / 100);
+    const costoAFC = sueldoBase * (parseFloat(porcentajes.afc || 0) / 100);
+    const costoSIS = sueldoBase * (parseFloat(porcentajes.sis || 0) / 100);
+    const costoACH = sueldoBase * (parseFloat(porcentajes.ach || 0) / 100);
+    const costoImposiciones = sueldoBase * (parseFloat(porcentajes.imposiciones || 0) / 100);
+    
+    // Total costo = sueldo base + todos los costos del empleador
+    const totalCosto = sueldoBase + costoCajaCompensacion + costoAFC + costoSIS + costoACH + costoImposiciones;
+    
+    console.log(`💹 Cálculo total_costo: ${sueldoBase} + ${costoCajaCompensacion} + ${costoAFC} + ${costoSIS} + ${costoACH} + ${costoImposiciones} = ${totalCosto}`);
+    
+    return Math.round(totalCosto);
+  } catch (error) {
+    console.error('Error calculando total_costo:', error);
+    return 0;
+  }
+}
+
+// 🆕 FUNCIÓN PARA GUARDAR PORCENTAJES EN BD
+async function guardarPorcentajesEnBD(pool, id_periodo, id_razon_social, porcentajes) {
   const transaction = new sql.Transaction(pool);
   
   try {
     await transaction.begin();
     
-    const empleadoInfo = await crearEmpleadoSiNoExiste(transaction, datos);
-    await guardarDatosRemuneracionSeguro(transaction, datos);
+    // Verificar si ya existe
+    const existeResult = await transaction.request()
+      .input('id_periodo', sql.Int, id_periodo)
+      .input('id_razon_social', sql.Int, id_razon_social)
+      .query(`
+        SELECT id FROM porcentajes_por_periodo 
+        WHERE id_periodo = @id_periodo AND id_razon_social = @id_razon_social
+      `);
+    
+    if (existeResult.recordset.length > 0) {
+      // Actualizar
+      await transaction.request()
+        .input('id_periodo', sql.Int, id_periodo)
+        .input('id_razon_social', sql.Int, id_razon_social)
+        .input('caja_compen', sql.Decimal(5,2), parseFloat(porcentajes.caja_compen || 0))
+        .input('afc', sql.Decimal(5,2), parseFloat(porcentajes.afc || 0))
+        .input('sis', sql.Decimal(5,2), parseFloat(porcentajes.sis || 0))
+        .input('ach', sql.Decimal(5,2), parseFloat(porcentajes.ach || 0))
+        .input('imposiciones', sql.Decimal(5,2), parseFloat(porcentajes.imposiciones || 0))
+        .query(`
+          UPDATE porcentajes_por_periodo 
+          SET 
+            caja_compen = @caja_compen,
+            afc = @afc,
+            sis = @sis,
+            ach = @ach,
+            imposiciones = @imposiciones,
+            updated_at = GETDATE()
+          WHERE id_periodo = @id_periodo AND id_razon_social = @id_razon_social
+        `);
+    } else {
+      // Crear nuevo
+      await transaction.request()
+        .input('id_periodo', sql.Int, id_periodo)
+        .input('id_razon_social', sql.Int, id_razon_social)
+        .input('caja_compen', sql.Decimal(5,2), parseFloat(porcentajes.caja_compen || 0))
+        .input('afc', sql.Decimal(5,2), parseFloat(porcentajes.afc || 0))
+        .input('sis', sql.Decimal(5,2), parseFloat(porcentajes.sis || 0))
+        .input('ach', sql.Decimal(5,2), parseFloat(porcentajes.ach || 0))
+        .input('imposiciones', sql.Decimal(5,2), parseFloat(porcentajes.imposiciones || 0))
+        .query(`
+          INSERT INTO porcentajes_por_periodo (
+            id_periodo, id_razon_social, caja_compen, afc, sis, ach, 
+            imposiciones, activo, created_at
+          )
+          VALUES (
+            @id_periodo, @id_razon_social, @caja_compen, @afc, @sis, @ach,
+            @imposiciones, 1, GETDATE()
+          )
+        `);
+    }
+    
+    await transaction.commit();
+    console.log('✅ Porcentajes guardados en BD');
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+// 🆕 PROCESAR EMPLEADO INDIVIDUAL CON UNICODE
+async function procesarEmpleadoIndividualConUnicode(pool, datos) {
+  const transaction = new sql.Transaction(pool);
+  
+  try {
+    await transaction.begin();
+    
+    const empleadoInfo = await crearEmpleadoSiNoExisteConUnicode(transaction, datos);
+    await guardarDatosRemuneracionSeguroConUnicode(transaction, datos);
     
     await transaction.commit();
     
-    console.log(`✅ Empleado procesado: ${datos.nombre_empleado} - Líquido: ${datos.liquido_pagar}`);
+    console.log(`✅ Empleado procesado con Unicode: ${datos.nombre_empleado} - Líquido: ${datos.liquido_pagar}`);
     
     return {
       success: true,
@@ -1294,7 +1746,8 @@ async function procesarEmpleadoIndividual(pool, datos) {
   }
 }
 
-async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
+// 🆕 CREAR EMPLEADO CON UNICODE
+async function crearEmpleadoSiNoExisteConUnicode(transaction, datosExtraidos) {
   const rutLimpio = limpiarRUT(datosExtraidos.rut_empleado);
   
   if (!rutLimpio || rutLimpio.length < 8) {
@@ -1313,7 +1766,7 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
   }
 
   try {
-    const nombreCompleto = datosExtraidos.nombre_empleado || 'Sin Nombre';
+    const nombreCompleto = limpiarTextoConUnicode(datosExtraidos.nombre_empleado || 'Sin Nombre');
     const partesNombre = nombreCompleto.trim().split(' ');
     const nombre = partesNombre[0] || 'Sin Nombre';
     const apellido = partesNombre.slice(1).join(' ') || 'Sin Apellido';
@@ -1322,13 +1775,14 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
       .input('rut', sql.VarChar, rutLimpio)
       .input('nombre', sql.VarChar, nombre)
       .input('apellido', sql.VarChar, apellido)
+      .input('id_razon_social', sql.Int, datosExtraidos.id_razon_social || null)
       .query(`
-        INSERT INTO empleados (rut, nombre, apellido, activo, created_at, updated_at)
-        VALUES (@rut, @nombre, @apellido, 1, GETDATE(), GETDATE());
+        INSERT INTO empleados (rut, nombre, apellido, id_razon_social, activo, created_at, updated_at)
+        VALUES (@rut, @nombre, @apellido, @id_razon_social, 1, GETDATE(), GETDATE());
         SELECT SCOPE_IDENTITY() as nuevo_id;
       `);
 
-    console.log(`👤 Empleado creado: ${nombreCompleto} (${rutLimpio})`);
+    console.log(`👤 Empleado creado con Unicode: ${nombreCompleto} (${rutLimpio})`);
     
     return { esNuevo: true, id: resultado.recordset[0].nuevo_id };
   } catch (error) {
@@ -1337,7 +1791,8 @@ async function crearEmpleadoSiNoExiste(transaction, datosExtraidos) {
   }
 }
 
-async function guardarDatosRemuneracionSeguro(transaction, datos) {
+// 🆕 GUARDAR DATOS CON UNICODE Y TOTAL_COSTO
+async function guardarDatosRemuneracionSeguroConUnicode(transaction, datos) {
   const request = transaction.request();
   
   const campos = [
@@ -1347,7 +1802,7 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
     'descuento_prevision', 'descuento_salud', 'impuesto_unico', 'seguro_cesantia',
     'otros_descuentos_legales', 'total_descuentos_legales', 'descuentos_varios', 'total_descuentos',
     'liquido_pagar', 'total_pago', 'caja_compensacion', 'afc', 'sis', 'ach', 'imposiciones',
-    'total_cargo_trabajador', 'fila_excel', 'archivo_origen'
+    'total_cargo_trabajador', 'total_costo', 'fila_excel', 'archivo_origen'
   ];
 
   campos.forEach(campo => {
@@ -1358,16 +1813,19 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
     } else if (campo === 'codigo_empleado' || campo === 'rut_empleado' || 
                campo === 'nombre_empleado' || campo === 'archivo_origen') {
       if (valor) {
-        valor = String(valor).substring(0, 255);
+        valor = limpiarTextoConUnicode(String(valor)).substring(0, 255);
       }
       request.input(campo, sql.VarChar, valor);
     } else {
       const valorDecimal = validarValorDecimal(valor);
       request.input(campo, sql.Decimal(12,2), valorDecimal);
       
-      // 🔥 LOG CRÍTICO PARA LÍQUIDO
+      // 🔥 LOG CRÍTICO PARA LÍQUIDO Y TOTAL_COSTO
       if (campo === 'liquido_pagar') {
-        console.log(`💰 GUARDANDO LÍQUIDO: ${valorDecimal} (original: ${valor})`);
+        console.log(`💰 GUARDANDO LÍQUIDO CON UNICODE: ${valorDecimal} (original: ${valor})`);
+      }
+      if (campo === 'total_costo') {
+        console.log(`💹 GUARDANDO TOTAL_COSTO: ${valorDecimal} (original: ${valor})`);
       }
     }
   });
@@ -1382,184 +1840,14 @@ async function guardarDatosRemuneracionSeguro(transaction, datos) {
   `;
 
   const resultado = await request.query(query);
-  console.log(`💾 Registro guardado con ID: ${resultado.recordset[0].nuevo_id}`);
+  console.log(`💾 Registro guardado con Unicode y total_costo ID: ${resultado.recordset[0].nuevo_id}`);
   return resultado.recordset[0].nuevo_id;
 }
 
+// RESTO DE FUNCIONES SIN CAMBIOS
 function limpiarRUT(rut) {
   if (!rut) return null;
-  return String(rut).replace(/[.\-\s]/g, '').toUpperCase().trim();
-}
-
-function limpiarTexto(texto) {
-  if (!texto) return '';
-  return String(texto).trim().replace(/\s+/g, ' ');
-}
-
-// 🔥 FUNCIÓN CRÍTICA CORREGIDA: parseNumberChilenoConMultiplicacionSelectiva
-function parseNumberChilenoConMultiplicacionSelectiva(valor, nombreCampo) {
-  if (!valor || valor === '' || valor === null || valor === undefined) return 0;
-  
-  if (typeof valor === 'number' && !isNaN(valor) && isFinite(valor)) {
-    // 🚨 APLICAR MULTIPLICACIÓN SOLO A CAMPOS ESPECÍFICOS
-    return aplicarMultiplicacionInteligentePorCampo(valor, nombreCampo);
-  }
-  
-  let cleaned = String(valor).trim();
-  
-  // Detectar y rechazar fórmulas o caracteres extraños
-  if (cleaned.startsWith('"') || cleaned.includes('=') || cleaned.includes('%') || 
-      cleaned.includes('*') || cleaned.includes('+') || cleaned.includes('(')) {
-    return 0;
-  }
-  
-  // Limpiar solo caracteres no numéricos, manteniendo puntos y comas
-  cleaned = cleaned.replace(/[^\d.,-]/g, '');
-  
-  if (!cleaned) return 0;
-  
-  let numeroFinal;
-  
-  // Manejo de formatos numéricos chilenos
-  if (cleaned.includes(',') && cleaned.includes('.')) {
-    // Formato: 1.234.567,89 (punto como separador de miles, coma como decimal)
-    numeroFinal = parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
-  } else if (cleaned.includes(',')) {
-    const partes = cleaned.split(',');
-    if (partes.length === 2 && partes[1].length <= 2) {
-      // Formato: 123456,89 (coma como decimal)
-      numeroFinal = parseFloat(cleaned.replace(',', '.'));
-    } else {
-      // Formato: 123,456,789 (coma como separador de miles)
-      numeroFinal = parseFloat(cleaned.replace(/,/g, ''));
-    }
-  } else if (cleaned.includes('.')) {
-    // Solo puntos - asumir separador de miles: 123.456.789
-    numeroFinal = parseFloat(cleaned.replace(/\./g, ''));
-  } else {
-    // Solo números: 123456
-    numeroFinal = parseFloat(cleaned);
-  }
-  
-  if (isNaN(numeroFinal) || !isFinite(numeroFinal)) {
-    return 0;
-  }
-  
-  // 🚨 APLICAR LÓGICA INTELIGENTE SELECTIVA POR CAMPO
-  return aplicarMultiplicacionInteligentePorCampo(numeroFinal, nombreCampo);
-}
-
-// 🚨 NUEVA FUNCIÓN CRÍTICA: MULTIPLICACIÓN INTELIGENTE SOLO PARA CAMPOS ESPECÍFICOS
-function aplicarMultiplicacionInteligentePorCampo(numero, nombreCampo) {
-  if (numero <= 0) return numero;
-  
-  // 🔥 CAMPOS QUE NO DEBEN MULTIPLICARSE (seguros, descuentos pequeños, etc.)
-  const camposExcluidos = [
-    'seguro_cesantia',
-    'afc',
-    'sis', 
-    'impuesto_unico',
-    'descuento_prevision',
-    'descuento_salud',
-    'otros_descuentos_legales',
-    'descuentos_varios',
-    'caja_compensacion'
-  ];
-  
-  // Si es un campo excluido, NO aplicar multiplicación
-  if (camposExcluidos.includes(nombreCampo)) {
-    console.log(`🚫 SIN MULTIPLICACIÓN (campo excluido): ${nombreCampo} = ${numero}`);
-    return numero;
-  }
-  
-  // 🎯 CAMPOS QUE SÍ PUEDEN NECESITAR MULTIPLICACIÓN (sueldos, haberes, líquidos)
-  const camposParaMultiplicar = [
-    'sueldo_base',
-    'horas_extras', 
-    'gratificacion_legal',
-    'otros_imponibles',
-    'total_imponibles',
-    'asignacion_familiar',
-    'otros_no_imponibles',
-    'total_no_imponibles',
-    'total_haberes',
-    'liquido_pagar',
-    'total_pago',
-    'total_descuentos',
-    'total_descuentos_legales'
-  ];
-  
-  // Solo aplicar multiplicación a campos específicos
-  if (camposParaMultiplicar.includes(nombreCampo)) {
-    const resultado = aplicarMultiplicacionInteligente(numero);
-    if (resultado !== numero) {
-      console.log(`🔢 MULTIPLICACIÓN APLICADA: ${nombreCampo} = ${numero} -> ${resultado}`);
-    }
-    return resultado;
-  }
-  
-  // Para otros campos no listados, devolver sin modificar
-  console.log(`➡️ SIN CAMBIOS: ${nombreCampo} = ${numero}`);
-  return numero;
-}
-
-// 🚀 FUNCIÓN ORIGINAL: LÓGICA INTELIGENTE DE MULTIPLICACIÓN BASADA EN RANGOS CHILENOS
-function aplicarMultiplicacionInteligente(numero) {
-  if (numero <= 0) return numero;
-  
-  const numeroOriginal = numero;
-  
-  // Rangos típicos de sueldos y valores en Chile (en pesos chilenos)
-  const SUELDO_MINIMO_CHILE = 350000;        // Aprox sueldo mínimo
-  const SUELDO_PROMEDIO_CHILE = 600000;      // Sueldo promedio típico
-  const SUELDO_ALTO_CHILE = 2000000;         // Sueldo alto pero normal
-  
-  // CASO 1: Números muy pequeños (1-999) - Claramente truncados, multiplicar por 1000
-  if (numero >= 50 && numero <= 999) {
-    const resultado = numero * 1000;
-    return resultado;
-  }
-  
-  // CASO 2: Números de 2-4 dígitos que están por debajo del sueldo mínimo - Probablemente truncados
-  if (numero >= 10 && numero < SUELDO_MINIMO_CHILE) {
-    // Sub-caso: números de 2-3 dígitos (10-999) -> multiplicar por 1000
-    if (numero >= 10 && numero <= 999) {
-      const resultado = numero * 1000;
-      return resultado;
-    }
-    // Sub-caso: números de 4-5 dígitos pequeños (1000-99999) -> multiplicar por 10 o 100
-    else if (numero >= 1000 && numero < 100000) {
-      if (numero < 10000) {
-        // 1000-9999 -> multiplicar por 100
-        const resultado = numero * 100;
-        return resultado;
-      } else {
-        // 10000-99999 -> multiplicar por 10
-        const resultado = numero * 10;
-        return resultado;
-      }
-    }
-  }
-  
-  // CASO 3: Números decimales pequeños que parecen estar en miles
-  if (numero > 0 && numero < 100 && numero % 1 !== 0) {
-    // Decimales como 29.5, 52.6, etc. -> probablemente son 295000, 526000
-    const resultado = numero * 10000;
-    return resultado;
-  }
-  
-  // CASO 4: Números que ya están en rango normal - NO multiplicar
-  if (numero >= SUELDO_MINIMO_CHILE && numero <= 10000000) {
-    return numero;
-  }
-  
-  // CASO 5: Números muy altos - NO multiplicar
-  if (numero > 10000000) {
-    return numero;
-  }
-  
-  // CASO DEFAULT: Si no cae en ningún caso, devolver original
-  return numero;
+  return limpiarUnicode(String(rut)).replace(/[.\-\s]/g, '').toUpperCase();
 }
 
 function validarValorDecimal(valor) {
@@ -1592,6 +1880,7 @@ function generarReporteEstadistico(datos) {
       suma_total_haberes: datos.reduce((sum, item) => sum + (parseFloat(item.total_haberes) || 0), 0),
       suma_total_descuentos: datos.reduce((sum, item) => sum + (parseFloat(item.total_descuentos) || 0), 0),
       suma_liquidos: datos.reduce((sum, item) => sum + (parseFloat(item.liquido_pagar) || 0), 0),
+      suma_total_costos: datos.reduce((sum, item) => sum + (parseFloat(item.total_costo) || 0), 0),
       empleados_con_datos: datos.filter(d => d.cargo).length,
       empleados_sin_datos: datos.filter(d => !d.cargo).length
     },
@@ -1611,62 +1900,6 @@ function generarReporteEstadistico(datos) {
     reporte.resumen.sueldo_minimo = Math.min(...sueldos);
     reporte.resumen.sueldo_maximo = Math.max(...sueldos);
   }
-
-  const gruposPorCargo = {};
-  datos.forEach(item => {
-    const cargo = item.cargo || 'Sin especificar';
-    if (!gruposPorCargo[cargo]) {
-      gruposPorCargo[cargo] = [];
-    }
-    gruposPorCargo[cargo].push(item);
-  });
-
-  Object.keys(gruposPorCargo).forEach(cargo => {
-    const empleados = gruposPorCargo[cargo];
-    reporte.estadisticas_por_cargo[cargo] = {
-      cantidad: empleados.length,
-      suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
-      promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
-    };
-  });
-
-  const gruposPorRazonSocial = {};
-  datos.forEach(item => {
-    const razonSocial = item.razon_social || 'Sin Razón Social';
-    if (!gruposPorRazonSocial[razonSocial]) {
-      gruposPorRazonSocial[razonSocial] = [];
-    }
-    gruposPorRazonSocial[razonSocial].push(item);
-  });
-
-  Object.keys(gruposPorRazonSocial).forEach(razonSocial => {
-    const empleados = gruposPorRazonSocial[razonSocial];
-    reporte.estadisticas_por_razon_social[razonSocial] = {
-      cantidad: empleados.length,
-      suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
-      suma_liquidos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
-      promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
-    };
-  });
-
-  const gruposPorSucursal = {};
-  datos.forEach(item => {
-    const sucursal = item.sucursal || 'Sin Sucursal';
-    if (!gruposPorSucursal[sucursal]) {
-      gruposPorSucursal[sucursal] = [];
-    }
-    gruposPorSucursal[sucursal].push(item);
-  });
-
-  Object.keys(gruposPorSucursal).forEach(sucursal => {
-    const empleados = gruposPorSucursal[sucursal];
-    reporte.estadisticas_por_sucursal[sucursal] = {
-      cantidad: empleados.length,
-      suma_sueldos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0),
-      suma_liquidos: empleados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
-      promedio_sueldo: empleados.reduce((sum, emp) => sum + (parseFloat(emp.sueldo_base) || 0), 0) / empleados.length
-    };
-  });
 
   return reporte;
 }
@@ -1719,8 +1952,6 @@ function detectarAnomalias(datos) {
   const desviacion = Math.sqrt(sueldos.reduce((sum, s) => sum + Math.pow(s - promedio, 2), 0) / sueldos.length);
   
   const sueldoMinimo = 350000;
-  const sueldoMaximo = Math.max(...sueldos);
-  const sueldoMinEstudio = Math.min(...sueldos);
   
   datos.forEach(empleado => {
     const sueldo = parseFloat(empleado.sueldo_base) || 0;
@@ -1730,95 +1961,25 @@ function detectarAnomalias(datos) {
       if (zScore > 2) {
         const esSueldoAlto = sueldo > promedio;
         let analisisDetallado = '';
-        let posiblesCausas = [];
-        let recomendaciones = [];
         let nivelRiesgo = 'MEDIO';
         
         if (esSueldoAlto) {
           if (sueldo > promedio * 3) {
             analisisDetallado = `Sueldo excepcionalmente alto: ${((sueldo / promedio - 1) * 100).toFixed(0)}% sobre el promedio`;
             nivelRiesgo = 'ALTO';
-            posiblesCausas = [
-              'Cargo ejecutivo o de alta responsabilidad',
-              'Bonos especiales o comisiones extraordinarias',
-              'Error de digitación (ceros adicionales)',
-              'Empleado con antigüedad excepcional',
-              'Profesional especializado (médico, ingeniero senior, etc.)'
-            ];
-            recomendaciones = [
-              'Verificar con RRHH si corresponde al cargo',
-              'Revisar si incluye bonos excepcionales',
-              'Confirmar que no hay errores de digitación',
-              'Validar con la estructura salarial de la empresa'
-            ];
           } else {
             analisisDetallado = `Sueldo significativamente alto: ${((sueldo / promedio - 1) * 100).toFixed(0)}% sobre el promedio`;
-            posiblesCausas = [
-              'Cargo de supervisión o jefatura',
-              'Profesional con especialización',
-              'Empleado con mayor antigüedad',
-              'Incluye horas extras regulares'
-            ];
-            recomendaciones = [
-              'Verificar si corresponde al nivel jerárquico',
-              'Revisar estructura de cargos'
-            ];
           }
-        } 
-        else {
+        } else {
           if (sueldo < sueldoMinimo) {
             analisisDetallado = `Sueldo bajo el mínimo legal: ${sueldo.toLocaleString()} (Mínimo: ${sueldoMinimo.toLocaleString()})`;
             nivelRiesgo = 'CRÍTICO';
-            posiblesCausas = [
-              'POSIBLE INCUMPLIMIENTO LEGAL',
-              'Empleado de media jornada',
-              'Trabajador en práctica o aprendiz',
-              'Error en el cálculo de días trabajados',
-              'Descuentos excesivos aplicados'
-            ];
-            recomendaciones = [
-              'REVISAR INMEDIATAMENTE',
-              'Verificar jornada laboral',
-              'Confirmar días trabajados en el mes',
-              'Revisar si hay descuentos excesivos',
-              'Consultar con legal si cumple normativa'
-            ];
           } else if (sueldo < promedio * 0.5) {
             analisisDetallado = `Sueldo muy bajo: ${(100 - (sueldo / promedio * 100)).toFixed(0)}% bajo el promedio`;
             nivelRiesgo = 'ALTO';
-            posiblesCausas = [
-              'Empleado de jornada parcial',
-              'Trabajador temporal o estacional',
-              'Cargo de entrada o trainee',
-              'Ausencias o licencias en el período',
-              'Error en el registro de horas'
-            ];
-            recomendaciones = [
-              'Verificar tipo de contrato y jornada',
-              'Revisar asistencia del período',
-              'Confirmar que no hay errores administrativos'
-            ];
           } else {
             analisisDetallado = `Sueldo bajo el promedio: ${(100 - (sueldo / promedio * 100)).toFixed(0)}% bajo el promedio`;
-            posiblesCausas = [
-              'Empleado junior o con poca experiencia',
-              'Cargo operativo o administrativo básico',
-              'Trabajador de apoyo o asistente'
-            ];
-            recomendaciones = [
-              'Verificar que corresponde al nivel del cargo',
-              'Revisar estructura salarial'
-            ];
           }
-        }
-        
-        let interpretacionZScore = '';
-        if (zScore > 3) {
-          interpretacionZScore = 'Extremadamente inusual (menos del 0.3% de casos normales)';
-        } else if (zScore > 2.5) {
-          interpretacionZScore = 'Muy inusual (menos del 1.2% de casos normales)';
-        } else {
-          interpretacionZScore = 'Inusual (menos del 4.5% de casos normales)';
         }
         
         anomalias.push({
@@ -1829,16 +1990,7 @@ function detectarAnomalias(datos) {
           z_score: zScore.toFixed(2),
           nivel_riesgo: nivelRiesgo,
           analisis_detallado: analisisDetallado,
-          interpretacion_zscore: interpretacionZScore,
-          posibles_causas: posiblesCausas,
-          recomendaciones: recomendaciones,
-          porcentaje_diferencia: esSueldoAlto ? 
-            `+${((sueldo / promedio - 1) * 100).toFixed(1)}%` : 
-            `-${((1 - sueldo / promedio) * 100).toFixed(1)}%`,
           promedio_empresa: promedio,
-          posicion_ranking: esSueldoAlto ? 
-            `Top ${((sueldos.filter(s => s >= sueldo).length / sueldos.length) * 100).toFixed(1)}%` :
-            `Bottom ${((sueldos.filter(s => s <= sueldo).length / sueldos.length) * 100).toFixed(1)}%`,
           razon_social: empleado.razon_social || 'Sin Razón Social',
           sucursal: empleado.sucursal || 'Sin Sucursal'
         });
