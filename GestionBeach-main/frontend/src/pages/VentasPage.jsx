@@ -1,4 +1,4 @@
-// VentasPage.jsx - Versión limpia y funcional sin LoginHelper
+// VentasPage.jsx - Con cálculos en NETO (sin IVA)
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -27,7 +27,6 @@ import ClearIcon from '@mui/icons-material/Clear';
 import DownloadIcon from '@mui/icons-material/Download';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import WarningIcon from '@mui/icons-material/Warning';
 import api, { authUtils } from '../api/api';
 import { useSnackbar } from 'notistack';
 import { format } from 'date-fns';
@@ -45,17 +44,14 @@ const VentasPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [docFilter, setDocFilter] = useState('');
 
-  // Estados para modal de productos
   const [openDialog, setOpenDialog] = useState(false);
   const [selectedFolio, setSelectedFolio] = useState(null);
   const [productos, setProductos] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(false);
   
-  // Estados para paginación
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   
-  // Estados para estadísticas
   const [showStats, setShowStats] = useState(false);
   const [stats, setStats] = useState({
     totalVentas: 0,
@@ -67,19 +63,13 @@ const VentasPage = () => {
 
   const { enqueueSnackbar } = useSnackbar();
 
-  // Carga inicial de sucursales desde ruta original
   useEffect(() => {
     const loadSucursales = async () => {
       try {
-        console.log('📍 Cargando sucursales desde ruta original...');
-        
-        // ✅ USAR RUTA ORIGINAL /sucursales
+        console.log('Cargando sucursales...');
         const response = await api.get('/sucursales');
-        console.log('📦 Respuesta sucursales:', response.data);
         
-        // Manejo robusto de diferentes estructuras de respuesta
         let sucursalesData = [];
-        
         if (Array.isArray(response.data)) {
           sucursalesData = response.data;
         } else if (response.data?.data && Array.isArray(response.data.data)) {
@@ -88,21 +78,18 @@ const VentasPage = () => {
           sucursalesData = response.data.sucursales;
         }
         
-        console.log('📋 Sucursales procesadas:', sucursalesData.length);
         setSucursales(sucursalesData);
         
         if (sucursalesData.length > 0) {
           enqueueSnackbar(`${sucursalesData.length} sucursales cargadas`, { variant: 'success' });
-        } else {
-          enqueueSnackbar('No se encontraron sucursales activas', { variant: 'warning' });
         }
         
       } catch (error) {
-        console.error('❌ Error al cargar sucursales:', error);
+        console.error('Error al cargar sucursales:', error);
         setSucursales([]);
         
         if (error.response?.status === 401) {
-          enqueueSnackbar('Sesión expirada. Por favor, inicie sesión nuevamente.', { variant: 'error' });
+          enqueueSnackbar('Sesión expirada', { variant: 'error' });
         } else {
           enqueueSnackbar('Error al cargar sucursales', { variant: 'error' });
         }
@@ -112,20 +99,20 @@ const VentasPage = () => {
     loadSucursales();
   }, [enqueueSnackbar]);
 
-  // Función para formatear moneda
   const formatCurrency = (value) => new Intl.NumberFormat('es-CL', {
     style: 'currency',
     currency: 'CLP',
     minimumFractionDigits: 0
   }).format(value || 0);
 
-  // Función para formatear fechas
   const formatDate = (date) => format(date, 'yyyy-MM-dd');
 
-  // Calcular estadísticas
+  // FUNCIÓN CORREGIDA: Calcula totales usando NETO (sin IVA)
   const calcularEstadisticas = (data) => {
     const totalVentas = data.length;
-    const totalMonto = data.reduce((sum, venta) => sum + parseFloat(venta.Total || 0), 0);
+    
+    // Sumar el campo Neto en lugar de Total
+    const totalMonto = data.reduce((sum, venta) => sum + parseFloat(venta.Neto || 0), 0);
     const promedioVenta = totalVentas > 0 ? totalMonto / totalVentas : 0;
     
     const ventasPorTipo = data.reduce((acc, venta) => {
@@ -134,7 +121,7 @@ const VentasPage = () => {
         acc[doc] = { tipo: doc, cantidad: 0, monto: 0 };
       }
       acc[doc].cantidad += 1;
-      acc[doc].monto += parseFloat(venta.Total || 0);
+      acc[doc].monto += parseFloat(venta.Neto || 0); // Usar Neto
       return acc;
     }, {});
     
@@ -144,7 +131,7 @@ const VentasPage = () => {
         acc[vendedor] = { nombre: vendedor, ventas: 0, monto: 0 };
       }
       acc[vendedor].ventas += 1;
-      acc[vendedor].monto += parseFloat(venta.Total || 0);
+      acc[vendedor].monto += parseFloat(venta.Neto || 0); // Usar Neto
       return acc;
     }, {});
 
@@ -161,26 +148,22 @@ const VentasPage = () => {
     });
   };
 
-  // Función para buscar ventas
   const handleSearch = async () => {
     if (!selectedSucursal) {
       enqueueSnackbar('Seleccione una sucursal', { variant: 'warning' });
       return;
     }
     
-    // ✅ VERIFICAR AUTENTICACIÓN ANTES DE BUSCAR VENTAS
     if (!authUtils.isAuthenticated()) {
-      setError('Debe iniciar sesión para consultar ventas. Por favor, acceda a través del sistema de login principal.');
-      enqueueSnackbar('Sesión requerida para consultar ventas', { variant: 'error' });
+      setError('Debe iniciar sesión para consultar ventas');
+      enqueueSnackbar('Sesión requerida', { variant: 'error' });
       return;
     }
     
     try {
       setLoading(true);
       setError(null);
-      setPage(0); // Resetear paginación
-      
-      console.log('🔍 Buscando ventas (con autenticación)...');
+      setPage(0);
       
       const response = await api.post('/ventas', {
         sucursal_id: selectedSucursal,
@@ -188,7 +171,6 @@ const VentasPage = () => {
         end_date: formatDate(endDate)
       });
       
-      // Manejo de respuesta
       let ventasData = [];
       if (response.data?.ventas && Array.isArray(response.data.ventas)) {
         ventasData = response.data.ventas;
@@ -208,17 +190,17 @@ const VentasPage = () => {
       setShowStats(cantidad > 0);
       
     } catch (error) {
-      console.error('❌ Error al buscar ventas:', error);
+      console.error('Error al buscar ventas:', error);
       
       if (error.response?.status === 401) {
-        setError('Sesión expirada. Por favor, inicie sesión nuevamente en el sistema principal.');
+        setError('Sesión expirada');
         enqueueSnackbar('Sesión expirada', { variant: 'error' });
-        authUtils.logout(); // Limpiar token inválido
+        authUtils.logout();
       } else if (error.response?.status === 403) {
-        setError('No tiene permisos para acceder a esta sucursal. Verifique sus permisos con el administrador.');
-        enqueueSnackbar('Sin permisos para esta sucursal', { variant: 'error' });
+        setError('Sin permisos para esta sucursal');
+        enqueueSnackbar('Sin permisos', { variant: 'error' });
       } else {
-        setError('Error al buscar ventas. Verifique su conexión y trate nuevamente.');
+        setError('Error al buscar ventas');
         enqueueSnackbar('Error al buscar ventas', { variant: 'error' });
       }
       
@@ -230,7 +212,6 @@ const VentasPage = () => {
     }
   };
 
-  // Función para filtrar ventas
   const handleFilter = () => {
     let filtered = [...ventasOriginales];
     
@@ -250,17 +231,15 @@ const VentasPage = () => {
     }
     
     setVentas(filtered);
-    setPage(0); // Resetear página al filtrar
+    setPage(0);
   };
 
-  // Efecto para aplicar filtros
   useEffect(() => {
     if (ventasOriginales.length > 0) {
       handleFilter();
     }
-  }, [searchTerm, docFilter, ventasOriginales]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchTerm, docFilter, ventasOriginales]);
 
-  // Función para ver productos
   const handleViewProductos = async (folio) => {
     setSelectedFolio(folio);
     setOpenDialog(true);
@@ -273,10 +252,10 @@ const VentasPage = () => {
         setProductos(response.data.productos);
       } else {
         setProductos([]);
-        enqueueSnackbar('No se encontraron productos para este folio', { variant: 'warning' });
+        enqueueSnackbar('No se encontraron productos', { variant: 'warning' });
       }
     } catch (error) {
-      console.error('❌ Error al cargar productos:', error);
+      console.error('Error al cargar productos:', error);
       setProductos([]);
       if (error.response?.status === 401) {
         enqueueSnackbar('Sesión expirada', { variant: 'error' });
@@ -288,7 +267,6 @@ const VentasPage = () => {
     }
   };
 
-  // Obtener color para tipo de documento
   const getDocumentColor = (docType) => {
     switch (docType) {
       case 'Factura': return 'primary';
@@ -299,21 +277,18 @@ const VentasPage = () => {
     }
   };
 
-  // Limpiar filtros
   const clearFilters = () => {
     setSearchTerm('');
     setDocFilter('');
     setPage(0);
   };
 
-  // Ventas paginadas
   const ventasPaginadas = ventas.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
       <Container maxWidth="xl" sx={{ py: 3 }}>
         
-        {/* Header mejorado con indicador de autenticación */}
         <Fade in timeout={800}>
           <Box sx={{ mb: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
@@ -331,7 +306,6 @@ const VentasPage = () => {
                 </Box>
               </Box>
               
-              {/* ✅ INDICADOR DE ESTADO DE AUTENTICACIÓN */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <Chip
                   icon={authUtils.isAuthenticated() ? <CheckCircleIcon /> : <ErrorIcon />}
@@ -340,23 +314,11 @@ const VentasPage = () => {
                   variant="outlined"
                   sx={{ fontWeight: 'medium' }}
                 />
-                {!authUtils.isAuthenticated() && (
-                  <Tooltip title="Debe iniciar sesión en el sistema principal para consultar ventas" arrow>
-                    <Typography variant="caption" color="text.secondary" sx={{ 
-                      ml: 1, 
-                      fontStyle: 'italic',
-                      display: { xs: 'none', sm: 'block' }
-                    }}>
-                      Acceda desde el login principal
-                    </Typography>
-                  </Tooltip>
-                )}
               </Box>
             </Box>
           </Box>
         </Fade>
 
-        {/* Filtros mejorados con diseño premium */}
         <Zoom in timeout={600}>
           <Card sx={{ 
             mb: 3, 
@@ -378,7 +340,6 @@ const VentasPage = () => {
             />
             <CardContent>
               <Grid container spacing={3}>
-                {/* Sucursal */}
                 <Grid item xs={12}>
                   <TextField
                     select
@@ -416,7 +377,6 @@ const VentasPage = () => {
                   </TextField>
                 </Grid>
                 
-                {/* Fechas y botones */}
                 <Grid item xs={12}>
                   <Grid container spacing={2} alignItems="end">
                     <Grid item xs={12} sm={4}>
@@ -499,11 +459,6 @@ const VentasPage = () => {
                          !authUtils.isAuthenticated() ? 'Requiere Autenticación' : 
                          'Buscar Ventas'}
                       </Button>
-                      {!authUtils.isAuthenticated() && (
-                        <Typography variant="caption" color="rgba(255,255,255,0.7)" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
-                          Inicie sesión en el sistema principal
-                        </Typography>
-                      )}
                     </Grid>
                   </Grid>
                 </Grid>
@@ -512,14 +467,12 @@ const VentasPage = () => {
           </Card>
         </Zoom>
 
-        {/* Barra de progreso para loading */}
         {loading && (
           <Box sx={{ mb: 2 }}>
             <LinearProgress />
           </Box>
         )}
 
-        {/* Alert de error mejorado */}
         {error && (
           <Fade in>
             <Alert 
@@ -536,7 +489,6 @@ const VentasPage = () => {
           </Fade>
         )}
 
-        {/* Panel de estadísticas premium */}
         {showStats && (
           <Fade in timeout={1000}>
             <Card sx={{ mb: 3, borderRadius: 3, overflow: 'hidden' }} elevation={4}>
@@ -545,7 +497,7 @@ const VentasPage = () => {
                   <Box display="flex" alignItems="center">
                     <TrendingUpIcon sx={{ mr: 1 }} color="primary" />
                     <Typography variant="h6" component="span" sx={{ fontWeight: 'bold' }}>
-                      Dashboard de Resultados
+                      Dashboard de Resultados (Montos sin IVA)
                     </Typography>
                   </Box>
                 }
@@ -553,7 +505,6 @@ const VentasPage = () => {
               />
               <CardContent sx={{ p: 3 }}>
                 <Grid container spacing={3}>
-                  {/* Métricas principales */}
                   <Grid item xs={12} sm={6} md={3}>
                     <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, bgcolor: 'primary.50' }}>
                       <CardContent sx={{ textAlign: 'center', p: 3 }}>
@@ -580,7 +531,7 @@ const VentasPage = () => {
                           {formatCurrency(stats.totalMonto)}
                         </Typography>
                         <Typography variant="subtitle2" color="text.secondary">
-                          Monto Total
+                          Monto Total (Sin IVA)
                         </Typography>
                       </CardContent>
                     </Card>
@@ -618,10 +569,9 @@ const VentasPage = () => {
                     </Card>
                   </Grid>
 
-                  {/* Distribución por tipo de documento */}
                   <Grid item xs={12}>
                     <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
-                      Distribución por Tipo de Documento
+                      Distribución por Tipo de Documento (Montos sin IVA)
                     </Typography>
                     <Grid container spacing={2}>
                       {Object.values(stats.ventasPorTipo).map((item) => (
@@ -653,7 +603,6 @@ const VentasPage = () => {
           </Fade>
         )}
 
-        {/* Tabla de resultados premium */}
         <Card sx={{ borderRadius: 3, overflow: 'hidden' }} elevation={4}>
           <CardHeader
             title={
@@ -687,7 +636,6 @@ const VentasPage = () => {
             sx={{ bgcolor: 'primary.main', color: 'white' }}
           />
           
-          {/* Filtros de tabla */}
           <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: 1, borderColor: 'divider' }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
               <TextField
@@ -756,11 +704,6 @@ const VentasPage = () => {
                            !authUtils.isAuthenticated() ? 'Debe iniciar sesión para consultar ventas' :
                            'No hay ventas que mostrar'}
                         </Typography>
-                        {!loading && authUtils.isAuthenticated() && (
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            Ajuste los filtros de búsqueda para ver resultados
-                          </Typography>
-                        )}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -813,7 +756,6 @@ const VentasPage = () => {
               </Table>
             </TableContainer>
             
-            {/* Paginación mejorada */}
             {ventas.length > 0 && (
               <TablePagination
                 component="div"
@@ -834,7 +776,6 @@ const VentasPage = () => {
           </CardContent>
         </Card>
 
-        {/* Modal de productos mejorado */}
         <Dialog 
           open={openDialog} 
           onClose={() => setOpenDialog(false)} 
@@ -871,7 +812,7 @@ const VentasPage = () => {
                 <Table stickyHeader size="small">
                   <TableHead>
                     <TableRow>
-                      {['Código', 'Descripción', 'Costo', 'Total', 'Utilidad', 'Margen'].map((header) => (
+                      {['Código', 'Descripción', 'Cantidad', 'Precio Unit.', 'Costo', 'Total', 'Utilidad', 'Margen'].map((header) => (
                         <TableCell key={header} sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>
                           {header}
                         </TableCell>
@@ -881,7 +822,7 @@ const VentasPage = () => {
                   <TableBody>
                     {productos.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
                             No hay productos que mostrar
                           </Typography>
@@ -898,6 +839,8 @@ const VentasPage = () => {
                             {prod.Codigo}
                           </TableCell>
                           <TableCell sx={{ maxWidth: 200 }}>{prod.Descripcion}</TableCell>
+                          <TableCell>{prod.Cantidad}</TableCell>
+                          <TableCell>{formatCurrency(prod.Precio_Unitario)}</TableCell>
                           <TableCell>{formatCurrency(prod.Costo)}</TableCell>
                           <TableCell sx={{ fontWeight: 'bold' }}>{formatCurrency(prod.Total)}</TableCell>
                           <TableCell sx={{ color: 'success.main', fontWeight: 'bold' }}>
