@@ -1,50 +1,45 @@
-// backend/controllers/dashboardController.js - DATOS REALES SÚPER RÁPIDO
+// backend/controllers/dashboardController.js - DATOS REALES CON NOTAS DE CRÉDITO
 const { sql, poolPromise } = require('../config/db');
 
-// Función para obtener datos del dashboard - DATOS REALES OPTIMIZADO
 exports.getDashboardData = async (req, res) => {
   try {
     const { start_date, end_date } = req.body;
     
-    console.log('🚀 Dashboard RÁPIDO con datos reales:', { start_date, end_date });
+    console.log('Dashboard con datos reales:', { start_date, end_date });
     
     if (!start_date || !end_date) {
       return res.status(400).json({ message: 'Las fechas son requeridas' });
     }
     
-    // Obtener pool de conexión
     const pool = await poolPromise;
     
-    // ✅ OBTENER SOLO 5 SUCURSALES PRINCIPALES PARA VELOCIDAD
-    console.log('📋 Obteniendo sucursales principales...');
+    console.log('Obteniendo sucursales principales...');
     
     const sucursalesResult = await pool.request()
       .query(`
-        SELECT  id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal
+        SELECT id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal
         FROM sucursales
         WHERE tipo_sucursal IN ('SUPERMERCADO', 'FERRETERIA', 'MULTITIENDA')
         ORDER BY id
       `);
     
     const sucursales = sucursalesResult.recordset;
-    console.log(`✅ Procesando ${sucursales.length} sucursales principales`);
+    console.log(`Procesando ${sucursales.length} sucursales`);
     
-    // Preparar resultados
     const resultados = {
-      supermercados: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] },
-      ferreterias: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] },
-      multitiendas: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] }
+      supermercados: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] },
+      ferreterias: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] },
+      multitiendas: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] }
     };
     
     let contadorSuper = 0, contadorFerreterias = 0, contadorMultitienda = 0;
     
-    // Procesar cada sucursal con timeout MUY CORTO
     for (const sucursal of sucursales) {
       try {
-        console.log(`🔍 Procesando: ${sucursal.nombre}`);
+        console.log(`Procesando: ${sucursal.nombre}`);
         
         if (!sucursal.ip || !sucursal.base_datos || !sucursal.usuario) {
-          console.warn(`⚠️ ${sucursal.nombre} sin datos conexión`);
+          console.warn(`${sucursal.nombre} sin datos conexión`);
           continue;
         }
         
@@ -57,27 +52,23 @@ exports.getDashboardData = async (req, res) => {
             encrypt: false,
             trustServerCertificate: true,
             enableArithAbort: true,
-            requestTimeout: 3000, // 3 segundos máximo
-            connectionTimeout: 2000 // 2 segundos conexión
+            requestTimeout: 3000,
+            connectionTimeout: 2000
           },
           pool: { max: 1, min: 0, idleTimeoutMillis: 5000 }
         };
         
         let poolSucursal;
         try {
-          // Conexión con timeout SÚPER CORTO
           poolSucursal = await Promise.race([
             new sql.ConnectionPool(configSucursal).connect(),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Timeout')), 1500) // 1.5 segundos máximo
-            )
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1500))
           ]);
         } catch (connectionError) {
-          console.warn(`⚠️ ${sucursal.nombre}: ${connectionError.message}`);
+          console.warn(`${sucursal.nombre}: ${connectionError.message}`);
           continue;
         }
         
-        // Procesar datos con timeout
         let procesoExitoso = false;
         
         try {
@@ -101,32 +92,42 @@ exports.getDashboardData = async (req, res) => {
             if (procesoExitoso) contadorMultitienda++;
           }
         } catch (processError) {
-          console.warn(`⚠️ ${sucursal.nombre}: Query timeout`);
+          console.warn(`${sucursal.nombre}: Query timeout`);
         }
         
-        // Cerrar conexión
         try { await poolSucursal.close(); } catch {}
         
-        console.log(`✅ ${sucursal.nombre}: ${procesoExitoso ? 'OK' : 'SKIP'}`);
+        console.log(`${sucursal.nombre}: ${procesoExitoso ? 'OK' : 'SKIP'}`);
         
       } catch (error) {
-        console.warn(`⚠️ ${sucursal.nombre}: ${error.message}`);
+        console.warn(`${sucursal.nombre}: ${error.message}`);
         continue;
       }
     }
     
-    // Calcular promedios
-    if (contadorSuper > 0) resultados.supermercados.margen /= contadorSuper;
-    if (contadorFerreterias > 0) resultados.ferreterias.margen /= contadorFerreterias;
-    if (contadorMultitienda > 0) resultados.multitiendas.margen /= contadorMultitienda;
+    if (contadorSuper > 0) {
+      resultados.supermercados.margen /= contadorSuper;
+      resultados.supermercados.ventasNetas = resultados.supermercados.ventas - resultados.supermercados.notasCredito;
+    }
+    if (contadorFerreterias > 0) {
+      resultados.ferreterias.margen /= contadorFerreterias;
+      resultados.ferreterias.ventasNetas = resultados.ferreterias.ventas - resultados.ferreterias.notasCredito;
+    }
+    if (contadorMultitienda > 0) {
+      resultados.multitiendas.margen /= contadorMultitienda;
+      resultados.multitiendas.ventasNetas = resultados.multitiendas.ventas - resultados.multitiendas.notasCredito;
+    }
     
-    // Calcular totales
     resultados.total = {
       ventas: resultados.supermercados.ventas + resultados.ferreterias.ventas + resultados.multitiendas.ventas,
       costos: resultados.supermercados.costos + resultados.ferreterias.costos + resultados.multitiendas.costos,
       utilidad: resultados.supermercados.utilidad + resultados.ferreterias.utilidad + resultados.multitiendas.utilidad,
+      notasCredito: resultados.supermercados.notasCredito + resultados.ferreterias.notasCredito + resultados.multitiendas.notasCredito,
+      ventasNetas: 0,
       margen: 0
     };
+    
+    resultados.total.ventasNetas = resultados.total.ventas - resultados.total.notasCredito;
     
     const totalContador = contadorSuper + contadorFerreterias + contadorMultitienda;
     if (totalContador > 0) {
@@ -137,145 +138,317 @@ exports.getDashboardData = async (req, res) => {
       ) / totalContador;
     }
     
-    console.log(`✅ Dashboard RÁPIDO completado: ${totalContador} sucursales`);
-    console.log('📊 Total ventas:', resultados.total.ventas.toLocaleString());
+    console.log(`Dashboard completado: ${totalContador} sucursales`);
+    console.log('Total ventas:', resultados.total.ventas.toLocaleString());
+    console.log('Total NC:', resultados.total.notasCredito.toLocaleString());
+    console.log('Total ventas netas:', resultados.total.ventasNetas.toLocaleString());
     
     return res.status(200).json(resultados);
     
   } catch (error) {
-    console.error('❌ Error dashboard:', error);
+    console.error('Error dashboard:', error);
     
-    // FALLBACK: Devolver estructura vacía pero válida
     return res.status(200).json({
-      supermercados: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] },
-      ferreterias: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] },
-      multitiendas: { ventas: 0, costos: 0, utilidad: 0, margen: 0, sucursales: [] },
-      total: { ventas: 0, costos: 0, utilidad: 0, margen: 0 },
+      supermercados: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] },
+      ferreterias: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] },
+      multitiendas: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0, sucursales: [] },
+      total: { ventas: 0, costos: 0, utilidad: 0, margen: 0, notasCredito: 0, ventasNetas: 0 },
       message: 'Datos parciales por problemas de conexión'
     });
   }
 };
 
-// FUNCIONES OPTIMIZADAS CON QUERIES MÁS SIMPLES
 async function procesarDatosSupermercado(pool, sucursal, startDate, endDate, resultados) {
   try {
-    const query = `
+    const queryVentas = `
       SELECT 
-        SUM(tdd.dq_bruto) AS VENTA, 
-        SUM(((tdd.dq_bruto / 1.19) - dq_ganancia) * 1.19) AS COSTO, 
-        SUM(dq_ganancia * 1.19) AS Utilidad,
-        AVG((dq_ganancia / (tdd.dq_bruto / 1.19)) * 100) AS Margen
+        SUM(CASE 
+          WHEN tde.dc_codigo_centralizacion = '0039' OR tde.dc_codigo_centralizacion = '0033' THEN (tdd.dq_bruto / 1.19)
+          WHEN tde.dc_codigo_centralizacion = '1599' THEN tdd.dq_bruto
+        END) AS VENTA,
+        SUM(CASE 
+          WHEN tde.dc_codigo_centralizacion = '0039' OR tde.dc_codigo_centralizacion = '0033' THEN (tdd.dq_bruto / 1.19) - dq_ganancia
+          WHEN tde.dc_codigo_centralizacion = '1599' THEN tdd.dq_bruto - dq_ganancia
+        END) AS COSTO,
+        SUM(dq_ganancia) AS UTILIDAD,
+        AVG(CASE 
+          WHEN tde.dc_codigo_centralizacion = '0039' OR tde.dc_codigo_centralizacion = '0033' THEN (dq_ganancia / (tdd.dq_bruto / 1.19)) * 100
+          WHEN tde.dc_codigo_centralizacion = '1599' THEN (dq_ganancia / tdd.dq_bruto) * 100
+        END) AS MARGEN
       FROM tb_documentos_detalle tdd
       JOIN tb_documentos_encabezado tde ON tdd.dn_correlativo_documento = tde.dn_correlativo
-      WHERE CAST(df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate 
-        AND dc_codigo_centralizacion IN ('0033', '0039','1599') 
+      WHERE CAST(df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate
+        AND dc_codigo_centralizacion IN ('0033','0039','1599') 
+        AND tde.dc_rut_documento NOT IN('010.429.345-K', '076.236.893-5', '076.775.326-8', '078.061.914-7')
+        AND dn_correlativo_caja IS NOT NULL
+    `;
+
+    const queryNC = `
+      SELECT SUM(CASE WHEN tde.dc_codigo_centralizacion = '0061' THEN (tdd.dq_bruto / 1.19) END) AS NotasCredito
+      FROM tb_documentos_detalle tdd
+      JOIN tb_documentos_encabezado tde ON tdd.dn_correlativo_documento = tde.dn_correlativo
+      WHERE CAST(df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate
+        AND dc_codigo_centralizacion IN ('0061') 
+        AND tde.dc_rut_documento NOT IN('010.429.345-K', '076.236.893-5', '076.775.326-8', '078.061.914-7')
         AND dn_correlativo_caja IS NOT NULL
     `;
     
-    const result = await pool.request()
+    const resultVentas = await pool.request()
       .input('startDate', sql.Date, new Date(startDate))
       .input('endDate', sql.Date, new Date(endDate))
-      .query(query);
+      .query(queryVentas);
+
+    const resultNC = await pool.request()
+      .input('startDate', sql.Date, new Date(startDate))
+      .input('endDate', sql.Date, new Date(endDate))
+      .query(queryNC);
     
-    if (result.recordset.length > 0) {
-      const data = result.recordset[0];
-      const ventas = parseFloat(data.VENTA) || 0;
-      const costos = parseFloat(data.COSTO) || 0;
-      const utilidad = parseFloat(data.Utilidad) || 0;
-      const margen = parseFloat(data.Margen) || 0;
+    if (resultVentas.recordset.length > 0) {
+      const data = resultVentas.recordset[0];
+      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NotasCredito: 0 };
+      
+      const ventasBrutas = parseFloat(data.VENTA) || 0;
+      const costosBrutos = parseFloat(data.COSTO) || 0;
+      const utilidadBruta = parseFloat(data.UTILIDAD) || 0;
+      const margen = parseFloat(data.MARGEN) || 0;
+      const notasCredito = parseFloat(dataNC.NotasCredito) || 0;
+      
+      // Calcular proporción de NC sobre ventas
+      const proporcionNC = ventasBrutas > 0 ? (notasCredito / ventasBrutas) : 0;
+      
+      // Restar NC proporcionalmente de ventas, costos y utilidad
+      const ventas = ventasBrutas - notasCredito;
+      const costos = costosBrutos - (costosBrutos * proporcionNC);
+      const utilidad = utilidadBruta - (utilidadBruta * proporcionNC);
+      const ventasNetas = ventas;
       
       resultados.ventas += ventas;
       resultados.costos += costos;
       resultados.utilidad += utilidad;
       resultados.margen += margen;
+      resultados.notasCredito += notasCredito;
+      resultados.ventasNetas += ventasNetas;
       
       resultados.sucursales.push({
         nombre: sucursal.nombre,
-        ventas, costos, utilidad, margen
+        ventas, costos, utilidad, margen, notasCredito, ventasNetas
       });
       
       return true;
     }
     return false;
   } catch (error) {
+    console.error(`Error en supermercado ${sucursal.nombre}:`, error.message);
     return false;
   }
 }
 
 async function procesarDatosFerreteria(pool, sucursal, startDate, endDate, resultados) {
   try {
-    const query = `
-      SELECT 
-        AVG(MARGEN) MARGEN, SUM(COSTO) COSTO, SUM(VENTA) VENTA, SUM(VENTA-COSTO) Utilidad  
-      FROM cmv_beach
-      WHERE CAST(fecha AS DATE) BETWEEN @startDate AND @endDate
+    const queryVentas = `
+      SELECT sum(Total) Venta, sum(Costo) COSTO, sum(Utilidad) Utilidad, (sum(Utilidad)/sum(Total))*100 Margen
+      FROM (
+        select RBO.RBO_FECHA_INGRESO Fecha, RBO.RBO_NUMERO_BOLETA Folio, 'Boleta' as Doc,
+          MC.MC_RAZON_SOCIAL as Cliente, CAST(rbo.MC_RUT_CLIENTE AS nvarchar)+ '-' + CAST(MC.MC_DIGITO AS NVARCHAR) as Rut_Cliente, 
+          sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) as Total, 
+          sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD) as Costo, 
+          sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD) as Utilidad,  
+          ((sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD)) / sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD)) * 100 as Margen, 
+          MPE.MPE_NOMBRE_COMPLETO as Vendedor
+        from ERP_FACT_RES_BOLETAS rbo
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_FACT_DET_BOLETAS DBO ON DBO.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+        JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        where MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)' 
+          AND rbo.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        group by RBO.RBO_FECHA_INGRESO, RBO.RBO_NUMERO_BOLETA, rbo.MC_RUT_CLIENTE, MPE_NOMBRE_COMPLETO, MC.MC_RAZON_SOCIAL, MC.MC_DIGITO
+        UNION ALL
+        select RBO.RFC_FECHA_INGRESO Fecha, RBO.RFC_NUMERO_FACTURA_CLI Folio, 'Factura' as Doc,
+          MC.MC_RAZON_SOCIAL as Cliente, CAST(rbo.MC_RUT_CLIENTE AS nvarchar)+ '-' + CAST(MC.MC_DIGITO AS NVARCHAR) as Rut_Cliente, 
+          sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) as Total, 
+          sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD) as Costo, 
+          sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD) as Utilidad,  
+          ((sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD)) / sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD)) * 100 as Margen, 
+          MPE.MPE_NOMBRE_COMPLETO as Vendedor
+        from ERP_FACT_RES_FACTURA_CLIENTES rbo
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_FACT_DET_FACTURA_CLIENTES DBO ON DBO.RFC_NUM_INTERNO_FA_CLI = RBO.RFC_NUM_INTERNO_FA_CLI
+        JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        where MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)' 
+          AND MC.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%' 
+          AND rbo.RFC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        group by RBO.RFC_FECHA_INGRESO, RBO.RFC_NUMERO_FACTURA_CLI, rbo.MC_RUT_CLIENTE, MPE_NOMBRE_COMPLETO, MC.MC_RAZON_SOCIAL, MC.MC_DIGITO
+      )t
+    `;
+
+    const queryNC = `
+      SELECT SUM(RNC_AFECTO) AS NotasCredito
+      FROM ERP_FACT_RES_NC_CLIENTE 
+      WHERE RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        AND MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
     `;
     
-    const result = await pool.request()
-      .input('startDate', sql.Date, new Date(startDate))
-      .input('endDate', sql.Date, new Date(endDate))
-      .query(query);
+    const resultVentas = await pool.request()
+      .input('startDate', sql.DateTime, new Date(startDate + ' 00:00:00'))
+      .input('endDate', sql.DateTime, new Date(endDate + ' 23:59:59'))
+      .query(queryVentas);
+
+    const resultNC = await pool.request()
+      .input('startDate', sql.DateTime, new Date(startDate + ' 00:00:00'))
+      .input('endDate', sql.DateTime, new Date(endDate + ' 23:59:59'))
+      .query(queryNC);
     
-    if (result.recordset.length > 0) {
-      const data = result.recordset[0];
-      const ventas = parseFloat(data.VENTA) || 0;
-      const costos = parseFloat(data.COSTO) || 0;
-      const utilidad = parseFloat(data.Utilidad) || 0;
-      const margen = parseFloat(data.MARGEN) || 0;
+    if (resultVentas.recordset.length > 0) {
+      const data = resultVentas.recordset[0];
+      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NotasCredito: 0 };
+      
+      const ventasBrutas = parseFloat(data.Venta) || 0;
+      const costosBrutos = parseFloat(data.COSTO) || 0;
+      const utilidadBruta = parseFloat(data.Utilidad) || 0;
+      const margen = parseFloat(data.Margen) || 0;
+      const notasCredito = parseFloat(dataNC.NotasCredito) || 0;
+      
+      // Calcular proporción de NC sobre ventas
+      const proporcionNC = ventasBrutas > 0 ? (notasCredito / ventasBrutas) : 0;
+      
+      // Restar NC proporcionalmente de ventas, costos y utilidad
+      const ventas = ventasBrutas - notasCredito;
+      const costos = costosBrutos - (costosBrutos * proporcionNC);
+      const utilidad = utilidadBruta - (utilidadBruta * proporcionNC);
+      const ventasNetas = ventas;
       
       resultados.ventas += ventas;
       resultados.costos += costos;
       resultados.utilidad += utilidad;
       resultados.margen += margen;
+      resultados.notasCredito += notasCredito;
+      resultados.ventasNetas += ventasNetas;
       
       resultados.sucursales.push({
         nombre: sucursal.nombre,
-        ventas, costos, utilidad, margen
+        ventas, costos, utilidad, margen, notasCredito, ventasNetas
       });
       
       return true;
     }
     return false;
   } catch (error) {
+    console.error(`Error en ferretería ${sucursal.nombre}:`, error.message);
     return false;
   }
 }
 
 async function procesarDatosMultitienda(pool, sucursal, startDate, endDate, resultados) {
   try {
-    const query = `
-      SELECT 
-        AVG(MARGEN) MARGEN, SUM(COSTO) COSTO, SUM(VENTA) VENTA, SUM(VENTA-COSTO) Utilidad  
-      FROM cmv_beach
-      WHERE CAST(fecha AS DATE) BETWEEN @startDate AND @endDate
+    const queryVentas = `
+      SELECT sum(Total) Venta, sum(Costo) COSTO, sum(Utilidad) Utilidad, (sum(Utilidad)/sum(Total))*100 Margen
+      FROM (
+        select RBO.RBO_FECHA_INGRESO Fecha, RBO.RBO_NUMERO_BOLETA Folio, 'Boleta' as Doc,
+          MC.MC_RAZON_SOCIAL as Cliente, CAST(rbo.MC_RUT_CLIENTE AS nvarchar)+ '-' + CAST(MC.MC_DIGITO AS NVARCHAR) as Rut_Cliente, 
+          sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) as Total, 
+          sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD) as Costo, 
+          sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD) as Utilidad,  
+          ((sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DBOL_CANTIDAD)) / sum(ISNULL(DBOL_PRECIO_LISTA,0) * DBOL_CANTIDAD)) * 100 as Margen, 
+          MPE.MPE_NOMBRE_COMPLETO as Vendedor
+        from ERP_FACT_RES_BOLETAS rbo
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_FACT_DET_BOLETAS DBO ON DBO.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+        JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        where MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)' 
+          AND rbo.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        group by RBO.RBO_FECHA_INGRESO, RBO.RBO_NUMERO_BOLETA, rbo.MC_RUT_CLIENTE, MPE_NOMBRE_COMPLETO, MC.MC_RAZON_SOCIAL, MC.MC_DIGITO
+        UNION ALL
+        select RBO.RFC_FECHA_INGRESO Fecha, RBO.RFC_NUMERO_FACTURA_CLI Folio, 'Factura' as Doc,
+          MC.MC_RAZON_SOCIAL as Cliente, CAST(rbo.MC_RUT_CLIENTE AS nvarchar)+ '-' + CAST(MC.MC_DIGITO AS NVARCHAR) as Rut_Cliente, 
+          sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) as Total, 
+          sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD) as Costo, 
+          sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD) as Utilidad,  
+          ((sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD) - sum(ISNULL(MP_COSTO_FINAL,0) * DFC_CANTIDAD)) / sum(ISNULL(DFC_PRECIO_LISTA,0) * DFC_CANTIDAD)) * 100 as Margen, 
+          MPE.MPE_NOMBRE_COMPLETO as Vendedor
+        from ERP_FACT_RES_FACTURA_CLIENTES rbo
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_FACT_DET_FACTURA_CLIENTES DBO ON DBO.RFC_NUM_INTERNO_FA_CLI = RBO.RFC_NUM_INTERNO_FA_CLI
+        JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        where MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)' 
+          AND MC.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+          AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%' 
+          AND rbo.RFC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        group by RBO.RFC_FECHA_INGRESO, RBO.RFC_NUMERO_FACTURA_CLI, rbo.MC_RUT_CLIENTE, MPE_NOMBRE_COMPLETO, MC.MC_RAZON_SOCIAL, MC.MC_DIGITO
+      )t
+    `;
+
+    const queryNC = `
+      SELECT SUM(RNC_AFECTO) AS NotasCredito
+      FROM ERP_FACT_RES_NC_CLIENTE 
+      WHERE RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        AND MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
     `;
     
-    const result = await pool.request()
-      .input('startDate', sql.Date, new Date(startDate))
-      .input('endDate', sql.Date, new Date(endDate))
-      .query(query);
+    const resultVentas = await pool.request()
+      .input('startDate', sql.DateTime, new Date(startDate + ' 00:00:00'))
+      .input('endDate', sql.DateTime, new Date(endDate + ' 23:59:59'))
+      .query(queryVentas);
+
+    const resultNC = await pool.request()
+      .input('startDate', sql.DateTime, new Date(startDate + ' 00:00:00'))
+      .input('endDate', sql.DateTime, new Date(endDate + ' 23:59:59'))
+      .query(queryNC);
     
-    if (result.recordset.length > 0) {
-      const data = result.recordset[0];
-      const ventas = parseFloat(data.VENTA) || 0;
-      const costos = parseFloat(data.COSTO) || 0;
-      const utilidad = parseFloat(data.Utilidad) || 0;
-      const margen = parseFloat(data.MARGEN) || 0;
+    if (resultVentas.recordset.length > 0) {
+      const data = resultVentas.recordset[0];
+      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NotasCredito: 0 };
+      
+      const ventasBrutas = parseFloat(data.Venta) || 0;
+      const costosBrutos = parseFloat(data.COSTO) || 0;
+      const utilidadBruta = parseFloat(data.Utilidad) || 0;
+      const margen = parseFloat(data.Margen) || 0;
+      const notasCredito = parseFloat(dataNC.NotasCredito) || 0;
+      
+      // Calcular proporción de NC sobre ventas
+      const proporcionNC = ventasBrutas > 0 ? (notasCredito / ventasBrutas) : 0;
+      
+      // Restar NC proporcionalmente de ventas, costos y utilidad
+      const ventas = ventasBrutas - notasCredito;
+      const costos = costosBrutos - (costosBrutos * proporcionNC);
+      const utilidad = utilidadBruta - (utilidadBruta * proporcionNC);
+      const ventasNetas = ventas;
       
       resultados.ventas += ventas;
       resultados.costos += costos;
       resultados.utilidad += utilidad;
       resultados.margen += margen;
+      resultados.notasCredito += notasCredito;
+      resultados.ventasNetas += ventasNetas;
       
       resultados.sucursales.push({
         nombre: sucursal.nombre,
-        ventas, costos, utilidad, margen
+        ventas, costos, utilidad, margen, notasCredito, ventasNetas
       });
       
       return true;
     }
     return false;
   } catch (error) {
+    console.error(`Error en multitienda ${sucursal.nombre}:`, error.message);
     return false;
   }
 }

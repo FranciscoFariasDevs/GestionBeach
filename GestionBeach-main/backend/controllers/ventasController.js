@@ -1,4 +1,4 @@
-// backend/controllers/ventasController.js - COMPLETO CON QUERIES REALES
+// backend/controllers/ventasController.js - COMPLETO CON QUERIES CORREGIDAS
 const { sql, poolPromise } = require('../config/db');
 
 exports.getVentas = async (req, res) => {
@@ -89,9 +89,9 @@ exports.getVentas = async (req, res) => {
     try {
       console.log('Tipo de sucursal:', sucursal.tipo_sucursal);
 
-      // SUPERMERCADOS
+      // SUPERMERCADOS - QUERY CORREGIDA
       if (sucursal.tipo_sucursal === 'SUPERMERCADO') {
-        console.log('Ejecutando query SUPERMERCADO...');
+        console.log('Ejecutando query SUPERMERCADO (corregida)...');
 
         const query = `
           SELECT
@@ -103,7 +103,7 @@ exports.getVentas = async (req, res) => {
             END AS Cliente,
             ISNULL(tde.dc_rut_documento, '') AS Rut_Cliente,
             CASE
-              WHEN tde.dc_codigo_centralizacion = '1599' THEN 0
+              WHEN tde.dc_codigo_centralizacion = '1599' THEN ISNULL(tde.dq_bruto, 0)
               ELSE ISNULL(tde.dq_neto, 0)
             END AS Neto,
             CASE
@@ -126,6 +126,7 @@ exports.getVentas = async (req, res) => {
             CAST(tde.df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate
             AND tde.dc_codigo_centralizacion IN ('0033', '0039', '1599') 
             AND tde.dn_correlativo_caja IS NOT NULL
+            AND tde.dc_rut_documento NOT IN ('010.429.345-K', '076.236.893-5', '076.775.326-8', '78.061.914-7')
           ORDER BY tde.df_fecha_emision DESC
         `;
 
@@ -318,20 +319,23 @@ exports.getProductosByFolio = async (req, res) => {
     const poolSucursal = await new sql.ConnectionPool(configSucursal).connect();
     let productos = [];
 
+    // SUPERMERCADOS - QUERY CORREGIDA
     if (sucursal.tipo_sucursal === 'SUPERMERCADO') {
+      console.log('Query productos SUPERMERCADO (corregida)...');
+      
       const query = `
         SELECT 
           tde.dn_numero_documento AS Folio,
           tdd.dc_codigo_barra AS Codigo,
           tdd.dg_glosa_producto AS Descripcion,
           tdd.dn_cantidad AS Cantidad,
-          tdd.dq_unitario AS Precio_Unitario,
-          ((tdd.dq_bruto / 1.19) - tdd.dq_ganancia)*1.19 AS Costo,
-          tdd.dq_bruto AS Total,
-          tdd.dq_ganancia * 1.19 AS Utilidad,
+          ISNULL(tdd.dq_unitario, 0)/1.19 AS Precio_Unitario,
+          ((ISNULL(tdd.dq_bruto, 0) / 1.19) - ISNULL(tdd.dq_ganancia, 0)) AS Costo,
+          ISNULL(tdd.dq_bruto, 0)/1.19 AS Total,
+          ISNULL(tdd.dq_ganancia, 0) AS Utilidad,
           CASE 
             WHEN tdd.dq_unitario > 0 THEN 
-              ((tdd.dq_ganancia / tdd.dn_cantidad) / ((tdd.dq_unitario / 1.19) - (tdd.dq_ganancia / tdd.dn_cantidad))) * 100
+              ((ISNULL(tdd.dq_ganancia, 0))/(ISNULL(tdd.dq_bruto, 0)/1.19))*100
             ELSE 0
           END AS Margen
         FROM 
@@ -348,7 +352,10 @@ exports.getProductosByFolio = async (req, res) => {
         .query(query);
 
       productos = result.recordset;
+      console.log('Productos encontrados:', productos.length);
     } 
+    
+    // FERRETERÍAS Y MULTITIENDAS
     else if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
       console.log('Query productos FERRETERIA/MULTITIENDA...');
       
