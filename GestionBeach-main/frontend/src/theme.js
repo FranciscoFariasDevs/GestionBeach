@@ -82,7 +82,10 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: [
-      'Inter',
+      'Quicksand',
+      'Century Gothic',
+      'CenturyGothic',
+      'AppleGothic',
       'Roboto',
       '"Helvetica Neue"',
       'Arial',
@@ -145,23 +148,25 @@ const theme = createTheme({
   shadows: createShadows(),
   components: {
     MuiCssBaseline: {
-      styleOverrides: {
-        body: {
-          backgroundColor: '#F7FAFC',
-          scrollbarWidth: 'thin',
-          '&::-webkit-scrollbar': {
-            width: '8px',
-            height: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            backgroundColor: '#F1F1F1',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            backgroundColor: '#BBBBBB',
-            borderRadius: '4px',
-          },
-        },
-      },
+      styleOverrides: `
+        @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap');
+        
+        body {
+          backgroundColor: #F7FAFC;
+          scrollbarWidth: thin;
+        }
+        body::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        body::-webkit-scrollbar-track {
+          backgroundColor: #F1F1F1;
+        }
+        body::-webkit-scrollbar-thumb {
+          backgroundColor: #BBBBBB;
+          borderRadius: 4px;
+        }
+      `,
     },
     MuiButton: {
       styleOverrides: {

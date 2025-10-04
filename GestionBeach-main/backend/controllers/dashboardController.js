@@ -158,6 +158,7 @@ exports.getDashboardData = async (req, res) => {
   }
 };
 
+// SUPERMERCADO - Mantiene cálculo proporcional
 async function procesarDatosSupermercado(pool, sucursal, startDate, endDate, resultados) {
   try {
     const queryVentas = `
@@ -243,6 +244,7 @@ async function procesarDatosSupermercado(pool, sucursal, startDate, endDate, res
   }
 }
 
+// FERRETERIA - Nueva lógica con resta directa de NC
 async function procesarDatosFerreteria(pool, sucursal, startDate, endDate, resultados) {
   try {
     const queryVentas = `
@@ -292,10 +294,54 @@ async function procesarDatosFerreteria(pool, sucursal, startDate, endDate, resul
     `;
 
     const queryNC = `
-      SELECT SUM(RNC_AFECTO) AS NotasCredito
-      FROM ERP_FACT_RES_NC_CLIENTE 
-      WHERE RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
-        AND MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+      SELECT  
+        SUM([Costo NC]) AS [Costo NC], 
+        SUM([NC Aplicada]) AS [NC],
+        SUM([NC Aplicada]) - SUM([Costo NC]) AS [Utilidad NC]
+      FROM (
+        SELECT 
+          ROUND(ISNULL(DOC.MP_COSTO_FINAL * DNC.DNC_CANTIDAD, 0), 0) AS [Costo NC],
+          ROUND(ISNULL((DNC.DNC_PRECIO_LISTA * DNC.DNC_CANTIDAD), 0), 0) AS [NC Aplicada]
+        FROM ERP_OP_DET_ORDEN_COMPRA DOC
+        FULL JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = DOC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        JOIN ERP_FACT_RES_BOLETAS RBO ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_RES_NC_CLIENTE RNC ON RNC.ROC_NUMERO_ORDEN = RBO.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_DET_NC_CLIENTE DNC ON DNC.RNC_NUM_INTERNO_NC_CLI = RNC.RNC_NUM_INTERNO_NC_CLI AND DNC.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        FULL JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        FULL JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        FULL JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        WHERE 
+          MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND RNC.RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0 
+          AND MP.TPROV_ID_TIPO_PROVEEDOR = 3  
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+        UNION ALL
+        SELECT
+          ROUND(ISNULL(DOC.MP_COSTO_FINAL * DNC.DNC_CANTIDAD, 0), 0) AS [Costo NC],
+          ROUND(ISNULL((DNC.DNC_PRECIO_LISTA * DNC.DNC_CANTIDAD), 0), 0) AS [NC Aplicada]
+        FROM ERP_OP_DET_ORDEN_COMPRA DOC
+        FULL JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = DOC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        JOIN ERP_FACT_RES_FACTURA_CLIENTES RBO ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_RES_NC_CLIENTE RNC ON RNC.ROC_NUMERO_ORDEN = RBO.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_DET_NC_CLIENTE DNC ON DNC.RNC_NUM_INTERNO_NC_CLI = RNC.RNC_NUM_INTERNO_NC_CLI AND DNC.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        FULL JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        FULL JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        FULL JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        WHERE 
+          MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND RNC.RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0 
+          AND MP.TPROV_ID_TIPO_PROVEEDOR = 3  
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+          AND MC.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%'
+      )T
     `;
     
     const resultVentas = await pool.request()
@@ -310,21 +356,20 @@ async function procesarDatosFerreteria(pool, sucursal, startDate, endDate, resul
     
     if (resultVentas.recordset.length > 0) {
       const data = resultVentas.recordset[0];
-      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NotasCredito: 0 };
+      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NC: 0, 'Costo NC': 0, 'Utilidad NC': 0 };
       
       const ventasBrutas = parseFloat(data.Venta) || 0;
       const costosBrutos = parseFloat(data.COSTO) || 0;
       const utilidadBruta = parseFloat(data.Utilidad) || 0;
       const margen = parseFloat(data.Margen) || 0;
-      const notasCredito = parseFloat(dataNC.NotasCredito) || 0;
+      const notasCredito = parseFloat(dataNC.NC) || 0;
+      const costoNC = parseFloat(dataNC['Costo NC']) || 0;
+      const utilidadNC = parseFloat(dataNC['Utilidad NC']) || 0;
       
-      // Calcular proporción de NC sobre ventas
-      const proporcionNC = ventasBrutas > 0 ? (notasCredito / ventasBrutas) : 0;
-      
-      // Restar NC proporcionalmente de ventas, costos y utilidad
+      // Resta directa de NC reales (no proporcional)
       const ventas = ventasBrutas - notasCredito;
-      const costos = costosBrutos - (costosBrutos * proporcionNC);
-      const utilidad = utilidadBruta - (utilidadBruta * proporcionNC);
+      const costos = costosBrutos - costoNC;
+      const utilidad = utilidadBruta - utilidadNC;
       const ventasNetas = ventas;
       
       resultados.ventas += ventas;
@@ -348,6 +393,7 @@ async function procesarDatosFerreteria(pool, sucursal, startDate, endDate, resul
   }
 }
 
+// MULTITIENDA - Nueva lógica con resta directa de NC
 async function procesarDatosMultitienda(pool, sucursal, startDate, endDate, resultados) {
   try {
     const queryVentas = `
@@ -397,10 +443,54 @@ async function procesarDatosMultitienda(pool, sucursal, startDate, endDate, resu
     `;
 
     const queryNC = `
-      SELECT SUM(RNC_AFECTO) AS NotasCredito
-      FROM ERP_FACT_RES_NC_CLIENTE 
-      WHERE RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
-        AND MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+      SELECT  
+        SUM([Costo NC]) AS [Costo NC], 
+        SUM([NC Aplicada]) AS [NC],
+        SUM([NC Aplicada]) - SUM([Costo NC]) AS [Utilidad NC]
+      FROM (
+        SELECT 
+          ROUND(ISNULL(DOC.MP_COSTO_FINAL * DNC.DNC_CANTIDAD, 0), 0) AS [Costo NC],
+          ROUND(ISNULL((DNC.DNC_PRECIO_LISTA * DNC.DNC_CANTIDAD), 0), 0) AS [NC Aplicada]
+        FROM ERP_OP_DET_ORDEN_COMPRA DOC
+        FULL JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = DOC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        JOIN ERP_FACT_RES_BOLETAS RBO ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_RES_NC_CLIENTE RNC ON RNC.ROC_NUMERO_ORDEN = RBO.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_DET_NC_CLIENTE DNC ON DNC.RNC_NUM_INTERNO_NC_CLI = RNC.RNC_NUM_INTERNO_NC_CLI AND DNC.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        FULL JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        FULL JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        FULL JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        WHERE 
+          MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND RNC.RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0 
+          AND MP.TPROV_ID_TIPO_PROVEEDOR = 3  
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+        UNION ALL
+        SELECT
+          ROUND(ISNULL(DOC.MP_COSTO_FINAL * DNC.DNC_CANTIDAD, 0), 0) AS [Costo NC],
+          ROUND(ISNULL((DNC.DNC_PRECIO_LISTA * DNC.DNC_CANTIDAD), 0), 0) AS [NC Aplicada]
+        FROM ERP_OP_DET_ORDEN_COMPRA DOC
+        FULL JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = DOC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        JOIN ERP_FACT_RES_FACTURA_CLIENTES RBO ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_RES_NC_CLIENTE RNC ON RNC.ROC_NUMERO_ORDEN = RBO.ROC_NUMERO_ORDEN
+        FULL JOIN ERP_FACT_DET_NC_CLIENTE DNC ON DNC.RNC_NUM_INTERNO_NC_CLI = RNC.RNC_NUM_INTERNO_NC_CLI AND DNC.MP_CODIGO_PRODUCTO = DOC.MP_CODIGO_PRODUCTO
+        FULL JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        FULL JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        FULL JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+        WHERE 
+          MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1') 
+          AND RNC.RNC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0 
+          AND MP.TPROV_ID_TIPO_PROVEEDOR = 3  
+          AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+          AND MC.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%'
+      )T
     `;
     
     const resultVentas = await pool.request()
@@ -415,21 +505,20 @@ async function procesarDatosMultitienda(pool, sucursal, startDate, endDate, resu
     
     if (resultVentas.recordset.length > 0) {
       const data = resultVentas.recordset[0];
-      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NotasCredito: 0 };
+      const dataNC = resultNC.recordset.length > 0 ? resultNC.recordset[0] : { NC: 0, 'Costo NC': 0, 'Utilidad NC': 0 };
       
       const ventasBrutas = parseFloat(data.Venta) || 0;
       const costosBrutos = parseFloat(data.COSTO) || 0;
       const utilidadBruta = parseFloat(data.Utilidad) || 0;
       const margen = parseFloat(data.Margen) || 0;
-      const notasCredito = parseFloat(dataNC.NotasCredito) || 0;
+      const notasCredito = parseFloat(dataNC.NC) || 0;
+      const costoNC = parseFloat(dataNC['Costo NC']) || 0;
+      const utilidadNC = parseFloat(dataNC['Utilidad NC']) || 0;
       
-      // Calcular proporción de NC sobre ventas
-      const proporcionNC = ventasBrutas > 0 ? (notasCredito / ventasBrutas) : 0;
-      
-      // Restar NC proporcionalmente de ventas, costos y utilidad
+      // Resta directa de NC reales (no proporcional)
       const ventas = ventasBrutas - notasCredito;
-      const costos = costosBrutos - (costosBrutos * proporcionNC);
-      const utilidad = utilidadBruta - (utilidadBruta * proporcionNC);
+      const costos = costosBrutos - costoNC;
+      const utilidad = utilidadBruta - utilidadNC;
       const ventasNetas = ventas;
       
       resultados.ventas += ventas;

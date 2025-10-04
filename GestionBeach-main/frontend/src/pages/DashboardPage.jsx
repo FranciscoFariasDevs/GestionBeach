@@ -431,7 +431,7 @@ const ShareDashboardModal = ({ open, handleClose }) => {
             onClick={handleShare}
             disabled={!email || loading}
             startIcon={loading ? <CircularProgress size={20} /> : <ShareIcon />}
-            sx={{ borderRadius: 1.5, textTransform: 'none', fontWeight: 'bold' }}
+            sx={{ borderRadius: 1.5, textTransform: 'none', fontWeight: 'bold', color: 'white' }}
           >
             {loading ? 'Enviando...' : 'Compartir'}
           </Button>
