@@ -4,7 +4,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const fs = require('fs').promises;
 const path = require('path');
-// const Tesseract = require('tesseract.js'); // OCR deshabilitado para mayor velocidad
+const Tesseract = require('tesseract.js');
 
 // Configuración de Multer
 const storage = multer.memoryStorage();
@@ -53,13 +53,91 @@ const procesarImagen = async (buffer) => {
   }
 };
 
-// OCR deshabilitado - Validación solo por BD
-// const extraerTextoDeImagen = async (buffer) => {
-//   return {
-//     texto: 'OCR deshabilitado',
-//     confianza: 0
-//   };
-// };
+// Extraer texto de imagen con OCR - Máxima precisión
+const extraerTextoDeImagen = async (buffer) => {
+  try {
+    console.log('🔍 Iniciando OCR con máxima precisión...');
+
+    const { data } = await Tesseract.recognize(
+      buffer,
+      'spa', // Español
+      {
+        logger: info => {
+          if (info.status === 'recognizing text') {
+            console.log(`OCR Progreso: ${Math.round(info.progress * 100)}%`);
+          }
+        },
+        // Configuración para máxima precisión
+        tessedit_pageseg_mode: Tesseract.PSM.AUTO, // Detección automática de layout
+        tessedit_char_whitelist: '0123456789NnoO.:- ', // Solo números y caracteres relevantes
+        tessjs_create_hocr: '0',
+        tessjs_create_tsv: '0',
+        // Mejor calidad de procesamiento
+        tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY, // Motor LSTM más preciso
+      }
+    );
+
+    console.log(`✅ OCR completado - Confianza: ${data.confidence.toFixed(2)}%`);
+
+    return {
+      texto: data.text,
+      confianza: data.confidence,
+      textoCompleto: data.text
+    };
+  } catch (error) {
+    console.error('❌ Error en OCR:', error);
+    return {
+      texto: '',
+      confianza: 0,
+      textoCompleto: ''
+    };
+  }
+};
+
+// Extraer número de boleta del texto OCR
+const extraerNumeroBoleta = (textoOCR) => {
+  try {
+    console.log('🔍 Buscando número de boleta en texto OCR...');
+    console.log('Texto completo:', textoOCR.substring(0, 500)); // Mostrar primeros 500 caracteres
+
+    // Limpiar y normalizar el texto
+    const textoLimpio = textoOCR
+      .replace(/\s+/g, ' ') // Normalizar espacios
+      .replace(/[óoO0]/gi, 'O') // Normalizar O's
+      .toUpperCase();
+
+    // Patrones a buscar:
+    // 1. "No.:" seguido de números
+    // 2. "N°" seguido de números
+    // 3. "N:" seguido de números
+    // 4. "N" seguido de números
+    // 5. "NO:" seguido de números
+
+    const patrones = [
+      /NO\.?\s*:?\s*(\d+)/i,           // No.: 123456 o No: 123456
+      /N\s*°\s*:?\s*(\d+)/i,            // N° 123456 o N°: 123456
+      /N\s*:+\s*(\d+)/i,                // N: 123456 o N:: 123456
+      /BOLETA\s*N[°O]?\s*:?\s*(\d+)/i, // BOLETA N° 123456
+      /FOLIO\s*:?\s*(\d+)/i,            // FOLIO: 123456
+      /NUMERO\s*:?\s*(\d+)/i,           // NUMERO: 123456
+    ];
+
+    for (const patron of patrones) {
+      const match = textoLimpio.match(patron);
+      if (match && match[1]) {
+        const numeroEncontrado = match[1].trim();
+        console.log(`✅ Número de boleta encontrado: ${numeroEncontrado} (patrón: ${patron})`);
+        return numeroEncontrado;
+      }
+    }
+
+    console.log('⚠️ No se encontró número de boleta en el texto OCR');
+    return null;
+  } catch (error) {
+    console.error('❌ Error al extraer número de boleta:', error);
+    return null;
+  }
+};
 
 // Guardar imagen
 const guardarImagenEnServidor = async (buffer, numeroBoleta) => {

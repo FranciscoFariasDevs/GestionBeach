@@ -1362,7 +1362,7 @@ const ConcursoPiscinasPage = () => {
                               variant="determinate"
                               value={uploadProgress}
                               sx={{
-                                height: 16,
+                                height: 18,
                                 borderRadius: 8,
                                 bgcolor: '#E0F7FF',
                                 boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)',
@@ -1373,17 +1373,51 @@ const ConcursoPiscinasPage = () => {
                                 },
                               }}
                             />
-                            <Typography
-                              variant="h6"
-                              sx={{ 
-                                mt: 2, 
-                                textAlign: 'center', 
-                                fontWeight: 800, 
-                                color: '#00D4FF',
+                            <Box
+                              sx={{
+                                mt: 3,
+                                p: 3,
+                                textAlign: 'center',
+                                background: 'linear-gradient(135deg, #FFF5F0 0%, #FFE8DD 100%)',
+                                borderRadius: 3,
+                                border: '3px solid #FF6B35',
+                                boxShadow: '0 6px 20px rgba(255, 107, 53, 0.3)',
                               }}
                             >
-                              Procesando {uploadProgress}%
-                            </Typography>
+                              <Typography
+                                variant="h4"
+                                sx={{
+                                  fontWeight: 900,
+                                  color: '#FF6B35',
+                                  mb: 1.5,
+                                  fontSize: { xs: '1.8rem', md: '2.2rem' },
+                                  textShadow: '0 2px 8px rgba(255, 107, 53, 0.3)',
+                                }}
+                              >
+                                ⏳ Paciencia
+                              </Typography>
+                              <Typography
+                                variant="h5"
+                                sx={{
+                                  fontWeight: 700,
+                                  color: '#333',
+                                  fontSize: { xs: '1.2rem', md: '1.5rem' },
+                                }}
+                              >
+                                Estamos validando sus datos...
+                              </Typography>
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  mt: 1.5,
+                                  fontWeight: 600,
+                                  color: '#666',
+                                  fontSize: '1rem',
+                                }}
+                              >
+                                Procesando: {uploadProgress}%
+                              </Typography>
+                            </Box>
                           </Box>
                         </Grow>
                       )}
