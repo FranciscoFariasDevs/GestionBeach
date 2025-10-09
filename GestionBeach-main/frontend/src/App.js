@@ -1,4 +1,4 @@
-// frontend/src/App.js - CON SISTEMA DE PERMISOS CASL.js
+// frontend/src/App.js - COMPLETO Y CORREGIDO CON CONCURSO DE PISCINAS
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
@@ -11,19 +11,28 @@ import { es } from 'date-fns/locale';
 import theme from './theme';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
-// Layouts
+// ========================================
+// LAYOUTS
+// ========================================
 import DashboardLayout from './layouts/DashboardLayout';
 
-// Pages
+// ========================================
+// PAGES - PÚBLICAS
+// ========================================
 import LoginPage from './pages/LoginPage';
+import ConsultorPage from './pages/ConsultorPage';
+import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
+import NotFoundPage from './pages/NotFoundPage';
+
+// ========================================
+// PAGES - PRIVADAS
+// ========================================
 import DashboardPage from './pages/DashboardPage';
 import VentasPage from './pages/VentasPage';
 import TarjetaEmpleadoPage from './pages/TarjetaEmpleadoPage';
 import UsuarioPage from './pages/UsuarioPage';
 import ModuloPage from './pages/ModuloPage';
 import PerfilPage from './pages/PerfilPage';
-import NotFoundPage from './pages/NotFoundPage';
-import ConsultorPage from './pages/ConsultorPage';
 import SupermercadosPage from './pages/SupermercadosPage';
 import EstadoResultadosPage from './pages/EstadoResultados';
 import MonitoreoPage from './pages/MonitoreoPage';
@@ -34,7 +43,9 @@ import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
 import InventarioPage from './pages/InventarioPage';
 
-// Components
+// ========================================
+// COMPONENTS
+// ========================================
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -45,15 +56,28 @@ function App() {
         <SnackbarProvider
           maxSnack={3}
           anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          autoHideDuration={3000}
         >
           <AuthProvider>
             <BrowserRouter>
               <Routes>
-                {/* Rutas públicas */}
+                {/* ========================================== */}
+                {/* RUTAS PÚBLICAS (Sin autenticación)         */}
+                {/* ========================================== */}
+                
+                {/* Login */}
                 <Route path="/login" element={<LoginPage />} />
+                
+                {/* Consultor Público */}
                 <Route path="/consultor" element={<ConsultorPage />} />
+                
+                {/* 🆕 CONCURSO DE PISCINAS - RUTA PÚBLICA */}
+                <Route path="/concurso-piscinas" element={<ConcursoPiscinasPage />} />
 
-                {/* Rutas privadas dentro del layout del dashboard */}
+                {/* ========================================== */}
+                {/* RUTAS PRIVADAS (Con autenticación)         */}
+                {/* Todas dentro del DashboardLayout           */}
+                {/* ========================================== */}
                 <Route 
                   path="/" 
                   element={
@@ -62,10 +86,12 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
-                  {/* Redirect del root al dashboard */}
+                  {/* Redirect inicial */}
                   <Route index element={<Navigate to="/dashboard" replace />} />
                   
-                  {/* Dashboard - Acceso básico para todos */}
+                  {/* ========================================== */}
+                  {/* DASHBOARD PRINCIPAL                        */}
+                  {/* ========================================== */}
                   <Route 
                     path="dashboard" 
                     element={
@@ -75,7 +101,11 @@ function App() {
                     } 
                   />
                   
-                  {/* Estado Resultado - Finanzas, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO FINANCIERO                          */}
+                  {/* ========================================== */}
+                  
+                  {/* Estado de Resultados */}
                   <Route 
                     path="estado-resultado" 
                     element={
@@ -85,7 +115,9 @@ function App() {
                     } 
                   />
                   
-                  {/* Monitoreo - Gerencia, Jefe Local, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE MONITOREO                        */}
+                  {/* ========================================== */}
                   <Route 
                     path="monitoreo" 
                     element={
@@ -95,7 +127,9 @@ function App() {
                     } 
                   />
                   
-                  {/* Remuneraciones - RRHH, Finanzas, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE REMUNERACIONES                   */}
+                  {/* ========================================== */}
                   <Route 
                     path="remuneraciones" 
                     element={
@@ -105,7 +139,9 @@ function App() {
                     } 
                   />
                   
-                  {/* Inventario - Jefe Local, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE INVENTARIO                       */}
+                  {/* ========================================== */}
                   <Route 
                     path="inventario" 
                     element={
@@ -115,7 +151,9 @@ function App() {
                     } 
                   />
                   
-                  {/* Ventas - Jefe Local, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE VENTAS                           */}
+                  {/* ========================================== */}
                   <Route 
                     path="ventas" 
                     element={
@@ -125,7 +163,9 @@ function App() {
                     } 
                   />
                   
-                  {/* Productos - Jefe Local, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE PRODUCTOS                        */}
+                  {/* ========================================== */}
                   <Route 
                     path="productos/supermercados" 
                     element={
@@ -135,7 +175,11 @@ function App() {
                     } 
                   />
                   
-                  {/* Compras - Finanzas, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE COMPRAS                          */}
+                  {/* ========================================== */}
+                  
+                  {/* Centros de Costos */}
                   <Route 
                     path="compras/centros-costos" 
                     element={
@@ -144,6 +188,8 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  
+                  {/* Facturas XML */}
                   <Route 
                     path="compras/facturas-xml" 
                     element={
@@ -152,6 +198,8 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  
+                  {/* Registro de Compras */}
                   <Route 
                     path="compras/registro-compras" 
                     element={
@@ -161,7 +209,11 @@ function App() {
                     } 
                   />
                   
-                  {/* Empleados - RRHH, Gerencia, Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE RECURSOS HUMANOS                 */}
+                  {/* ========================================== */}
+                  
+                  {/* Empleados */}
                   <Route 
                     path="empleados" 
                     element={
@@ -171,7 +223,7 @@ function App() {
                     } 
                   />
                   
-                  {/* Tarjeta Empleado - RRHH, Gerencia, Admin */}
+                  {/* Tarjeta de Empleado */}
                   <Route 
                     path="tarjeta-empleado" 
                     element={
@@ -181,7 +233,12 @@ function App() {
                     } 
                   />
                   
-                  {/* Gestión del Sistema - Solo Admin y Super Admin */}
+                  {/* ========================================== */}
+                  {/* MÓDULO DE ADMINISTRACIÓN DEL SISTEMA       */}
+                  {/* Solo Admin y Super Admin                   */}
+                  {/* ========================================== */}
+                  
+                  {/* Gestión de Usuarios */}
                   <Route 
                     path="usuarios" 
                     element={
@@ -190,6 +247,8 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  
+                  {/* Gestión de Perfiles */}
                   <Route 
                     path="perfiles" 
                     element={
@@ -198,6 +257,8 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  
+                  {/* Gestión de Módulos */}
                   <Route 
                     path="modulos" 
                     element={
@@ -206,6 +267,8 @@ function App() {
                       </ProtectedRoute>
                     } 
                   />
+                  
+                  {/* Configuración del Sistema */}
                   <Route 
                     path="configuracion" 
                     element={
@@ -219,7 +282,9 @@ function App() {
                   />
                 </Route>
 
-                {/* Ruta 404 */}
+                {/* ========================================== */}
+                {/* RUTA 404 - NO ENCONTRADO                   */}
+                {/* ========================================== */}
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </BrowserRouter>
@@ -231,3 +296,4 @@ function App() {
 }
 
 export default App;
+

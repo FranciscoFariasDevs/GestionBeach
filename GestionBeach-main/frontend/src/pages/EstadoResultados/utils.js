@@ -1,7 +1,7 @@
-// src/pages/EstadoResultados/utils.js - Versión Corregida
+// src/pages/EstadoResultados/utils.js - COMPLETO CON COSTOS PATRONALES
 
 /**
- * Estructura base para el estado de resultados (solo estructura, sin datos falsos)
+ * Estructura base para el estado de resultados
  */
 export const estructuraEstadoResultados = {
   sucursal: "",
@@ -16,14 +16,14 @@ export const estructuraEstadoResultados = {
   },
   costos: {
     costoVentas: 0,
-    compras: 0, // Datos reales de facturas XML
+    compras: 0,
     mermaVenta: 0,
     totalCostos: 0
   },
   utilidadBruta: 0,
   gastosOperativos: {
     gastosVenta: {
-      sueldos: 0, // Datos reales de remuneraciones
+      sueldos: 0, // Incluye TOTAL_CARGO con costos patronales
       fletes: 0,
       finiquitos: 0,
       mantenciones: 0,
@@ -31,7 +31,7 @@ export const estructuraEstadoResultados = {
       total: 0
     },
     gastosAdministrativos: {
-      sueldos: 0, // Datos reales de remuneraciones
+      sueldos: 0, // Incluye TOTAL_CARGO con costos patronales
       seguros: 0,
       gastosComunes: 0,
       electricidad: 0,
@@ -64,31 +64,27 @@ export const estructuraEstadoResultados = {
   usuarioEnvio: null,
   datosOriginales: {
     totalCompras: 0,
-    totalRemuneraciones: 0,
+    totalRemuneraciones: 0, // Ahora es TOTAL_CARGO
     totalVentas: 0,
     numeroFacturas: 0,
-    numeroVentas: 0
+    numeroVentas: 0,
+    numeroEmpleados: 0,
+    detalleRemuneraciones: {
+      total_liquidos: 0,
+      total_descuentos: 0,
+      total_pago: 0,
+      total_caja_compensacion: 0,
+      total_afc: 0,
+      total_sis: 0,
+      total_ach: 0,
+      total_imposiciones_patronales: 0,
+      total_cargo: 0
+    }
   }
 };
 
 /**
- * Datos de ejemplo SOLO para testing (marcar claramente como test)
- */
-export const mockDataForTesting = {
-  ...estructuraEstadoResultados,
-  sucursal: "SUCURSAL TEST",
-  periodo: "Período de Prueba",
-  // NOTA: Estos son datos de prueba, NO usar en producción
-  ingresos: {
-    ventas: 0, // Se debe llenar con datos reales
-    otrosIngresos: { fletes: 0, total: 0 },
-    totalIngresos: 0
-  }
-};
-
-/**
- * Función para generar datos iniciales limpios (solo estructura, sin datos inventados)
- * @returns {Object} Estructura limpia para el estado de resultados
+ * Función para generar datos iniciales limpios
  */
 export const getInitialData = () => {
   return JSON.parse(JSON.stringify(estructuraEstadoResultados));
@@ -96,53 +92,64 @@ export const getInitialData = () => {
 
 /**
  * Crear estado de resultados con datos reales del sistema
- * @param {Object} datosReales - Datos obtenidos del sistema
- * @returns {Object} Estado de resultados con datos reales
+ * INCLUYE CÁLCULO DE COSTOS PATRONALES
  */
 export const crearEstadoResultadosConDatosReales = (datosReales) => {
   const estructura = getInitialData();
   
-  // Datos de ventas (reales)
+  // Datos de ventas
   if (datosReales.ventas) {
     estructura.ingresos.ventas = datosReales.ventas.total || 0;
     estructura.datosOriginales.totalVentas = datosReales.ventas.total || 0;
     estructura.datosOriginales.numeroVentas = datosReales.ventas.cantidad || 0;
   }
   
-  // Datos de compras (reales desde facturas XML)
+  // Datos de compras
   if (datosReales.compras) {
     estructura.costos.compras = datosReales.compras.total || 0;
     estructura.datosOriginales.totalCompras = datosReales.compras.total || 0;
     estructura.datosOriginales.numeroFacturas = datosReales.compras.cantidad || 0;
   }
   
-  // Datos de remuneraciones (reales)
-  if (datosReales.remuneraciones) {
-    const totalRemuneraciones = datosReales.remuneraciones.total || 0;
-    estructura.datosOriginales.totalRemuneraciones = totalRemuneraciones;
+  // Datos de remuneraciones CON COSTOS PATRONALES
+  if (datosReales.remuneraciones && datosReales.remuneraciones.resumen) {
+    const resumen = datosReales.remuneraciones.resumen;
     
-    // Distribuir remuneraciones de forma conservadora
-    // Solo si hay datos reales, sino dejar en 0
-    if (totalRemuneraciones > 0) {
-      // Distribución básica sin inventar porcentajes
-      estructura.gastosOperativos.gastosVenta.sueldos = Math.round(totalRemuneraciones * 0.5); // 50% conservador
-      estructura.gastosOperativos.gastosAdministrativos.sueldos = Math.round(totalRemuneraciones * 0.5); // 50% conservador
+    // USAR TOTAL_CARGO en lugar de solo líquidos
+    const totalCargo = resumen.total_cargo || 0;
+    estructura.datosOriginales.totalRemuneraciones = totalCargo;
+    estructura.datosOriginales.numeroEmpleados = resumen.cantidad_empleados || 0;
+    
+    // Guardar detalle completo
+    estructura.datosOriginales.detalleRemuneraciones = {
+      total_liquidos: resumen.total_liquidos || 0,
+      total_descuentos: resumen.total_descuentos || 0,
+      total_pago: resumen.total_pago || 0,
+      total_caja_compensacion: resumen.total_caja_compensacion || 0,
+      total_afc: resumen.total_afc || 0,
+      total_sis: resumen.total_sis || 0,
+      total_ach: resumen.total_ach || 0,
+      total_imposiciones_patronales: resumen.total_imposiciones_patronales || 0,
+      total_cargo: resumen.total_cargo || 0
+    };
+    
+    // Distribución del TOTAL_CARGO (50% ventas, 50% admin)
+    if (totalCargo > 0) {
+      estructura.gastosOperativos.gastosVenta.sueldos = Math.round(totalCargo * 0.5);
+      estructura.gastosOperativos.gastosAdministrativos.sueldos = Math.round(totalCargo * 0.5);
     }
   }
   
-  // Solo estimar costo de ventas si hay ventas reales y no tenemos el dato exacto
-  if (estructura.ingresos.ventas > 0 && !datosReales.costoVentasReal) {
-    // NOTA: Esto es una estimación básica. Idealmente debería venir del sistema
-    estructura.costos.costoVentas = 0; // Dejar en 0 hasta tener datos reales
+  // Estimar costo de ventas si hay compras
+  if (estructura.costos.compras > 0) {
+    estructura.costos.costoVentas = estructura.costos.compras * 0.81;
   }
   
   return recalculateTotals(estructura);
 };
 
 /**
- * Recalcula todos los totales y valores derivados del estado de resultados
- * @param {Object} data - Datos del estado de resultados
- * @returns {Object} - Los mismos datos con los totales actualizados
+ * Recalcula todos los totales y valores derivados
  */
 export const recalculateTotals = (data) => {
   const newData = { ...data };
@@ -210,8 +217,6 @@ export const recalculateTotals = (data) => {
 
 /**
  * Formatea un valor como moneda chilena
- * @param {number} value - Valor a formatear
- * @returns {string} - Valor formateado como moneda chilena
  */
 export const formatCurrency = (value) => {
   const numValue = Number(value) || 0;
@@ -224,10 +229,6 @@ export const formatCurrency = (value) => {
 
 /**
  * Calcula el porcentaje de un valor respecto a otro
- * @param {number} value - Valor a calcular
- * @param {number} total - Total de referencia
- * @param {number} decimals - Decimales a mostrar
- * @returns {number} - Porcentaje calculado
  */
 export const calcularPorcentaje = (value, total, decimals = 1) => {
   if (!total || total === 0) return 0;
@@ -236,8 +237,6 @@ export const calcularPorcentaje = (value, total, decimals = 1) => {
 
 /**
  * Obtiene el rango de fechas para un mes específico
- * @param {Date} fechaSeleccionada - Fecha seleccionada
- * @returns {Object} - Objeto con fechaDesde y fechaHasta
  */
 export const obtenerRangoDeFechas = (fechaSeleccionada) => {
   const fecha = new Date(fechaSeleccionada);
@@ -255,15 +254,13 @@ export const obtenerRangoDeFechas = (fechaSeleccionada) => {
 
 /**
  * Verifica si un campo es generado por el sistema
- * @param {string} field - Nombre del campo
- * @returns {boolean} - True si el campo es generado por el sistema
  */
 export const isSystemGeneratedField = (field) => {
   const systemFields = [
     'ventas', 
     'costoVentas', 
     'compras',
-    'sueldos', 
+    'sueldos', // Ahora incluye costos patronales
     'seguros'
   ];
   
@@ -272,8 +269,6 @@ export const isSystemGeneratedField = (field) => {
 
 /**
  * Valida los datos del estado de resultados
- * @param {Object} data - Datos a validar
- * @returns {Object} - Resultado de la validación
  */
 export const validarDatosEstadoResultados = (data) => {
   const errores = [];
@@ -317,6 +312,14 @@ export const validarDatosEstadoResultados = (data) => {
     advertencias.push('Los gastos operativos representan más del 50% de las ventas');
   }
   
+  // Validar que existan porcentajes si hay remuneraciones
+  if (data.datosOriginales?.detalleRemuneraciones?.total_cargo > 0) {
+    if (!data.datosOriginales.detalleRemuneraciones.total_caja_compensacion && 
+        !data.datosOriginales.detalleRemuneraciones.total_afc) {
+      advertencias.push('No se detectaron costos patronales. Verifique que estén configurados los porcentajes.');
+    }
+  }
+  
   return {
     esValido: errores.length === 0,
     errores,
@@ -325,9 +328,7 @@ export const validarDatosEstadoResultados = (data) => {
 };
 
 /**
- * Genera un resumen ejecutivo del estado de resultados (solo con datos reales)
- * @param {Object} data - Datos del estado de resultados
- * @returns {Object} - Resumen ejecutivo
+ * Genera un resumen ejecutivo del estado de resultados
  */
 export const generarResumenEjecutivo = (data) => {
   if (!data) return null;
@@ -337,14 +338,12 @@ export const generarResumenEjecutivo = (data) => {
   const utilidadNeta = data.utilidadNeta || 0;
   const gastosOperativos = data.gastosOperativos?.totalGastosOperativos || 0;
   
-  // Solo calcular ratios si hay datos válidos
   const ratios = {
     margenBruto: ventas > 0 ? calcularPorcentaje(utilidadBruta, ventas) : 0,
     margenNeto: ventas > 0 ? calcularPorcentaje(utilidadNeta, ventas) : 0,
     eficienciaOperativa: ventas > 0 ? calcularPorcentaje(gastosOperativos, ventas) : 0
   };
   
-  // Clasificar rendimiento solo si hay datos
   const clasificarRendimiento = (ratio, tipo) => {
     if (ratio === 0) return 'Sin datos';
     
@@ -404,15 +403,15 @@ export const generarResumenEjecutivo = (data) => {
       tieneCompras: (data.datosOriginales?.totalCompras || 0) > 0,
       tieneRemuneraciones: (data.datosOriginales?.totalRemuneraciones || 0) > 0,
       facturasProcesadas: data.datosOriginales?.numeroFacturas || 0,
-      ventasRegistradas: data.datosOriginales?.numeroVentas || 0
+      ventasRegistradas: data.datosOriginales?.numeroVentas || 0,
+      empleados: data.datosOriginales?.numeroEmpleados || 0,
+      tieneCostosPatronales: (data.datosOriginales?.detalleRemuneraciones?.total_cargo || 0) > 0
     }
   };
 };
 
 /**
- * Genera alertas basadas en los datos reales del estado de resultados
- * @param {Object} data - Datos del estado de resultados
- * @returns {Array} - Array de alertas
+ * Genera alertas basadas en los datos
  */
 export const generarAlertas = (data) => {
   const alertas = [];
@@ -424,17 +423,15 @@ export const generarAlertas = (data) => {
   const utilidadNeta = data.utilidadNeta || 0;
   const gastosOperativos = data.gastosOperativos?.totalGastosOperativos || 0;
   
-  // Solo generar alertas si hay datos para analizar
   if (ventas === 0) {
     alertas.push({
       tipo: 'info',
       mensaje: 'Sin datos de ventas',
       descripcion: 'No se han cargado datos de ventas para este período'
     });
-    return alertas; // No tiene sentido seguir analizando sin ventas
+    return alertas;
   }
   
-  // Alerta por utilidad negativa
   if (utilidadNeta < 0) {
     alertas.push({
       tipo: 'error',
@@ -443,7 +440,6 @@ export const generarAlertas = (data) => {
     });
   }
   
-  // Alerta por margen bruto bajo (solo si hay datos suficientes)
   if (utilidadBruta !== 0 && ventas > 0) {
     const margenBruto = calcularPorcentaje(utilidadBruta, ventas);
     if (margenBruto < 10) {
@@ -455,43 +451,37 @@ export const generarAlertas = (data) => {
     }
   }
   
-  // Alerta por gastos operativos altos (solo si hay gastos registrados)
   if (gastosOperativos > 0 && ventas > 0) {
     const gastosVsVentas = calcularPorcentaje(gastosOperativos, ventas);
     if (gastosVsVentas > 50) {
       alertas.push({
         tipo: 'warning',
         mensaje: 'Gastos operativos elevados',
-        descripcion: `Los gastos operativos representan el ${gastosVsVentas.toFixed(1)}% de las ventas`
+        descripcion: `Los gastos operativos (incluidos costos patronales) representan el ${gastosVsVentas.toFixed(1)}% de las ventas`
       });
     }
   }
   
-  // Alerta por falta de datos
-  if (data.datosOriginales) {
-    const { numeroFacturas, numeroVentas, totalCompras, totalRemuneraciones } = data.datosOriginales;
+  // Alertas específicas de costos patronales
+  if (data.datosOriginales?.detalleRemuneraciones) {
+    const detalle = data.datosOriginales.detalleRemuneraciones;
     
-    if (numeroFacturas === 0 && totalCompras === 0) {
+    if (detalle.total_cargo === 0 && detalle.total_liquidos > 0) {
       alertas.push({
-        tipo: 'info',
-        mensaje: 'Sin datos de compras',
-        descripcion: 'No se encontraron facturas procesadas para este período'
+        tipo: 'warning',
+        mensaje: 'Falta configuración de porcentajes',
+        descripcion: 'Hay remuneraciones pero no se calcularon costos patronales. Configure los porcentajes en el módulo de Remuneraciones.'
       });
     }
     
-    if (totalRemuneraciones === 0) {
+    if (detalle.total_cargo > 0) {
+      const costoPatronal = detalle.total_cargo - detalle.total_pago;
+      const porcentajeCostoPatronal = calcularPorcentaje(costoPatronal, detalle.total_pago);
+      
       alertas.push({
         tipo: 'info',
-        mensaje: 'Sin datos de remuneraciones',
-        descripcion: 'No se encontraron datos de remuneraciones para este período'
-      });
-    }
-    
-    if (numeroVentas === 0) {
-      alertas.push({
-        tipo: 'info',
-        mensaje: 'Sin registros de ventas',
-        descripcion: 'No se encontraron registros de ventas para este período'
+        mensaje: 'Costos patronales calculados',
+        descripcion: `Los costos patronales representan un ${porcentajeCostoPatronal.toFixed(1)}% adicional sobre el pago directo a empleados (${formatCurrency(costoPatronal)})`
       });
     }
   }
@@ -500,10 +490,188 @@ export const generarAlertas = (data) => {
 };
 
 /**
+ * Exporta los datos a CSV
+ */
+export const exportarACSV = (data) => {
+  if (!data) return '';
+  
+  const ventas = data.ingresos?.ventas || 0;
+  
+  if (ventas === 0) {
+    return 'Concepto,Monto,Porcentaje\nSin datos disponibles,0,0';
+  }
+  
+  const lineas = [
+    'Concepto,Monto,Porcentaje',
+    `Ventas,${ventas},100.0`,
+    `Costo de Ventas,${data.costos.costoVentas},${calcularPorcentaje(data.costos.costoVentas, ventas)}`,
+    `Utilidad Bruta,${data.utilidadBruta},${calcularPorcentaje(data.utilidadBruta, ventas)}`,
+    `Gastos de Venta (incl. costos patronales),${data.gastosOperativos.gastosVenta.total},${calcularPorcentaje(data.gastosOperativos.gastosVenta.total, ventas)}`,
+    `Gastos Administrativos (incl. costos patronales),${data.gastosOperativos.gastosAdministrativos.total},${calcularPorcentaje(data.gastosOperativos.gastosAdministrativos.total, ventas)}`,
+    `Utilidad Operativa,${data.utilidadOperativa},${calcularPorcentaje(data.utilidadOperativa, ventas)}`,
+    `Impuestos,${data.impuestos},${calcularPorcentaje(data.impuestos, ventas)}`,
+    `Utilidad Neta,${data.utilidadNeta},${calcularPorcentaje(data.utilidadNeta, ventas)}`
+  ];
+  
+  // Agregar detalle de costos patronales si está disponible
+  if (data.datosOriginales?.detalleRemuneraciones?.total_cargo > 0) {
+    const detalle = data.datosOriginales.detalleRemuneraciones;
+    lineas.push('');
+    lineas.push('DETALLE COSTOS PATRONALES');
+    lineas.push(`Total Pago Directo,${detalle.total_pago},`);
+    lineas.push(`Caja Compensación,${detalle.total_caja_compensacion},`);
+    lineas.push(`AFC,${detalle.total_afc},`);
+    lineas.push(`SIS,${detalle.total_sis},`);
+    lineas.push(`ACH,${detalle.total_ach},`);
+    lineas.push(`Imposiciones,${detalle.total_imposiciones_patronales},`);
+    lineas.push(`TOTAL CARGO,${detalle.total_cargo},`);
+  }
+  
+  return lineas.join('\n');
+};
+
+/**
+ * Formatea fecha para mostrar
+ */
+export const formatearFecha = (fecha) => {
+  if (!fecha) return '';
+  
+  const fechaObj = new Date(fecha);
+  return fechaObj.toLocaleDateString('es-CL', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+};
+
+/**
+ * Formatea fecha y hora
+ */
+export const formatearFechaHora = (fecha) => {
+  if (!fecha) return '';
+  
+  const fechaObj = new Date(fecha);
+  return fechaObj.toLocaleString('es-CL', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+/**
+ * Constantes
+ */
+export const ESTADOS_DOCUMENTO = {
+  BORRADOR: 'borrador',
+  GUARDADO: 'guardado',
+  ENVIADO: 'enviado'
+};
+
+export const COLORES_ESTADO = {
+  [ESTADOS_DOCUMENTO.BORRADOR]: 'warning',
+  [ESTADOS_DOCUMENTO.GUARDADO]: 'info',
+  [ESTADOS_DOCUMENTO.ENVIADO]: 'success'
+};
+
+export const TIPOS_GASTO = {
+  ADMINISTRATIVOS: 'administrativos',
+  VENTA: 'venta',
+  OTROS: 'otros'
+};
+
+/**
+ * Configuración de campos
+ */
+export const CAMPOS_CONFIGURACION = {
+  manuales: [
+    'gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma',
+    'internet', 'facturasNet', 'transbank', 'patenteMunicipal',
+    'contribuciones', 'petroleo', 'otros', 'fletes', 'finiquitos',
+    'mantenciones', 'publicidad', 'mermaVenta', 'costoArriendo',
+    'otrosIngresosFinancieros'
+  ],
+  sistema: [
+    'ventas', 'costoVentas', 'compras', 
+    'sueldos' // Ahora incluye costos patronales automáticamente
+  ],
+  calculados: [
+    'utilidadBruta', 'utilidadOperativa', 'utilidadAntesImpuestos',
+    'impuestos', 'utilidadNeta', 'totalIngresos', 'totalCostos',
+    'totalGastosOperativos'
+  ]
+};
+
+/**
+ * Debug para desarrollo
+ */
+export const debugEstadoResultados = (data) => {
+  console.group('DEBUG Estado de Resultados con Costos Patronales');
+  
+  if (!data) {
+    console.warn('No hay datos para analizar');
+    console.groupEnd();
+    return;
+  }
+  
+  console.log('Estructura de datos:', data);
+  
+  if (data.datosOriginales?.detalleRemuneraciones) {
+    console.log('Detalle de remuneraciones:');
+    console.log('  - Total Pago:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_pago));
+    console.log('  - Caja Compensación:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_caja_compensacion));
+    console.log('  - AFC:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_afc));
+    console.log('  - SIS:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_sis));
+    console.log('  - ACH:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_ach));
+    console.log('  - Imposiciones:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_imposiciones_patronales));
+    console.log('  - TOTAL CARGO:', formatCurrency(data.datosOriginales.detalleRemuneraciones.total_cargo));
+  }
+  
+  console.log('Montos principales:');
+  console.log('  - Ventas:', formatCurrency(data.ingresos?.ventas || 0));
+  console.log('  - Utilidad Bruta:', formatCurrency(data.utilidadBruta || 0));
+  console.log('  - Gastos Operativos:', formatCurrency(data.gastosOperativos?.totalGastosOperativos || 0));
+  console.log('  - Utilidad Neta:', formatCurrency(data.utilidadNeta || 0));
+  
+  const validacion = validarDatosEstadoResultados(data);
+  console.log('Validación:', validacion);
+  
+  const alertas = generarAlertas(data);
+  if (alertas.length > 0) {
+    console.log('Alertas:');
+    alertas.forEach(alerta => {
+      console.log(`  - ${alerta.tipo.toUpperCase()}: ${alerta.mensaje}`);
+    });
+  }
+  
+  console.groupEnd();
+};
+
+export default {
+  estructuraEstadoResultados,
+  getInitialData,
+  crearEstadoResultadosConDatosReales,
+  recalculateTotals,
+  formatCurrency,
+  calcularPorcentaje,
+  obtenerRangoDeFechas,
+  isSystemGeneratedField,
+  validarDatosEstadoResultados,
+  generarResumenEjecutivo,
+  generarAlertas,
+  exportarACSV,
+  formatearFecha,
+  formatearFechaHora,
+  ESTADOS_DOCUMENTO,
+  COLORES_ESTADO,
+  TIPOS_GASTO,
+  CAMPOS_CONFIGURACION,
+  debugEstadoResultados
+};
+
+/**
  * Compara dos estados de resultados
- * @param {Object} actual - Estado actual
- * @param {Object} anterior - Estado anterior
- * @returns {Object} - Comparación
  */
 export const compararEstadosResultados = (actual, anterior) => {
   if (!actual || !anterior) return null;
@@ -538,83 +706,13 @@ export const compararEstadosResultados = (actual, anterior) => {
 };
 
 /**
- * Exporta los datos del estado de resultados a formato CSV (solo datos reales)
- * @param {Object} data - Datos del estado de resultados
- * @returns {string} - Contenido CSV
- */
-export const exportarACSV = (data) => {
-  if (!data) return '';
-  
-  const ventas = data.ingresos?.ventas || 0;
-  
-  if (ventas === 0) {
-    return 'Concepto,Monto,Porcentaje\nSin datos disponibles,0,0';
-  }
-  
-  const lineas = [
-    'Concepto,Monto,Porcentaje',
-    `Ventas,${ventas},100.0`
-  ];
-  
-  // Solo agregar líneas con datos reales
-  if (data.costos?.costoVentas > 0) {
-    lineas.push(`Costo de Ventas,${data.costos.costoVentas},${calcularPorcentaje(data.costos.costoVentas, ventas)}`);
-  }
-  
-  if (data.costos?.compras > 0) {
-    lineas.push(`Compras del Período,${data.costos.compras},${calcularPorcentaje(data.costos.compras, ventas)}`);
-  }
-  
-  if (data.utilidadBruta !== 0) {
-    lineas.push(`Utilidad Bruta,${data.utilidadBruta},${calcularPorcentaje(data.utilidadBruta, ventas)}`);
-  }
-  
-  if (data.gastosOperativos?.gastosVenta?.total > 0) {
-    lineas.push(`Gastos de Venta,${data.gastosOperativos.gastosVenta.total},${calcularPorcentaje(data.gastosOperativos.gastosVenta.total, ventas)}`);
-  }
-  
-  if (data.gastosOperativos?.gastosAdministrativos?.total > 0) {
-    lineas.push(`Gastos Administrativos,${data.gastosOperativos.gastosAdministrativos.total},${calcularPorcentaje(data.gastosOperativos.gastosAdministrativos.total, ventas)}`);
-  }
-  
-  if (data.utilidadOperativa !== 0) {
-    lineas.push(`Utilidad Operativa,${data.utilidadOperativa},${calcularPorcentaje(data.utilidadOperativa, ventas)}`);
-  }
-  
-  if (data.costoArriendo > 0) {
-    lineas.push(`Costo Arriendo,${data.costoArriendo},${calcularPorcentaje(data.costoArriendo, ventas)}`);
-  }
-  
-  if (data.otrosIngresosFinancieros > 0) {
-    lineas.push(`Otros Ingresos Financieros,${data.otrosIngresosFinancieros},${calcularPorcentaje(data.otrosIngresosFinancieros, ventas)}`);
-  }
-  
-  if (data.utilidadAntesImpuestos !== 0) {
-    lineas.push(`Utilidad Antes de Impuestos,${data.utilidadAntesImpuestos},${calcularPorcentaje(data.utilidadAntesImpuestos, ventas)}`);
-  }
-  
-  if (data.impuestos > 0) {
-    lineas.push(`Impuestos,${data.impuestos},${calcularPorcentaje(data.impuestos, ventas)}`);
-  }
-  
-  if (data.utilidadNeta !== 0) {
-    lineas.push(`Utilidad Neta,${data.utilidadNeta},${calcularPorcentaje(data.utilidadNeta, ventas)}`);
-  }
-  
-  return lineas.join('\n');
-};
-
-/**
- * Genera datos para gráficos (solo con datos reales disponibles)
- * @param {Object} data - Datos del estado de resultados
- * @returns {Object} - Datos para gráficos
+ * Genera datos para gráficos
  */
 export const generarDatosGraficos = (data) => {
   if (!data) return null;
   
   const ventas = data.ingresos?.ventas || 0;
   
-  // Solo generar gráficos si hay datos de ventas
   if (ventas === 0) {
     return {
       distribucionGastos: [],
@@ -647,7 +745,7 @@ export const generarDatosGraficos = (data) => {
         valor: data.utilidadNeta || 0, 
         porcentaje: calcularPorcentaje(data.utilidadNeta || 0, ventas) 
       }
-    ].filter(item => item.valor > 0), // Solo incluir items con valores reales
+    ].filter(item => item.valor > 0),
     
     evolucionUtilidad: [
       { concepto: 'Ventas', valor: ventas },
@@ -672,7 +770,7 @@ export const generarDatosGraficos = (data) => {
         valor: calcularPorcentaje(data.utilidadNeta || 0, ventas),
         disponible: (data.utilidadNeta || 0) !== 0
       }
-    ].filter(item => item.disponible), // Solo ratios con datos disponibles
+    ].filter(item => item.disponible),
     
     sinDatos: false,
     resumenDatos: {
@@ -685,88 +783,11 @@ export const generarDatosGraficos = (data) => {
 };
 
 /**
- * Formatea fecha para mostrar
- * @param {string|Date} fecha - Fecha a formatear
- * @returns {string} - Fecha formateada
- */
-export const formatearFecha = (fecha) => {
-  if (!fecha) return '';
-  
-  const fechaObj = new Date(fecha);
-  return fechaObj.toLocaleDateString('es-CL', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-};
-
-/**
- * Formatea fecha y hora para mostrar
- * @param {string|Date} fecha - Fecha a formatear
- * @returns {string} - Fecha y hora formateada
- */
-export const formatearFechaHora = (fecha) => {
-  if (!fecha) return '';
-  
-  const fechaObj = new Date(fecha);
-  return fechaObj.toLocaleString('es-CL', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
-
-/**
- * Constantes para el estado de resultados
- */
-export const ESTADOS_DOCUMENTO = {
-  BORRADOR: 'borrador',
-  GUARDADO: 'guardado',
-  ENVIADO: 'enviado'
-};
-
-export const COLORES_ESTADO = {
-  [ESTADOS_DOCUMENTO.BORRADOR]: 'warning',
-  [ESTADOS_DOCUMENTO.GUARDADO]: 'info',
-  [ESTADOS_DOCUMENTO.ENVIADO]: 'success'
-};
-
-export const TIPOS_GASTO = {
-  ADMINISTRATIVOS: 'administrativos',
-  VENTA: 'venta',
-  OTROS: 'otros'
-};
-
-/**
- * Configuración de campos del estado de resultados
- */
-export const CAMPOS_CONFIGURACION = {
-  manuales: [
-    'gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma',
-    'internet', 'facturasNet', 'transbank', 'patenteMunicipal',
-    'contribuciones', 'petroleo', 'otros', 'fletes', 'finiquitos',
-    'mantenciones', 'publicidad', 'mermaVenta', 'costoArriendo',
-    'otrosIngresosFinancieros'
-  ],
-  sistema: [
-    'ventas', 'costoVentas', 'compras', 'sueldos', 'seguros'
-  ],
-  calculados: [
-    'utilidadBruta', 'utilidadOperativa', 'utilidadAntesImpuestos',
-    'impuestos', 'utilidadNeta', 'totalIngresos', 'totalCostos',
-    'totalGastosOperativos'
-  ]
-};
-
-/**
- * Validadores de campo mejorados
+ * Validadores de campo
  */
 export const validarCampo = (campo, valor) => {
   const errores = [];
   
-  // Validar que sea un número
   if (isNaN(valor) || valor === null || valor === undefined) {
     errores.push(`${campo} debe ser un número válido`);
     return errores;
@@ -774,13 +795,11 @@ export const validarCampo = (campo, valor) => {
   
   const numeroValor = Number(valor);
   
-  // Validar que no sea negativo para ciertos campos
   const camposPositivos = ['ventas', 'costoVentas', 'compras'];
   if (camposPositivos.includes(campo) && numeroValor < 0) {
     errores.push(`${campo} no puede ser negativo`);
   }
   
-  // Validar rangos lógicos
   if (campo === 'ventas' && numeroValor === 0) {
     errores.push('Las ventas no pueden ser cero para un período activo');
   }
@@ -790,91 +809,4 @@ export const validarCampo = (campo, valor) => {
   }
   
   return errores;
-};
-
-/**
- * Utilities para debugging con datos reales
- */
-export const debugEstadoResultados = (data) => {
-  console.group('🔍 Debug Estado de Resultados - Datos Reales');
-  
-  if (!data) {
-    console.warn('❌ No hay datos para analizar');
-    console.groupEnd();
-    return;
-  }
-  
-  console.log('📊 Estructura de datos:', data);
-  
-  // Verificar datos originales
-  if (data.datosOriginales) {
-    console.log('📈 Datos del sistema:');
-    console.log(`  - Facturas procesadas: ${data.datosOriginales.numeroFacturas}`);
-    console.log(`  - Ventas registradas: ${data.datosOriginales.numeroVentas}`);
-    console.log(`  - Total compras: ${formatCurrency(data.datosOriginales.totalCompras)}`);
-    console.log(`  - Total remuneraciones: ${formatCurrency(data.datosOriginales.totalRemuneraciones)}`);
-    console.log(`  - Total ventas: ${formatCurrency(data.datosOriginales.totalVentas)}`);
-  }
-  
-  // Verificar montos principales
-  console.log('💰 Montos principales:');
-  console.log(`  - Ventas: ${formatCurrency(data.ingresos?.ventas || 0)}`);
-  console.log(`  - Utilidad Bruta: ${formatCurrency(data.utilidadBruta || 0)}`);
-  console.log(`  - Gastos Operativos: ${formatCurrency(data.gastosOperativos?.totalGastosOperativos || 0)}`);
-  console.log(`  - Utilidad Neta: ${formatCurrency(data.utilidadNeta || 0)}`);
-  
-  // Validación
-  const validacion = validarDatosEstadoResultados(data);
-  console.log('📋 Validación:', validacion);
-  
-  // Alertas
-  const alertas = generarAlertas(data);
-  if (alertas.length > 0) {
-    console.log('⚠️ Alertas:');
-    alertas.forEach(alerta => {
-      console.log(`  - ${alerta.tipo.toUpperCase()}: ${alerta.mensaje}`);
-    });
-  }
-  
-  // Resumen ejecutivo
-  const resumen = generarResumenEjecutivo(data);
-  if (resumen && resumen.hayDatos) {
-    console.log('📊 Ratios financieros:');
-    console.log(`  - Margen Bruto: ${resumen.rendimiento.margenBruto.valor.toFixed(1)}% (${resumen.rendimiento.margenBruto.clasificacion})`);
-    console.log(`  - Margen Neto: ${resumen.rendimiento.margenNeto.valor.toFixed(1)}% (${resumen.rendimiento.margenNeto.clasificacion})`);
-  } else {
-    console.log('❌ Sin datos suficientes para calcular ratios');
-  }
-  
-  console.groupEnd();
-};
-
-// Mantener compatibilidad con mockData pero marcar como deprecated
-export const mockData = mockDataForTesting;
-
-export default {
-  estructuraEstadoResultados,
-  mockDataForTesting,
-  mockData, // deprecated
-  getInitialData,
-  crearEstadoResultadosConDatosReales,
-  recalculateTotals,
-  formatCurrency,
-  calcularPorcentaje,
-  obtenerRangoDeFechas,
-  isSystemGeneratedField,
-  validarDatosEstadoResultados,
-  generarResumenEjecutivo,
-  generarAlertas,
-  compararEstadosResultados,
-  exportarACSV,
-  generarDatosGraficos,
-  formatearFecha,
-  formatearFechaHora,
-  ESTADOS_DOCUMENTO,
-  COLORES_ESTADO,
-  TIPOS_GASTO,
-  CAMPOS_CONFIGURACION,
-  validarCampo,
-  debugEstadoResultados
 };

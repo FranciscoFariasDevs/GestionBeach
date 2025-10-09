@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/index.jsx - VERSIÓN ORIGINAL RESTAURADA CON MEJORAS DE CARGA
+// src/pages/EstadoResultados/index.jsx - COMPLETO CON TODAS LAS FUNCIONES
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -49,6 +49,7 @@ import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import EditIcon from '@mui/icons-material/Edit';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import PercentIcon from '@mui/icons-material/Percent';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
@@ -61,9 +62,6 @@ import {
 import DynamicExpenseSection from '../../components/DynamicExpenseSection.jsx';
 
 import {
-  mockDataForTesting,
-  recalculateTotals,
-  crearEstadoResultadosConDatosReales,
   formatCurrency,
   calcularPorcentaje,
   obtenerRangoDeFechas
@@ -90,6 +88,201 @@ function TabPanel(props) {
   );
 }
 
+// Componente para mostrar costos patronales
+const CostosPatronalesCard = ({ data }) => {
+  const theme = useTheme();
+  
+  if (!data?.porcentajes_aplicados) return null;
+  
+  const { porcentajes_aplicados, resumen } = data;
+  
+  return (
+    <Card sx={{ 
+      mb: 3,
+      borderRadius: 2,
+      border: `2px solid ${theme.palette.info.main}`,
+      background: `linear-gradient(135deg, ${theme.palette.info.main}08 0%, ${theme.palette.info.main}15 100%)`
+    }}>
+      <CardHeader
+        avatar={<PercentIcon sx={{ color: 'info.main', fontSize: 32 }} />}
+        title={
+          <Typography variant="h6" fontWeight="bold">
+            Costos Patronales Aplicados
+          </Typography>
+        }
+        subheader="Cálculos basados en porcentajes configurados por período"
+        sx={{ pb: 1 }}
+      />
+      <CardContent>
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+              Porcentajes y Montos:
+            </Typography>
+          </Grid>
+          
+          <Grid item xs={6} md={2.4}>
+            <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="textSecondary">
+                Caja Compensación
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="primary">
+                {porcentajes_aplicados.caja_compen}%
+              </Typography>
+              <Typography variant="body2" color="success.main" fontWeight="medium">
+                {formatCurrency(resumen.total_caja_compensacion)}
+              </Typography>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={6} md={2.4}>
+            <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="textSecondary">
+                AFC
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="primary">
+                {porcentajes_aplicados.afc}%
+              </Typography>
+              <Typography variant="body2" color="success.main" fontWeight="medium">
+                {formatCurrency(resumen.total_afc)}
+              </Typography>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={6} md={2.4}>
+            <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="textSecondary">
+                SIS
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="primary">
+                {porcentajes_aplicados.sis}%
+              </Typography>
+              <Typography variant="body2" color="success.main" fontWeight="medium">
+                {formatCurrency(resumen.total_sis)}
+              </Typography>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={6} md={2.4}>
+            <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="textSecondary">
+                ACH
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="primary">
+                {porcentajes_aplicados.ach}%
+              </Typography>
+              <Typography variant="body2" color="success.main" fontWeight="medium">
+                {formatCurrency(resumen.total_ach)}
+              </Typography>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={6} md={2.4}>
+            <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="textSecondary">
+                Imposiciones
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="primary">
+                {porcentajes_aplicados.imposiciones}%
+              </Typography>
+              <Typography variant="body2" color="success.main" fontWeight="medium">
+                {formatCurrency(resumen.total_imposiciones_patronales)}
+              </Typography>
+            </Paper>
+          </Grid>
+        </Grid>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={4}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="body2" color="textSecondary">
+                Total Pago (Líquido + Desc.):
+              </Typography>
+              <Typography variant="body2" fontWeight="bold">
+                {formatCurrency(resumen.total_pago)}
+              </Typography>
+            </Stack>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="body2" color="textSecondary">
+                Total Costos Patronales:
+              </Typography>
+              <Typography variant="body2" fontWeight="bold" color="warning.main">
+                {formatCurrency(
+                  resumen.total_caja_compensacion + 
+                  resumen.total_afc + 
+                  resumen.total_sis + 
+                  resumen.total_ach + 
+                  resumen.total_imposiciones_patronales
+                )}
+              </Typography>
+            </Stack>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="body2" color="textSecondary" fontWeight="bold">
+                TOTAL CARGO (a Sueldos):
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="success.main">
+                {formatCurrency(resumen.total_cargo)}
+              </Typography>
+            </Stack>
+          </Grid>
+        </Grid>
+
+        {/* 🔥 NUEVO: Mostrar desglose Admin/Ventas */}
+        {resumen.administrativos && resumen.ventas && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+              Distribución por Tipo de Empleado:
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <Paper sx={{ p: 2, bgcolor: theme.palette.primary.main + '08' }}>
+                  <Typography variant="caption" color="textSecondary">
+                    💼 ADMINISTRATIVOS ({resumen.administrativos.cantidad_empleados_unicos} empleados)
+                  </Typography>
+                  <Typography variant="h6" fontWeight="bold" color="primary">
+                    {formatCurrency(resumen.administrativos.total_cargo)}
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    (Empleados con múltiples sucursales - sueldo dividido proporcionalmente)
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Paper sx={{ p: 2, bgcolor: theme.palette.success.main + '08' }}>
+                  <Typography variant="caption" color="textSecondary">
+                    🛒 VENTAS ({resumen.ventas.cantidad_empleados_unicos} empleados)
+                  </Typography>
+                  <Typography variant="h6" fontWeight="bold" color="success.main">
+                    {formatCurrency(resumen.ventas.total_cargo)}
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    (Empleados con una sola sucursal - sueldo 100% asignado)
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+          </>
+        )}
+
+        <Alert severity="info" sx={{ mt: 2 }}>
+          <Typography variant="caption">
+            <strong>TOTAL CARGO</strong> es la suma del Total Pago más todos los costos patronales. 
+            Se clasifica automáticamente: empleados con múltiples sucursales = ADMINISTRATIVO (dividido entre sucursales), 
+            empleados con una sucursal = VENTAS (100% asignado).
+          </Typography>
+        </Alert>
+      </CardContent>
+    </Card>
+  );
+};
+
 // Componente principal para el Estado de Resultados
 const EstadoResultadosPage = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
@@ -107,6 +300,8 @@ const EstadoResultadosPage = () => {
     remuneraciones: null,
     ventas: null
   });
+  const [datosRemuneraciones, setDatosRemuneraciones] = useState(null);
+  
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: '',
@@ -114,41 +309,26 @@ const EstadoResultadosPage = () => {
     onConfirm: () => {}
   });
 
-  // Estado para los gastos dinámicos
   const [gastosAdministrativos, setGastosAdministrativos] = useState([]);
   const [gastosVenta, setGastosVenta] = useState([]);
   const [otrosGastos, setOtrosGastos] = useState([]);
-  
-  // Estado para las pestañas
   const [tabValue, setTabValue] = useState(0);
   
   const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
   
-  // Cargar datos iniciales del sistema
   useEffect(() => {
     cargarDatosIniciales();
   }, []);
-
-  // Cargar datos cuando cambian los filtros
-  useEffect(() => {
-    if (selectedSucursal) {
-      loadResultadosData();
-    }
-  }, [selectedMonth, selectedSucursal, selectedRazonSocial]);
-
-  // FUNCIONES DE CARGA DE DATOS CORREGIDAS
 
   // Función para debugging de APIs
   const debugAPI = async () => {
     console.group('🔧 Debug de APIs');
     
     try {
-      // Test básico de conectividad
       const healthCheck = await api.get('/');
       console.log('✅ API conectada:', healthCheck.status);
       
-      // Test de endpoints individuales
       const endpoints = [
         '/facturas-xml',
         '/remuneraciones', 
@@ -172,7 +352,7 @@ const EstadoResultadosPage = () => {
     console.groupEnd();
   };
 
-  // Función para cargar compras (usando controlador centralizado)
+  // Función para cargar compras
   const loadComprasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
@@ -187,7 +367,7 @@ const EstadoResultadosPage = () => {
         }
       });
       
-      console.log('📥 Respuesta compras (centralizada):', comprasResponse.data);
+      console.log('🔥 Respuesta compras (centralizada):', comprasResponse.data);
       
       if (comprasResponse.data.success) {
         const { resumen } = comprasResponse.data.data;
@@ -206,7 +386,6 @@ const EstadoResultadosPage = () => {
     } catch (error) {
       console.error('❌ Error cargando compras desde controlador:', error);
       
-      // Fallback al método original
       try {
         const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
         console.log('🔄 Intentando método fallback para compras...');
@@ -241,13 +420,13 @@ const EstadoResultadosPage = () => {
     }
   };
 
-  // Función para cargar remuneraciones (usando controlador centralizado) CORREGIDA
+  // 🔥 FUNCIÓN CRÍTICA: Cargar remuneraciones CON CLASIFICACIÓN AUTOMÁTICA
   const loadRemuneracionesData = async () => {
     try {
       const mesSeleccionado = selectedMonth.getMonth() + 1;
       const anioSeleccionado = selectedMonth.getFullYear();
       
-      console.log('👥 Cargando remuneraciones desde controlador centralizado...');
+      console.log('👥 Cargando remuneraciones CON CLASIFICACIÓN AUTOMÁTICA ADMIN/VENTAS...');
       
       const remuneracionesResponse = await api.get('/estado-resultados/remuneraciones', {
         params: {
@@ -258,121 +437,87 @@ const EstadoResultadosPage = () => {
         }
       });
       
-      console.log('📥 Respuesta remuneraciones (centralizada):', remuneracionesResponse.data);
+      console.log('🔥 Respuesta remuneraciones (con clasificación automática):', remuneracionesResponse.data);
       
       if (remuneracionesResponse.data.success) {
-        const { resumen } = remuneracionesResponse.data.data;
+        const { resumen, porcentajes_aplicados } = remuneracionesResponse.data.data;
         
-        console.log(`✅ Remuneraciones cargadas: ${resumen.cantidad_empleados} empleados`);
-        console.log(`💰 Total líquidos: ${resumen.total_liquidos.toLocaleString()}`);
-        console.log(`🛡️ Total seguros cesantía: ${resumen.total_seguros_cesantia.toLocaleString()}`);
+        // 🔥 USAR DATOS YA CLASIFICADOS DEL BACKEND
+        const totalCargoAdmin = resumen.administrativos?.total_cargo || 0;
+        const totalCargoVentas = resumen.ventas?.total_cargo || 0;
+        const totalCargo = resumen.total_cargo || (totalCargoAdmin + totalCargoVentas);
+        
+        console.log('✅ Remuneraciones clasificadas automáticamente por el backend:');
+        console.log(`   💼 ADMINISTRATIVOS: ${resumen.administrativos?.cantidad_empleados_unicos || 0} empleados - Cargo: $${totalCargoAdmin.toLocaleString()}`);
+        console.log(`   🛒 VENTAS: ${resumen.ventas?.cantidad_empleados_unicos || 0} empleados - Cargo: $${totalCargoVentas.toLocaleString()}`);
+        console.log(`   💼 TOTAL CARGO: $${totalCargo.toLocaleString()}`);
+        console.log(`   📊 Porcentajes aplicados:`, porcentajes_aplicados);
+        
+        // 🔥 FIX: Guardar correctamente en el estado
+        setDatosRemuneraciones({
+          resumen: resumen,
+          porcentajes_aplicados: porcentajes_aplicados
+        });
         
         return { 
           data: remuneracionesResponse.data.data.remuneraciones, 
-          total: resumen.total_liquidos,
-          seguros_cesantia: resumen.total_seguros_cesantia, // ✅ CAPTURAR SEGUROS
-          cantidad: resumen.cantidad_empleados
+          total: totalCargo,
+          total_cargo: totalCargo,
+          seguros_cesantia: 0,
+          cantidad: resumen.cantidad_empleados || 0,
+          resumen: resumen,
+          porcentajes_aplicados: porcentajes_aplicados
         };
       }
       
-      return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
+      return { 
+        data: [], 
+        total: 0, 
+        total_cargo: 0, 
+        seguros_cesantia: 0, 
+        cantidad: 0, 
+        resumen: null,
+        porcentajes_aplicados: null
+      };
       
     } catch (error) {
       console.error('❌ Error cargando remuneraciones desde controlador:', error);
-      
-      // Fallback al método original
-      try {
-        console.log('🔄 Intentando método fallback para remuneraciones...');
-        const mesSeleccionado = selectedMonth.getMonth() + 1;
-        const anioSeleccionado = selectedMonth.getFullYear();
-        
-        const periodosResponse = await api.get('/remuneraciones');
-        const periodos = periodosResponse.data?.success ? 
-          periodosResponse.data.data : 
-          Array.isArray(periodosResponse.data) ? periodosResponse.data : [];
-
-        const periodoCoincidente = periodos.find(periodo => {
-          const mesCoincide = Number(periodo.mes) === mesSeleccionado;
-          const anioCoincide = Number(periodo.anio || periodo.año) === anioSeleccionado;
-          return mesCoincide && anioCoincide;
-        });
-
-        if (!periodoCoincidente) {
-          console.log(`📅 No hay período de remuneraciones para ${mesSeleccionado}/${anioSeleccionado}`);
-          return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
-        }
-
-        const detalleResponse = await api.get(`/remuneraciones/${periodoCoincidente.id_periodo || periodoCoincidente.id}/datos`);
-        
-        if (detalleResponse.data?.success && Array.isArray(detalleResponse.data.data)) {
-          let remuneracionesData = detalleResponse.data.data;
-          
-          if (selectedSucursal) {
-            remuneracionesData = remuneracionesData.filter(empleado => {
-              const sucursalEmpleado = empleado.id_sucursal || empleado.sucursal_id;
-              return !sucursalEmpleado || sucursalEmpleado.toString() === selectedSucursal.toString();
-            });
-          }
-          
-          const totalRemuneraciones = remuneracionesData.reduce((sum, empleado) => {
-            const liquido = Number(empleado.liquido_pagar || empleado.liquido || 0);
-            return sum + liquido;
-          }, 0);
-          
-          // ✅ CALCULAR SEGUROS DE CESANTÍA EN FALLBACK
-          const totalSegurosCesantia = remuneracionesData.reduce((sum, empleado) => {
-            const seguro = Number(empleado.seguro_cesantia || 0);
-            return sum + seguro;
-          }, 0);
-          
-          console.log('✅ Remuneraciones cargadas (fallback):', remuneracionesData.length, 'empleados');
-          console.log(`🛡️ Seguros cesantía (fallback): ${totalSegurosCesantia.toLocaleString()}`);
-          
-          return { 
-            data: remuneracionesData, 
-            total: totalRemuneraciones, 
-            seguros_cesantia: totalSegurosCesantia, // ✅ INCLUIR SEGUROS EN FALLBACK
-            cantidad: remuneracionesData.length 
-          };
-        }
-        
-        return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
-        
-      } catch (fallbackError) {
-        console.error('❌ Error en fallback de remuneraciones:', fallbackError);
-        return { data: [], total: 0, seguros_cesantia: 0, cantidad: 0 };
-      }
+      return { 
+        data: [], 
+        total: 0, 
+        total_cargo: 0, 
+        seguros_cesantia: 0, 
+        cantidad: 0, 
+        resumen: null,
+        porcentajes_aplicados: null
+      };
     }
   };
 
-  // 🔧 FUNCIÓN ORIGINAL RESTAURADA PARA CARGAR VENTAS
+  // Función para cargar ventas
   const loadVentasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
       console.log('🛒 Cargando ventas para sucursal:', selectedSucursal);
       
-      // ✅ USAR LOS PARÁMETROS CORRECTOS QUE ESPERA EL CONTROLLER ORIGINAL
       const ventasBody = {
-        sucursal_id: parseInt(selectedSucursal), // ✅ Nombre correcto
-        start_date: fechaDesde,                  // ✅ Nombre correcto  
-        end_date: fechaHasta                     // ✅ Nombre correcto
+        sucursal_id: parseInt(selectedSucursal),
+        start_date: fechaDesde,
+        end_date: fechaHasta
       };
       
       console.log('📤 Enviando datos a /ventas:', ventasBody);
       
-      // ✅ EL CONTROLLER ESPERA POST, NO GET
       const ventasResponse = await api.post('/ventas', ventasBody);
       
-      console.log('📥 Respuesta ventas (POST):', ventasResponse.data);
+      console.log('🔥 Respuesta ventas (POST):', ventasResponse.data);
       
       let ventasData = [];
       let totalVentas = 0;
 
-      // ✅ PROCESAR RESPUESTA SEGÚN EL FORMATO DEL CONTROLLER
       if (ventasResponse?.data?.success && Array.isArray(ventasResponse.data.ventas)) {
         ventasData = ventasResponse.data.ventas;
         
-        // Calcular total de las ventas
         totalVentas = ventasData.reduce((sum, venta) => {
           const monto = Number(venta.Total || venta.total || venta.monto_total || venta.valor_total || 0);
           return sum + monto;
@@ -381,7 +526,6 @@ const EstadoResultadosPage = () => {
         console.log(`✅ Ventas cargadas: ${ventasData.length} registros, total: ${totalVentas}`);
         
       } else if (Array.isArray(ventasResponse?.data?.ventas)) {
-        // Formato directo con array de ventas
         ventasData = ventasResponse.data.ventas;
         
         totalVentas = ventasData.reduce((sum, venta) => {
@@ -399,9 +543,8 @@ const EstadoResultadosPage = () => {
     } catch (error) {
       console.error('❌ Error crítico en ventas:', error);
       
-      // Información específica del error para debugging
       if (error.response?.status === 404) {
-        console.error('❌ Endpoint /ventas no encontrado - Verificar que el controlador esté registrado');
+        console.error('❌ Endpoint /ventas no encontrado');
       } else if (error.response?.status === 400) {
         console.error('❌ Parámetros incorrectos enviados al endpoint /ventas');
       }
@@ -410,15 +553,13 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  // Cargar sucursales y razones sociales disponibles (MEJORADO)
+  // Cargar sucursales y razones sociales disponibles
   const cargarDatosIniciales = async () => {
     try {
       setLoading(true);
       
-      // 1. SUCURSALES: Intentar múltiples rutas hasta encontrar una que funcione
       let sucursalesCargadas = false;
       
-      // Opción 1: Desde facturas XML
       try {
         const sucursalesRes = await api.get('/facturas-xml/lista/sucursales');
         if (sucursalesRes.data.success && Array.isArray(sucursalesRes.data.data)) {
@@ -433,7 +574,6 @@ const EstadoResultadosPage = () => {
         console.log('⚠️ Facturas-xml/sucursales no disponible:', error.message);
       }
       
-      // Opción 2: Desde sucursales directas (con permisos de usuario)
       if (!sucursalesCargadas) {
         try {
           const sucursalesRes = await api.get('/sucursales');
@@ -450,7 +590,6 @@ const EstadoResultadosPage = () => {
         }
       }
       
-      // Opción 3: Datos por defecto si no se puede cargar ninguna
       if (!sucursalesCargadas) {
         const sucursalesDefault = [
           { id: 1, nombre: 'Sucursal Principal', tipo_sucursal: 'PRINCIPAL' },
@@ -461,7 +600,6 @@ const EstadoResultadosPage = () => {
         console.log('⚠️ Usando sucursales por defecto');
       }
 
-      // 2. RAZONES SOCIALES
       try {
         const razonesRes = await api.get('/razonessociales');
         if (Array.isArray(razonesRes.data)) {
@@ -481,7 +619,6 @@ const EstadoResultadosPage = () => {
         }
       } catch (error) {
         console.warn('⚠️ Error cargando razones sociales:', error.message);
-        // Razones por defecto
         const razonesDefault = [
           { id: 'todos', nombre_razon: 'Todas las Razones Sociales' },
           { id: 1, nombre_razon: 'Razón Social Principal' }
@@ -490,7 +627,6 @@ const EstadoResultadosPage = () => {
         setSelectedRazonSocial('todos');
       }
 
-      // 3. CENTROS DE COSTOS
       try {
         const centrosRes = await api.get('/centros-costos');
         if (centrosRes.data.success && Array.isArray(centrosRes.data.data)) {
@@ -502,7 +638,6 @@ const EstadoResultadosPage = () => {
         }
       } catch (error) {
         console.warn('⚠️ Error cargando centros de costos:', error.message);
-        // Centros por defecto
         const centrosDefault = [
           { id: 'ADM', nombre: 'Administración' },
           { id: 'VEN', nombre: 'Ventas' },
@@ -515,7 +650,6 @@ const EstadoResultadosPage = () => {
       console.error('❌ Error cargando datos iniciales:', error);
       enqueueSnackbar('Error al cargar configuración inicial', { variant: 'warning' });
       
-      // Configurar datos mínimos para que funcione
       const sucursalesDefault = [{ id: 1, nombre: 'Sucursal Principal' }];
       setSucursalesDisponibles(sucursalesDefault);
       setSelectedSucursal('1');
@@ -524,7 +658,7 @@ const EstadoResultadosPage = () => {
       setLoading(false);
     }
   };
-  
+
   // Función principal para cargar datos del estado de resultados
   const loadResultadosData = async () => {
     if (!selectedSucursal) {
@@ -538,7 +672,7 @@ const EstadoResultadosPage = () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
       
-      console.log('🔍 Cargando datos para:', {
+      console.log('📊 Cargando datos para:', {
         sucursal: selectedSucursal,
         fechaDesde,
         fechaHasta,
@@ -546,29 +680,27 @@ const EstadoResultadosPage = () => {
         año: selectedMonth.getFullYear()
       });
 
-      // Cargar datos de forma secuencial para mejor debugging
       const comprasResult = await loadComprasData();
       const remuneracionesResult = await loadRemuneracionesData();
-      const ventasResult = await loadVentasData(); // ✅ Función original restaurada
+      const ventasResult = await loadVentasData();
 
       console.log('📊 Resumen de datos cargados:', {
         compras: { cantidad: comprasResult.data.length, total: comprasResult.total },
         remuneraciones: { 
           cantidad: remuneracionesResult.data.length, 
-          total: remuneracionesResult.total,
-          seguros_cesantia: remuneracionesResult.seguros_cesantia || 0
+          total_cargo: remuneracionesResult.total_cargo || 0,
+          admin: remuneracionesResult.resumen?.administrativos?.total_cargo || 0,
+          ventas: remuneracionesResult.resumen?.ventas?.total_cargo || 0
         },
         ventas: { cantidad: ventasResult.data.length, total: ventasResult.total }
       });
 
-      // Construir estado de resultados
       const estadoResultados = construirEstadoResultados({
         compras: comprasResult,
         remuneraciones: remuneracionesResult,
         ventas: ventasResult
       });
 
-      // Actualizar estados
       setDatosReales({
         compras: comprasResult.data,
         remuneraciones: remuneracionesResult.data,
@@ -579,7 +711,6 @@ const EstadoResultadosPage = () => {
       initializeExpensesFromData(estadoResultados);
       setHasChanges(false);
       
-      // Mensaje informativo
       const sucursalNombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || selectedSucursal;
       
       if (ventasResult.total === 0 && comprasResult.total === 0 && remuneracionesResult.total === 0) {
@@ -600,10 +731,9 @@ const EstadoResultadosPage = () => {
         autoHideDuration: 5000 
       });
       
-      // Cargar estructura vacía para que el usuario pueda trabajar
       const estadoVacio = construirEstadoResultados({
         compras: { data: [], total: 0 },
-        remuneraciones: { data: [], total: 0 },
+        remuneraciones: { data: [], total: 0, total_cargo: 0, resumen: null },
         ventas: { data: [], total: 0 }
       });
       
@@ -615,28 +745,25 @@ const EstadoResultadosPage = () => {
     }
   };
 
-  // Construir estado de resultados con datos reales CORREGIDO
+  // 🔥 FUNCIÓN CRÍTICA: Construir estado de resultados usando clasificación REAL del backend
   const construirEstadoResultados = ({ compras, remuneraciones, ventas }) => {
     const sucursalSeleccionada = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal);
     
-    // CONSTRUCCIÓN MANUAL CORREGIDA para incluir sueldos y seguros específicos
-    const totalSueldos = remuneraciones.total || 0;
-    const totalSegurosCesantia = remuneraciones.seguros_cesantia || 0; // De nuestro controlador
+    // 🔥 USAR LOS DATOS YA CLASIFICADOS DEL BACKEND - NO más división 50/50
+    const sueldosAdministrativos = remuneraciones.resumen?.administrativos?.total_cargo || 0;
+    const sueldosVentas = remuneraciones.resumen?.ventas?.total_cargo || 0;
+    const totalCargo = sueldosAdministrativos + sueldosVentas;
     
-    // Distribución de sueldos (50% administrativos, 50% ventas)
-    const sueldosAdministrativos = totalSueldos * 0.5;
-    const sueldosVentas = totalSueldos * 0.5;
-    
-    console.log('🗃️ Construyendo estado de resultados con:', {
-      ventas: ventas.total,
-      compras: compras.total,
-      totalSueldos,
-      totalSegurosCesantia,
-      sueldosAdministrativos,
-      sueldosVentas
+    console.log('🏗️ Construyendo estado de resultados con clasificación REAL del backend:', {
+      sueldosAdministrativos: sueldosAdministrativos,
+      sueldosVentas: sueldosVentas,
+      totalCargo: totalCargo,
+      empleadosAdmin: remuneraciones.resumen?.administrativos?.cantidad_empleados_unicos || 0,
+      empleadosVentas: remuneraciones.resumen?.ventas?.cantidad_empleados_unicos || 0,
+      fuente: '✅ BACKEND - Clasificación automática por número de sucursales',
+      metodo: 'CTE SQL con COUNT de empleados_sucursales'
     });
     
-    // Crear estructura completa del estado de resultados
     const estadoResultados = {
       sucursal: sucursalSeleccionada?.nombre || 'Sucursal Desconocida',
       periodo: selectedMonth.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }),
@@ -651,7 +778,7 @@ const EstadoResultadosPage = () => {
       },
       
       costos: {
-        costoVentas: (compras.total || 0) * 0.81, // 80% como costo directo
+        costoVentas: (compras.total || 0) * 0.81,
         compras: compras.total || 0,
         mermaVenta: 0,
         totalCostos: (compras.total || 0) * 0.81
@@ -661,7 +788,7 @@ const EstadoResultadosPage = () => {
       
       gastosOperativos: {
         gastosVenta: {
-          sueldos: sueldosVentas, // ✅ Sueldos de ventas desde remuneraciones
+          sueldos: sueldosVentas, // 🔥 Ya viene clasificado del backend
           fletes: 0,
           finiquitos: 0,
           mantenciones: 0,
@@ -669,8 +796,8 @@ const EstadoResultadosPage = () => {
           total: sueldosVentas
         },
         gastosAdministrativos: {
-          sueldos: sueldosAdministrativos, // ✅ Sueldos administrativos desde remuneraciones
-          seguros: totalSegurosCesantia,   // ✅ Seguros cesantía específicos
+          sueldos: sueldosAdministrativos, // 🔥 Ya viene clasificado del backend
+          seguros: 0,
           gastosComunes: 0,
           electricidad: 0,
           agua: 0,
@@ -683,12 +810,12 @@ const EstadoResultadosPage = () => {
           contribuciones: 0,
           petroleo: 0,
           otros: 0,
-          total: sueldosAdministrativos + totalSegurosCesantia
+          total: sueldosAdministrativos
         },
-        totalGastosOperativos: sueldosVentas + sueldosAdministrativos + totalSegurosCesantia
+        totalGastosOperativos: sueldosVentas + sueldosAdministrativos
       },
       
-      utilidadOperativa: 0, // Se calculará abajo
+      utilidadOperativa: 0,
       costoArriendo: 0,
       otrosIngresosFinancieros: 0,
       utilidadAntesImpuestos: 0,
@@ -699,33 +826,41 @@ const EstadoResultadosPage = () => {
       fechaCreacion: new Date().toISOString(),
       fechaModificacion: new Date().toISOString(),
       
-      // Datos originales con información específica
       datosOriginales: {
         totalCompras: compras.total || 0,
-        totalRemuneraciones: totalSueldos,
-        totalSegurosCesantia: totalSegurosCesantia, // ✅ Información específica
+        totalRemuneraciones: totalCargo,
         totalVentas: ventas.total || 0,
         numeroFacturas: compras.cantidad || 0,
-        numeroVentas: ventas.data?.length || 0,
+        numeroVentas: ventasResult?.data?.length || 0,
         numeroEmpleados: remuneraciones.cantidad || 0,
         fechaConsulta: new Date().toISOString(),
         sucursal: selectedSucursal,
         periodo: {
           mes: selectedMonth.getMonth() + 1,
           año: selectedMonth.getFullYear()
+        },
+        detalleRemuneraciones: remuneraciones.resumen || null,
+        // 🔥 NUEVO: Información de clasificación
+        clasificacion: {
+          empleados_admin: remuneraciones.resumen?.administrativos?.cantidad_empleados_unicos || 0,
+          empleados_ventas: remuneraciones.resumen?.ventas?.cantidad_empleados_unicos || 0,
+          cargo_admin: sueldosAdministrativos,
+          cargo_ventas: sueldosVentas,
+          metodo: 'Clasificación automática por número de sucursales del empleado'
         }
       }
     };
     
-    // Calcular utilidades
     estadoResultados.utilidadOperativa = estadoResultados.utilidadBruta - estadoResultados.gastosOperativos.totalGastosOperativos;
     estadoResultados.utilidadAntesImpuestos = estadoResultados.utilidadOperativa - estadoResultados.costoArriendo + estadoResultados.otrosIngresosFinancieros;
     estadoResultados.impuestos = Math.max(0, Math.round(estadoResultados.utilidadAntesImpuestos * 0.19));
     estadoResultados.utilidadNeta = estadoResultados.utilidadAntesImpuestos - estadoResultados.impuestos;
     
-    console.log('✅ Estado de resultados construido:', {
+    console.log('✅ Estado de resultados construido con clasificación real:', {
       utilidadBruta: estadoResultados.utilidadBruta,
       gastosOperativos: estadoResultados.gastosOperativos.totalGastosOperativos,
+      gastosAdmin: sueldosAdministrativos,
+      gastosVentas: sueldosVentas,
       utilidadOperativa: estadoResultados.utilidadOperativa,
       utilidadNeta: estadoResultados.utilidadNeta
     });
@@ -733,7 +868,6 @@ const EstadoResultadosPage = () => {
     return estadoResultados;
   };
   
-  // Inicializar los gastos dinámicos a partir de los datos
   const initializeExpensesFromData = (data) => {
     const adminExpenses = [];
     const adminKeys = [
@@ -806,7 +940,6 @@ const EstadoResultadosPage = () => {
     setOtrosGastos(otrosExpensesList);
   };
   
-  // Obtener la etiqueta para un tipo de gasto
   const getExpenseLabel = (category, id) => {
     const expenseCatalog = {
       administrativos: [
@@ -841,7 +974,6 @@ const EstadoResultadosPage = () => {
     return found ? found.label : id;
   };
   
-  // Actualizar los datos a partir de los gastos dinámicos
   const updateDataFromExpenses = () => {
     if (!data) return null;
     
@@ -850,7 +982,6 @@ const EstadoResultadosPage = () => {
     newData.fechaModificacion = new Date().toISOString();
     newData.usuarioModificacion = "usuario_actual";
     
-    // Reiniciar gastos manuales
     const adminFields = [
       'gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma', 
       'internet', 'facturasNet', 'transbank', 'patenteMunicipal',
@@ -870,7 +1001,6 @@ const EstadoResultadosPage = () => {
     newData.ingresos.otrosIngresos.fletes = 0;
     newData.otrosIngresosFinancieros = 0;
     
-    // Actualizar con valores dinámicos
     gastosAdministrativos.forEach(expense => {
       if (adminFields.includes(expense.id)) {
         newData.gastosOperativos.gastosAdministrativos[expense.id] = expense.amount;
@@ -902,10 +1032,36 @@ const EstadoResultadosPage = () => {
       }
     });
     
-    return recalculateTotals(newData);
+    // Recalcular totales
+    newData.gastosOperativos.gastosAdministrativos.total = 
+      Object.keys(newData.gastosOperativos.gastosAdministrativos)
+        .filter(key => key !== 'total' && key !== 'sueldos')
+        .reduce((sum, key) => sum + (newData.gastosOperativos.gastosAdministrativos[key] || 0), 0) + 
+      newData.gastosOperativos.gastosAdministrativos.sueldos;
+    
+    newData.gastosOperativos.gastosVenta.total = 
+      Object.keys(newData.gastosOperativos.gastosVenta)
+        .filter(key => key !== 'total' && key !== 'sueldos')
+        .reduce((sum, key) => sum + (newData.gastosOperativos.gastosVenta[key] || 0), 0) + 
+      newData.gastosOperativos.gastosVenta.sueldos;
+    
+    newData.gastosOperativos.totalGastosOperativos = 
+      newData.gastosOperativos.gastosAdministrativos.total + 
+      newData.gastosOperativos.gastosVenta.total;
+    
+    newData.costos.totalCostos = newData.costos.costoVentas + newData.costos.mermaVenta;
+    newData.ingresos.otrosIngresos.total = newData.ingresos.otrosIngresos.fletes;
+    newData.ingresos.totalIngresos = newData.ingresos.ventas + newData.ingresos.otrosIngresos.total;
+    
+    newData.utilidadBruta = newData.ingresos.totalIngresos - newData.costos.totalCostos;
+    newData.utilidadOperativa = newData.utilidadBruta - newData.gastosOperativos.totalGastosOperativos;
+    newData.utilidadAntesImpuestos = newData.utilidadOperativa - newData.costoArriendo + newData.otrosIngresosFinancieros;
+    newData.impuestos = Math.max(0, Math.round(newData.utilidadAntesImpuestos * 0.19));
+    newData.utilidadNeta = newData.utilidadAntesImpuestos - newData.impuestos;
+    
+    return newData;
   };
   
-  // Funciones de manejo de gastos
   const handleAddGastoAdministrativo = (expense) => {
     setGastosAdministrativos([...gastosAdministrativos, expense]);
     setHasChanges(true);
@@ -957,7 +1113,6 @@ const EstadoResultadosPage = () => {
     setTabValue(newValue);
   };
   
-  // Actualizar datos cuando cambian gastos
   useEffect(() => {
     if (data && hasChanges) {
       const updatedData = updateDataFromExpenses();
@@ -967,7 +1122,6 @@ const EstadoResultadosPage = () => {
     }
   }, [gastosAdministrativos, gastosVenta, otrosGastos, hasChanges]);
   
-  // Funciones de acción
   const handleExportExcel = () => {
     enqueueSnackbar('Exportando a Excel...', { variant: 'info' });
   };
@@ -1030,7 +1184,6 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  // Componente de encabezado mejorado
   const ReportHeader = () => (
     <Fade in={true}>
       <Box sx={{ mb: 4 }}>
@@ -1042,7 +1195,7 @@ const EstadoResultadosPage = () => {
                 Estado de Resultados
               </Typography>
               <Typography variant="subtitle1" color="textSecondary">
-                Sistema Integrado de Gestión Financiera
+                Sistema Integrado con Clasificación Automática Admin/Ventas
               </Typography>
             </Box>
           </Box>
@@ -1100,6 +1253,30 @@ const EstadoResultadosPage = () => {
                   size="small"
                   color="success"
                 />
+                <Chip
+                  label={`${data.datosOriginales.numeroEmpleados || 0} Empleados`}
+                  size="small"
+                  color="primary"
+                />
+                {/* 🔥 NUEVO: Mostrar clasificación */}
+                {data.datosOriginales.clasificacion && (
+                  <>
+                    <Chip
+                      icon={<span>💼</span>}
+                      label={`${data.datosOriginales.clasificacion.empleados_admin} Admin`}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                    />
+                    <Chip
+                      icon={<span>🛒</span>}
+                      label={`${data.datosOriginales.clasificacion.empleados_ventas} Ventas`}
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                    />
+                  </>
+                )}
               </>
             )}
           </Box>
@@ -1108,7 +1285,6 @@ const EstadoResultadosPage = () => {
     </Fade>
   );
   
-  // Componente de filtros mejorado
   const ReportFilter = () => (
     <Fade in={true}>
       <Paper
@@ -1225,7 +1401,6 @@ const EstadoResultadosPage = () => {
     </Fade>
   );
   
-  // Tarjeta de resumen mejorada
   const KeyResultsCard = ({ data }) => (
     <Zoom in={true} style={{ transitionDelay: '150ms' }}>
       <Card sx={{ 
@@ -1365,33 +1540,12 @@ const EstadoResultadosPage = () => {
             </Grid>
           </Grid>
           
-          {/* Datos adicionales del período */}
           {data.datosOriginales && (
             <Box sx={{ mt: 3, pt: 3, borderTop: `1px solid ${theme.palette.divider}` }}>
               <Typography variant="subtitle2" color="textSecondary" gutterBottom>
                 Información del Período
               </Typography>
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="body2" color="textSecondary">
-                      Compras:
-                    </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {formatCurrency(data.datosOriginales.totalCompras)}
-                    </Typography>
-                  </Stack>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="body2" color="textSecondary">
-                      Remuneraciones:
-                    </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {formatCurrency(data.datosOriginales.totalRemuneraciones)}
-                    </Typography>
-                  </Stack>
-                </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Typography variant="body2" color="textSecondary">
@@ -1412,6 +1566,30 @@ const EstadoResultadosPage = () => {
                     </Typography>
                   </Stack>
                 </Grid>
+                {data.datosOriginales.clasificacion && (
+                  <>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="body2" color="textSecondary">
+                          💼 Admin:
+                        </Typography>
+                        <Typography variant="body2" fontWeight="medium" color="primary.main">
+                          {data.datosOriginales.clasificacion.empleados_admin} empleados
+                        </Typography>
+                      </Stack>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="body2" color="textSecondary">
+                          🛒 Ventas:
+                        </Typography>
+                        <Typography variant="body2" fontWeight="medium" color="success.main">
+                          {data.datosOriginales.clasificacion.empleados_ventas} empleados
+                        </Typography>
+                      </Stack>
+                    </Grid>
+                  </>
+                )}
               </Grid>
             </Box>
           )}
@@ -1453,7 +1631,6 @@ const EstadoResultadosPage = () => {
     </Zoom>
   );
 
-  // Diálogo de confirmación
   const ConfirmDialog = () => (
     <Dialog
       open={confirmDialog.open}
@@ -1496,7 +1673,6 @@ const EstadoResultadosPage = () => {
     </Dialog>
   );
   
-  // Renderizado principal
   return (
     <Box sx={{ position: 'relative', minHeight: '100vh' }}>
       <WeatherBar />
@@ -1527,6 +1703,10 @@ const EstadoResultadosPage = () => {
         {data && (
           <>
             <KeyResultsCard data={data} />
+            
+            {datosRemuneraciones && datosRemuneraciones.porcentajes_aplicados && (
+              <CostosPatronalesCard data={datosRemuneraciones} />
+            )}
             
             <Grid container spacing={4}>
               <Grid item xs={12} lg={6}>
@@ -1623,7 +1803,10 @@ const EstadoResultadosPage = () => {
               </Grid>
               
               <Grid item xs={12} lg={6}>
-                <EstadoResultadosDetallado data={data} />
+                <EstadoResultadosDetallado 
+                  data={data} 
+                  datosRemuneraciones={datosRemuneraciones}
+                />
               </Grid>
             </Grid>
             

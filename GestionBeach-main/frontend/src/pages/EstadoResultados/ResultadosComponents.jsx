@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/ResultadosComponents.jsx - Versión Mejorada
+// src/pages/EstadoResultados/ResultadosComponents.jsx - COMPLETO CON COSTOS PATRONALES
 import React from 'react';
 import {
   Box,
@@ -10,23 +10,17 @@ import {
   CardHeader,
   CardContent,
   Paper,
-  Zoom,
   Grid,
   Divider,
   Stack,
   LinearProgress,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   List,
   ListItem,
   ListItemText,
   ListItemIcon,
-  Avatar
+  Avatar,
+  Alert
 } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -41,7 +35,22 @@ import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import BusinessIcon from '@mui/icons-material/Business';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ReceiptIcon from '@mui/icons-material/Receipt';
-import { formatCurrency, calcularPorcentaje } from './utils';
+import PercentIcon from '@mui/icons-material/Percent';
+import InfoIcon from '@mui/icons-material/Info';
+
+const formatCurrency = (value) => {
+  const numValue = Number(value) || 0;
+  return new Intl.NumberFormat('es-CL', {
+    style: 'currency',
+    currency: 'CLP',
+    maximumFractionDigits: 0
+  }).format(numValue);
+};
+
+const calcularPorcentaje = (value, total, decimals = 1) => {
+  if (!total || total === 0) return 0;
+  return Number(((value / total) * 100).toFixed(decimals));
+};
 
 /**
  * Componente para mostrar líneas del estado de resultados
@@ -57,7 +66,9 @@ export const ResultadoLineItem = ({
   percentageOf,
   editable = false,
   onEdit = () => {},
-  isSystemGenerated = false
+  isSystemGenerated = false,
+  showTooltip = false,
+  tooltipText = ''
 }) => {
   const theme = useTheme();
   
@@ -122,6 +133,11 @@ export const ResultadoLineItem = ({
               borderColor: 'text.secondary'
             }}
           />
+        )}
+        {showTooltip && (
+          <Tooltip title={tooltipText} arrow>
+            <InfoIcon fontSize="small" sx={{ color: 'info.main', ml: 0.5 }} />
+          </Tooltip>
         )}
       </Box>
       
@@ -213,9 +229,119 @@ export const ResultadoSection = ({ title, children, total, totalLabel = "Total",
 };
 
 /**
- * Componente para mostrar el estado de resultados detallado
+ * COMPONENTE PARA MOSTRAR DESGLOSE DE COSTOS PATRONALES
  */
-export const EstadoResultadosDetallado = ({ data }) => {
+export const CostosPatronalesDetalle = ({ resumen, porcentajes }) => {
+  const theme = useTheme();
+  
+  if (!resumen || !porcentajes) return null;
+  
+  const costosPatronales = [
+    { 
+      label: 'Caja de Compensación', 
+      monto: resumen.total_caja_compensacion, 
+      porcentaje: porcentajes.caja_compen,
+      descripcion: 'Calculado sobre total imponible'
+    },
+    { 
+      label: 'AFC (Ahorro Fondo Cesantía)', 
+      monto: resumen.total_afc, 
+      porcentaje: porcentajes.afc,
+      descripcion: 'Calculado sobre total imponible'
+    },
+    { 
+      label: 'SIS (Seguro Invalidez y Sobrevivencia)', 
+      monto: resumen.total_sis, 
+      porcentaje: porcentajes.sis,
+      descripcion: 'Calculado sobre total imponible'
+    },
+    { 
+      label: 'ACH (Asociación Chilena de Seguridad)', 
+      monto: resumen.total_ach, 
+      porcentaje: porcentajes.ach,
+      descripcion: 'Calculado sobre total imposiciones'
+    },
+    { 
+      label: 'Imposiciones', 
+      monto: resumen.total_imposiciones_patronales, 
+      porcentaje: porcentajes.imposiciones,
+      descripcion: 'Calculado sobre total imponible'
+    }
+  ];
+  
+  const totalCostosPatronales = costosPatronales.reduce((sum, item) => sum + (item.monto || 0), 0);
+  
+  return (
+    <Paper 
+      elevation={0}
+      sx={{ 
+        p: 3, 
+        borderRadius: 2,
+        border: `2px solid ${theme.palette.info.main}`,
+        background: `linear-gradient(135deg, ${theme.palette.info.main}08 0%, ${theme.palette.info.main}15 100%)`
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <PercentIcon sx={{ color: 'info.main' }} />
+        <Typography variant="h6" fontWeight="bold">
+          Desglose de Costos Patronales
+        </Typography>
+      </Box>
+      
+      <Grid container spacing={2}>
+        {costosPatronales.map((item, index) => (
+          <Grid item xs={12} md={6} key={index}>
+            <Paper sx={{ p: 2, bgcolor: 'background.paper' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="subtitle2" fontWeight="medium">
+                  {item.label}
+                </Typography>
+                <Chip 
+                  label={`${item.porcentaje}%`} 
+                  size="small" 
+                  color="primary" 
+                  variant="outlined"
+                />
+              </Stack>
+              <Typography variant="h6" color="success.main" fontWeight="bold" mb={0.5}>
+                {formatCurrency(item.monto)}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {item.descripcion}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+      
+      <Divider sx={{ my: 2 }} />
+      
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="subtitle1" fontWeight="bold">
+          Total Costos Patronales:
+        </Typography>
+        <Typography variant="h5" color="warning.main" fontWeight="bold">
+          {formatCurrency(totalCostosPatronales)}
+        </Typography>
+      </Stack>
+      
+      <Alert severity="info" sx={{ mt: 2 }}>
+        <Typography variant="body2">
+          <strong>TOTAL CARGO = Total Pago + Costos Patronales</strong>
+          <br />
+          Total Pago = Líquido a Pagar + Total Descuentos
+          <br />
+          Este valor se distribuye entre gastos de ventas y administrativos.
+        </Typography>
+      </Alert>
+    </Paper>
+  );
+};
+
+/**
+ * Componente para mostrar el estado de resultados detallado CON COSTOS PATRONALES
+ */
+export const EstadoResultadosDetallado = ({ data, datosRemuneraciones }) => {
   const theme = useTheme();
   
   if (!data) return null;
@@ -236,7 +362,7 @@ export const EstadoResultadosDetallado = ({ data }) => {
             </Typography>
           </Box>
         }
-        subheader="Estructura completa de ingresos, costos y gastos"
+        subheader="Con costos patronales incluidos en sueldos"
         sx={{
           backgroundColor: 'transparent',
           borderBottom: `1px solid ${theme.palette.divider}`,
@@ -304,7 +430,7 @@ export const EstadoResultadosDetallado = ({ data }) => {
             />
           </Box>
           
-          {/* Gastos Operativos */}
+          {/* Gastos Operativos CON INDICADOR DE COSTOS PATRONALES */}
           <ResultadoSection 
             title="Gastos Operativos"
             icon={<BusinessIcon />}
@@ -319,6 +445,8 @@ export const EstadoResultadosDetallado = ({ data }) => {
               value={data.gastosOperativos.gastosVenta.sueldos}
               isSystemGenerated={true}
               indent={1}
+              showTooltip={true}
+              tooltipText="Incluye costos patronales: Caja Compensación, AFC, SIS, ACH, Imposiciones"
             />
             <ResultadoLineItem 
               label="Fletes" 
@@ -344,12 +472,8 @@ export const EstadoResultadosDetallado = ({ data }) => {
               value={data.gastosOperativos.gastosAdministrativos.sueldos}
               isSystemGenerated={true}
               indent={1}
-            />
-            <ResultadoLineItem 
-              label="Seguros" 
-              value={data.gastosOperativos.gastosAdministrativos.seguros}
-              isSystemGenerated={true}
-              indent={1}
+              showTooltip={true}
+              tooltipText="Incluye costos patronales: Caja Compensación, AFC, SIS, ACH, Imposiciones"
             />
             <ResultadoLineItem 
               label="Servicios Básicos" 
@@ -424,6 +548,16 @@ export const EstadoResultadosDetallado = ({ data }) => {
               percentageOf={data.ingresos.ventas}
             />
           </Box>
+          
+          {/* MOSTRAR DESGLOSE DE COSTOS PATRONALES SI ESTÁ DISPONIBLE */}
+          {datosRemuneraciones?.resumen && datosRemuneraciones?.porcentajes_aplicados && (
+            <Box sx={{ mt: 4 }}>
+              <CostosPatronalesDetalle 
+                resumen={datosRemuneraciones.resumen}
+                porcentajes={datosRemuneraciones.porcentajes_aplicados}
+              />
+            </Box>
+          )}
         </Box>
       </CardContent>
     </Card>
@@ -431,15 +565,7 @@ export const EstadoResultadosDetallado = ({ data }) => {
 };
 
 /**
- * Función de seguridad para calcular porcentajes
- */
-const safePercentage = (value, total, decimals = 1) => {
-  if (!total || total === 0) return '0%';
-  return ((value / total) * 100).toFixed(decimals) + '%';
-};
-
-/**
- * Componente para el análisis financiero mejorado
+ * Componente para el análisis financiero
  */
 export const AnalisisFinanciero = ({ data }) => {
   const theme = useTheme();
@@ -452,13 +578,7 @@ export const AnalisisFinanciero = ({ data }) => {
   const utilidadNeta = data.utilidadNeta || 0;
   const gastosOperativos = data.gastosOperativos?.totalGastosOperativos || 0;
   const costos = data.costos?.totalCostos || 0;
-  const costoArriendo = data.costoArriendo || 0;
-  const impuestos = data.impuestos || 0;
   
-  const gastosAdmin = data.gastosOperativos?.gastosAdministrativos || {};
-  const totalGastosAdmin = gastosAdmin.total || 0;
-  
-  // Calcular ratios financieros
   const ratios = {
     margenBruto: ventas > 0 ? (utilidadBruta / ventas) * 100 : 0,
     margenOperativo: ventas > 0 ? (utilidadOperativa / ventas) * 100 : 0,
@@ -469,13 +589,8 @@ export const AnalisisFinanciero = ({ data }) => {
   
   return (
     <Grid container spacing={4}>
-      {/* Análisis de Rentabilidad */}
       <Grid item xs={12} lg={8}>
-        <Card sx={{ 
-          borderRadius: 3, 
-          boxShadow: `0 8px 32px ${theme.palette.grey[500]}15`,
-          background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
-        }}>
+        <Card sx={{ borderRadius: 3, boxShadow: `0 8px 32px ${theme.palette.grey[500]}15` }}>
           <CardHeader 
             title={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -485,12 +600,7 @@ export const AnalisisFinanciero = ({ data }) => {
                 </Typography>
               </Box>
             }
-            subheader="Indicadores clave de rendimiento financiero"
-            sx={{ 
-              backgroundColor: 'transparent',
-              borderBottom: `1px solid ${theme.palette.divider}`,
-              pb: 2,
-            }}
+            subheader="Indicadores clave de rendimiento financiero con costos patronales"
           />
           <CardContent>
             <Grid container spacing={3}>
@@ -516,9 +626,6 @@ export const AnalisisFinanciero = ({ data }) => {
                       }
                     }}
                   />
-                  <Typography variant="caption" color="textSecondary">
-                    Eficiencia en costos directos
-                  </Typography>
                 </Box>
               </Grid>
               
@@ -544,9 +651,6 @@ export const AnalisisFinanciero = ({ data }) => {
                       }
                     }}
                   />
-                  <Typography variant="caption" color="textSecondary">
-                    Eficiencia operacional
-                  </Typography>
                 </Box>
               </Grid>
               
@@ -572,14 +676,10 @@ export const AnalisisFinanciero = ({ data }) => {
                       }
                     }}
                   />
-                  <Typography variant="caption" color="textSecondary">
-                    Rentabilidad final
-                  </Typography>
                 </Box>
               </Grid>
             </Grid>
             
-            {/* Estructura de Costos Visual */}
             <Box sx={{ mt: 4 }}>
               <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                 Estructura de Costos y Gastos
@@ -631,20 +731,15 @@ export const AnalisisFinanciero = ({ data }) => {
               </Box>
               
               <Typography variant="caption" color="textSecondary">
-                Distribución porcentual respecto a las ventas totales
+                Distribución porcentual respecto a las ventas totales (incluye costos patronales en gastos)
               </Typography>
             </Box>
           </CardContent>
         </Card>
       </Grid>
       
-      {/* Información Adicional */}
       <Grid item xs={12} lg={4}>
-        <Card sx={{ 
-          borderRadius: 3, 
-          boxShadow: `0 8px 32px ${theme.palette.grey[500]}15`,
-          background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
-        }}>
+        <Card sx={{ borderRadius: 3, boxShadow: `0 8px 32px ${theme.palette.grey[500]}15` }}>
           <CardHeader 
             title={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -654,14 +749,8 @@ export const AnalisisFinanciero = ({ data }) => {
                 </Typography>
               </Box>
             }
-            sx={{ 
-              backgroundColor: 'transparent',
-              borderBottom: `1px solid ${theme.palette.divider}`,
-              pb: 2,
-            }}
           />
           <CardContent>
-            {/* Métricas Clave */}
             <List dense>
               <ListItem>
                 <ListItemIcon>
@@ -696,6 +785,12 @@ export const AnalisisFinanciero = ({ data }) => {
                 <ListItemText
                   primary="Gastos Operativos"
                   secondary={formatCurrency(gastosOperativos)}
+                  primaryTypographyProps={{
+                    sx: { fontSize: '0.9rem' }
+                  }}
+                  secondaryTypographyProps={{
+                    sx: { fontSize: '0.85rem' }
+                  }}
                 />
               </ListItem>
               
@@ -705,14 +800,13 @@ export const AnalisisFinanciero = ({ data }) => {
                     <TrendingUpIcon fontSize="small" />
                   </Avatar>
                 </ListItemIcon>
-                <ListItemText
+              <ListItemText
                   primary="Utilidad Neta"
                   secondary={formatCurrency(utilidadNeta)}
                 />
               </ListItem>
             </List>
             
-            {/* Datos Originales */}
             {data.datosOriginales && (
               <Box sx={{ mt: 3, p: 2, borderRadius: 2, backgroundColor: theme.palette.grey[50] }}>
                 <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
@@ -735,19 +829,26 @@ export const AnalisisFinanciero = ({ data }) => {
                       {data.datosOriginales.numeroVentas}
                     </Typography>
                   </Grid>
-                  <Grid item xs={12}>
+                  <Grid item xs={6}>
                     <Typography variant="body2" color="textSecondary">
-                      Compras:
+                      Empleados:
                     </Typography>
                     <Typography variant="body2" fontWeight="medium">
-                      {formatCurrency(data.datosOriginales.totalCompras)}
+                      {data.datosOriginales.numeroEmpleados || 0}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Total Cargo:
+                    </Typography>
+                    <Typography variant="body2" fontWeight="medium" color="success.main">
+                      {formatCurrency(data.datosOriginales.totalRemuneraciones)}
                     </Typography>
                   </Grid>
                 </Grid>
               </Box>
             )}
             
-            {/* Recomendaciones */}
             <Box sx={{ mt: 3 }}>
               <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                 Observaciones
@@ -772,6 +873,10 @@ export const AnalisisFinanciero = ({ data }) => {
                 <Typography variant="body2">
                   • Rentabilidad final: {ratios.margenNeto.toFixed(1)}%
                   {ratios.margenNeto > 10 ? ' (Excelente)' : ratios.margenNeto > 5 ? ' (Buena)' : ' (Crítica)'}
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="caption" color="info.main" fontWeight="medium">
+                  ℹ️ Los gastos incluyen costos patronales calculados según porcentajes configurados
                 </Typography>
               </Paper>
             </Box>

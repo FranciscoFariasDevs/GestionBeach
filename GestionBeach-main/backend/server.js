@@ -9,13 +9,13 @@ dotenv.config();
 // Crear aplicación Express
 const app = express();
 
-  // CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
-  const allowedOrigins = [
-    'http://localhost:3000',           // Desarrollo local
-    'http://192.168.100.150:3000',     // Frontend en red local
-    'http://190.102.248.163:80',       // Frontend público puerto 80
-    'http://190.102.248.163',          // Frontend público (puerto 80 implícito)
-  ];
+// CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
+const allowedOrigins = [
+  'http://localhost:3000',           // Desarrollo local
+  'http://192.168.100.150:3000',     // Frontend en red local
+  'http://190.102.248.163:80',       // Frontend público puerto 80
+  'http://190.102.248.163',          // Frontend público (puerto 80 implícito)
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -53,13 +53,17 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// 🆕 SERVIR ARCHIVOS ESTÁTICOS PARA UPLOADS (IMPORTANTE PARA EL CONCURSO)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+console.log('📁 Carpeta uploads habilitada para servir archivos estáticos');
+
 // FUNCIÓN PARA VERIFICAR RUTAS MEJORADA
 const loadRoute = (path, routePath) => {
   try {
     const route = require(path);
     const routeType = typeof route;
     
-    console.log(`🔄 Cargando ${routePath}: tipo = ${routeType}`);
+    console.log(`📄 Cargando ${routePath}: tipo = ${routeType}`);
     
     if (routeType !== 'function') {
       console.error(`❌ ERROR: ${routePath} exporta ${routeType}, debe ser function (Router)`);
@@ -110,8 +114,9 @@ const optionalRoutes = [
   { path: './routes/facturaXMLRoutes', route: '/api/facturas-xml' },
   { path: './routes/centrosCostosRoutes', route: '/api/centros-costos' },
   { path: './routes/monitoreoRoutes', route: '/api/monitoreo' },
-  // 🆕 NUEVA RUTA PARA ESTADO DE RESULTADOS
   { path: './routes/estadoResultadosRoutes', route: '/api/estado-resultados' },
+  // 🆕 NUEVA RUTA PARA CONCURSO DE PISCINAS
+  { path: './routes/concursoPiscinasRoutes', route: '/api/concurso-piscinas' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -147,7 +152,7 @@ app.get('/api/check-db', async (req, res) => {
     const tables = tablesResult.recordset.map(row => row.TABLE_NAME);
     
     // Verificar tablas críticas
-    const criticalTables = ['sucursales', 'empleados', 'permisos_usuario'];
+    const criticalTables = ['sucursales', 'empleados', 'permisos_usuario', 'participaciones_concurso'];
     const missingTables = criticalTables.filter(table => 
       !tables.some(t => t.toLowerCase() === table.toLowerCase())
     );
@@ -282,6 +287,24 @@ app.get('/api/test-inventario', (req, res) => {
   });
 });
 
+// 🆕 NUEVA RUTA DE TEST PARA CONCURSO DE PISCINAS
+app.get('/api/test-concurso-piscinas', (req, res) => {
+  console.log('🧪 Test de concurso de piscinas solicitado');
+  
+  res.json({
+    success: true,
+    message: 'Ruta de test de concurso de piscinas funcionando',
+    timestamp: new Date().toISOString(),
+    rutas_concurso: [
+      '/api/concurso-piscinas/test',
+      '/api/concurso-piscinas/participar',
+      '/api/concurso-piscinas/participaciones',
+      '/api/concurso-piscinas/estadisticas',
+      '/api/concurso-piscinas/verificar/:numero_boleta'
+    ]
+  });
+});
+
 // Servir el frontend en producción
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../frontend/build')));
@@ -324,10 +347,11 @@ const startServer = async () => {
       console.log(`🏢 Test Sucursales: http://190.102.248.163:${PORT}/api/sucursales-quick-test`);
       console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
       console.log(`📈 Test Estado Resultados: http://190.102.248.163:${PORT}/api/test-estado-resultados`);
+      console.log(`🏊 Test Concurso Piscinas: http://190.102.248.163:${PORT}/api/test-concurso-piscinas`);
       console.log('\n✅ === SERVIDOR LISTO ===\n');
       
       // CORS permitidos para referencia
-      console.log('🔒 CORS Origins permitidos:');
+      console.log('🔐 CORS Origins permitidos:');
       allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
       console.log(`   - Y cualquier origin en modo development\n`);
     });
