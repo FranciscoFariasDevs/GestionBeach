@@ -23,6 +23,7 @@ import LoginPage from './pages/LoginPage';
 import ConsultorPage from './pages/ConsultorPage';
 import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
 import NotFoundPage from './pages/NotFoundPage';
+import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema de Cabañas
 
 // ========================================
 // PAGES - PRIVADAS
@@ -269,8 +270,8 @@ function App() {
                   />
                   
                   {/* Configuración del Sistema */}
-                  <Route 
-                    path="configuracion" 
+                  <Route
+                    path="configuracion"
                     element={
                       <ProtectedRoute requiredRoute="/configuracion">
                         <div style={{ padding: '20px' }}>
@@ -278,7 +279,20 @@ function App() {
                           <p>Módulo en desarrollo...</p>
                         </div>
                       </ProtectedRoute>
-                    } 
+                    }
+                  />
+
+                  {/* ========================================== */}
+                  {/* MÓDULO DE CABAÑAS CON WHATSAPP             */}
+                  {/* ✅ ACCESIBLE PARA TODOS LOS PERFILES       */}
+                  {/* ========================================== */}
+                  <Route
+                    path="admin/cabanas"
+                    element={
+                      <ProtectedRoute requiredRoute="/admin/cabanas">
+                        <AdminCabanasPage />
+                      </ProtectedRoute>
+                    }
                   />
                 </Route>
 

@@ -117,6 +117,8 @@ const optionalRoutes = [
   { path: './routes/estadoResultadosRoutes', route: '/api/estado-resultados' },
   // 🆕 NUEVA RUTA PARA CONCURSO DE PISCINAS
   { path: './routes/concursoPiscinasRoutes', route: '/api/concurso-piscinas' },
+  // 🏡 NUEVA RUTA PARA SISTEMA DE CABAÑAS CON WHATSAPP
+  { path: './routes/cabanasRoutes', route: '/api/cabanas' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -290,7 +292,7 @@ app.get('/api/test-inventario', (req, res) => {
 // 🆕 NUEVA RUTA DE TEST PARA CONCURSO DE PISCINAS
 app.get('/api/test-concurso-piscinas', (req, res) => {
   console.log('🧪 Test de concurso de piscinas solicitado');
-  
+
   res.json({
     success: true,
     message: 'Ruta de test de concurso de piscinas funcionando',
@@ -302,6 +304,63 @@ app.get('/api/test-concurso-piscinas', (req, res) => {
       '/api/concurso-piscinas/estadisticas',
       '/api/concurso-piscinas/verificar/:numero_boleta'
     ]
+  });
+});
+
+// 🏡 NUEVA RUTA DE TEST PARA SISTEMA DE CABAÑAS
+app.get('/api/test-cabanas', (req, res) => {
+  console.log('🧪 Test de sistema de cabañas solicitado');
+
+  res.json({
+    success: true,
+    message: 'Ruta de test de sistema de cabañas funcionando',
+    timestamp: new Date().toISOString(),
+    rutas_cabanas: [
+      '/api/cabanas/cabanas',
+      '/api/cabanas/reservas',
+      '/api/cabanas/disponibilidad/verificar',
+      '/api/cabanas/whatsapp/webhook/incoming',
+      '/api/cabanas/whatsapp/conversaciones',
+      '/api/cabanas/whatsapp/test'
+    ]
+  });
+});
+
+// 🔍 RUTA DE DIAGNÓSTICO - Ver todas las rutas registradas
+app.get('/api/routes', (req, res) => {
+  const routes = [];
+
+  app._router.stack.forEach(middleware => {
+    if (middleware.route) {
+      // Ruta directa
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods).join(', ').toUpperCase()
+      });
+    } else if (middleware.name === 'router') {
+      // Router montado
+      middleware.handle.stack.forEach(handler => {
+        if (handler.route) {
+          const path = middleware.regexp.source
+            .replace('\\/?', '')
+            .replace('(?=\\/|$)', '')
+            .replace(/\\\//g, '/')
+            .replace(/\^/g, '')
+            .replace(/\$/g, '');
+
+          routes.push({
+            path: path + handler.route.path,
+            methods: Object.keys(handler.route.methods).join(', ').toUpperCase()
+          });
+        }
+      });
+    }
+  });
+
+  res.json({
+    success: true,
+    total_routes: routes.length,
+    routes: routes.sort((a, b) => a.path.localeCompare(b.path))
   });
 });
 
@@ -348,6 +407,8 @@ const startServer = async () => {
       console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
       console.log(`📈 Test Estado Resultados: http://190.102.248.163:${PORT}/api/test-estado-resultados`);
       console.log(`🏊 Test Concurso Piscinas: http://190.102.248.163:${PORT}/api/test-concurso-piscinas`);
+      console.log(`🏡 Test Sistema Cabañas: http://190.102.248.163:${PORT}/api/test-cabanas`);
+      console.log(`📱 WhatsApp Test: http://190.102.248.163:${PORT}/api/cabanas/whatsapp/test`);
       console.log('\n✅ === SERVIDOR LISTO ===\n');
       
       // CORS permitidos para referencia

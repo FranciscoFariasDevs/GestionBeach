@@ -13,6 +13,7 @@ export const MODULES = {
   COMPRAS: 'compras',
   TARJETA_EMPLEADO: 'tarjeta-empleado',
   EMPLEADOS: 'empleados',
+  CABANAS: 'admin/cabanas', // 🏡 CABAÑAS - SIN PERMISOS PARA DESARROLLO
   USUARIOS: 'usuarios',
   PERFILES: 'perfiles',
   MODULOS: 'modulos',
@@ -47,7 +48,7 @@ export const PERMISSIONS_BY_PROFILE = {
     modules: Object.values(MODULES),
     actions: [ACTIONS.manage] // Puede hacer todo
   },
-  
+
   administrador: {
     // Administrador: Igual que Super Admin
     modules: Object.values(MODULES),
@@ -67,11 +68,12 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.COMPRAS,
       MODULES.TARJETA_EMPLEADO,
       MODULES.EMPLEADOS,
+      MODULES.CABANAS, // 🏡 Acceso a Cabañas
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update, ACTIONS.delete]
   },
-  
+
   finanzas: {
     // Finanzas: Módulos financieros y contables
     modules: [
@@ -79,11 +81,12 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.ESTADO_RESULTADO,
       MODULES.REMUNERACIONES,
       MODULES.COMPRAS,
+      MODULES.CABANAS, // 🏡 Acceso a Cabañas
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
-  
+
   recursos_humanos: {
     // RRHH: Gestión de personal
     modules: [
@@ -91,11 +94,12 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.EMPLEADOS,
       MODULES.REMUNERACIONES,
       MODULES.TARJETA_EMPLEADO,
+      MODULES.CABANAS, // 🏡 Acceso a Cabañas
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
-  
+
   jefe_local: {
     // Jefe de Local: Operaciones diarias
     modules: [
@@ -104,15 +108,17 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.INVENTARIO,
       MODULES.PRODUCTOS,
       MODULES.MONITOREO,
+      MODULES.CABANAS, // 🏡 Acceso a Cabañas
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
-  
+
   solo_lectura: {
     // Solo Lectura: Solo consulta
     modules: [
-      MODULES.DASHBOARD
+      MODULES.DASHBOARD,
+      MODULES.CABANAS // 🏡 Acceso a Cabañas (solo lectura)
     ],
     actions: [ACTIONS.read]
   }
@@ -169,6 +175,7 @@ export function canAccessRoute(ability, route) {
     '/compras/facturas-xml': MODULES.COMPRAS,
     '/tarjeta-empleado': MODULES.TARJETA_EMPLEADO,
     '/empleados': MODULES.EMPLEADOS,
+    '/admin/cabanas': MODULES.CABANAS, // 🏡 Ruta de Cabañas
     '/usuarios': MODULES.USUARIOS,
     '/perfiles': MODULES.PERFILES,
     '/modulos': MODULES.MODULOS,

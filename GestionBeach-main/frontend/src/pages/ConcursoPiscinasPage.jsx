@@ -1508,19 +1508,28 @@ const ConcursoPiscinasPage = () => {
                         </Box>
                         
                         <Typography
-                          variant="h2"
+                          variant="h1"
                           sx={{
                             fontWeight: 900,
                             color: '#4CAF50',
-                            mb: 2,
-                            fontSize: { xs: '2.5rem', md: '3rem' },
-                            textShadow: '0 2px 8px rgba(76, 175, 80, 0.3)',
+                            mb: 3,
+                            fontSize: { xs: '3rem', md: '4rem' },
+                            textShadow: '0 4px 16px rgba(76, 175, 80, 0.4)',
+                            letterSpacing: '-2px',
                           }}
                         >
                           ¡FELICIDADES! 🎉
                         </Typography>
 
-                        <Typography variant="h5" sx={{ mb: 4, color: '#666', fontWeight: 600 }}>
+                        <Typography
+                          variant="h4"
+                          sx={{
+                            mb: 4,
+                            color: '#333',
+                            fontWeight: 700,
+                            fontSize: { xs: '1.5rem', md: '1.8rem' },
+                          }}
+                        >
                           Tu participación fue registrada exitosamente
                         </Typography>
 

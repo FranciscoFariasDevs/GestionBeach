@@ -49,6 +49,7 @@ import {
   Monitor as MonitorIcon,
   Inventory as InventoryIcon,
   Security as SecurityIcon,
+  Cottage as CottageIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -232,7 +233,8 @@ export default function DashboardLayout() {
     },
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
-    { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'light' },
+    { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
+    { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
     { text: 'Perfiles', icon: <AssignmentIcon />, path: '/perfiles', orangeType: 'dark' },
     { text: 'Módulos', icon: <ModuleIcon />, path: '/modulos', orangeType: 'light' },
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion', orangeType: 'dark' },
@@ -245,7 +247,7 @@ export default function DashboardLayout() {
     },
   ];
 
-  // Filtrar elementos del menú basado en permisos
+  // ✅ FILTRADO DE PERMISOS ACTIVO - CABAÑAS INCLUIDA EN TODOS LOS PERFILES
   const menuItems = filterMenuItems(ability, allMenuItems);
 
   // Obtener título de la página actual
@@ -265,6 +267,7 @@ export default function DashboardLayout() {
         '/productos/multitiendas': 'Productos - Multitiendas',
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
+        '/admin/cabanas': 'Gestión de Cabañas y Reservas',
         '/usuarios': 'Gestión de Usuarios',
         '/perfiles': 'Gestión de Perfiles',
         '/modulos': 'Gestión de Módulos',
