@@ -333,4 +333,135 @@ exports.obtenerCalendarioDisponibilidad = async (req, res) => {
   }
 };
 
+// ============================================
+// TINAJAS
+// ============================================
+
+// Obtener reservas de tinajas
+exports.obtenerReservasTinajas = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    // Verificar si la tabla existe
+    const tablaExiste = await pool.request()
+      .query(`
+        SELECT COUNT(*) as existe
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME = 'reservas_tinajas'
+      `);
+
+    // Si la tabla no existe, devolver array vacío
+    if (tablaExiste.recordset[0].existe === 0) {
+      console.log('⚠️ Tabla reservas_tinajas no existe, devolviendo array vacío');
+      return res.json({
+        success: true,
+        reservas: []
+      });
+    }
+
+    const resultado = await pool.request()
+      .query(`
+        SELECT
+          rt.id, rt.tinaja_id, rt.fecha_uso, rt.precio_dia, rt.estado,
+          rt.reserva_cabana_id,
+          rc.estado as estado_reserva_cabana
+        FROM dbo.reservas_tinajas rt
+        INNER JOIN dbo.reservas_cabanas rc ON rt.reserva_cabana_id = rc.id
+        WHERE rt.estado = 'confirmada'
+          AND rc.estado IN ('pendiente', 'confirmada', 'en_curso')
+        ORDER BY rt.fecha_uso ASC
+      `);
+
+    return res.json({
+      success: true,
+      reservas: resultado.recordset
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener reservas de tinajas:', error);
+    // Devolver array vacío en caso de error para que no rompa el frontend
+    return res.json({
+      success: true,
+      reservas: []
+    });
+  }
+};
+
+// ============================================
+// GESTIÓN DE TINAJAS
+// ============================================
+
+// Obtener todas las tinajas con sus precios
+exports.obtenerTinajas = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    const resultado = await pool.request()
+      .query(`
+        SELECT
+          id, numero, nombre, descripcion,
+          precio_temporada_alta, precio_temporada_baja,
+          estado, ubicacion, notas_internas,
+          fecha_creacion, fecha_modificacion
+        FROM dbo.tinajas
+        ORDER BY numero ASC
+      `);
+
+    return res.json({
+      success: true,
+      tinajas: resultado.recordset
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener tinajas:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener tinajas',
+      error: error.message
+    });
+  }
+};
+
+// Actualizar precios de una tinaja
+exports.actualizarPreciosTinaja = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { precio_temporada_alta, precio_temporada_baja } = req.body;
+
+    if (!precio_temporada_alta || !precio_temporada_baja) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requieren ambos precios (temporada alta y baja)'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('precio_temporada_alta', sql.Decimal(18, 2), precio_temporada_alta)
+      .input('precio_temporada_baja', sql.Decimal(18, 2), precio_temporada_baja)
+      .query(`
+        UPDATE dbo.tinajas
+        SET precio_temporada_alta = @precio_temporada_alta,
+            precio_temporada_baja = @precio_temporada_baja,
+            fecha_modificacion = GETDATE()
+        WHERE id = @id
+      `);
+
+    return res.json({
+      success: true,
+      message: 'Precios de tinaja actualizados exitosamente'
+    });
+
+  } catch (error) {
+    console.error('❌ Error al actualizar precios de tinaja:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar precios de tinaja',
+      error: error.message
+    });
+  }
+};
+
 module.exports = exports;

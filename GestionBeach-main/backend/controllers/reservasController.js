@@ -23,7 +23,19 @@ exports.obtenerReservas = async (req, res) => {
         r.check_in_realizado, r.check_out_realizado,
         r.fecha_creacion,
         c.nombre as nombre_cabana,
-        c.capacidad_personas as capacidad_cabana
+        c.capacidad_personas as capacidad_cabana,
+        (
+          SELECT COUNT(*)
+          FROM dbo.reservas_tinajas rt
+          WHERE rt.reserva_cabana_id = r.id
+            AND rt.estado = 'confirmada'
+        ) as cantidad_tinajas,
+        (
+          SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END
+          FROM dbo.reservas_tinajas rt
+          WHERE rt.reserva_cabana_id = r.id
+            AND rt.estado = 'confirmada'
+        ) as tiene_tinaja
       FROM dbo.reservas_cabanas r
       INNER JOIN dbo.cabanas c ON r.cabana_id = c.id
       WHERE 1=1
@@ -123,8 +135,12 @@ exports.crearReserva = async (req, res) => {
       fecha_inicio,
       fecha_fin,
       cantidad_personas,
+      personas_extra,
+      costo_personas_extra,
       precio_por_noche,
       precio_total,
+      cantidad_noches,
+      precio_final,
       descuento,
       estado,
       metodo_pago,
@@ -133,7 +149,8 @@ exports.crearReserva = async (req, res) => {
       origen,
       numero_whatsapp,
       notas,
-      usuario_creacion
+      usuario_creacion,
+      tinajas
     } = req.body;
 
     // Validaciones básicas
@@ -165,6 +182,29 @@ exports.crearReserva = async (req, res) => {
       });
     }
 
+    // VERIFICAR disponibilidad de tinajas ANTES de crear la reserva
+    if (tinajas && Array.isArray(tinajas) && tinajas.length > 0) {
+      for (const tinaja of tinajas) {
+        const verificacionTinaja = await pool.request()
+          .input('tinaja_id', sql.Int, tinaja.tinaja_id)
+          .input('fecha_uso', sql.Date, tinaja.fecha_uso)
+          .query(`
+            SELECT COUNT(*) as reservadas
+            FROM dbo.reservas_tinajas
+            WHERE tinaja_id = @tinaja_id
+              AND fecha_uso = @fecha_uso
+              AND estado = 'confirmada'
+          `);
+
+        if (verificacionTinaja.recordset[0].reservadas > 0) {
+          return res.status(400).json({
+            success: false,
+            message: `La tinaja ${tinaja.tinaja_id} no está disponible para la fecha ${tinaja.fecha_uso}`
+          });
+        }
+      }
+    }
+
     // Crear reserva
     const resultado = await pool.request()
       .input('cabana_id', sql.Int, cabana_id)
@@ -176,8 +216,12 @@ exports.crearReserva = async (req, res) => {
       .input('fecha_inicio', sql.Date, fecha_inicio)
       .input('fecha_fin', sql.Date, fecha_fin)
       .input('cantidad_personas', sql.Int, cantidad_personas)
+      .input('personas_extra', sql.Int, personas_extra || 0)
+      .input('costo_personas_extra', sql.Decimal(18, 2), costo_personas_extra || 0)
+      .input('cantidad_noches', sql.Int, cantidad_noches || 1)
       .input('precio_por_noche', sql.Decimal(18, 2), precio_por_noche)
       .input('precio_total', sql.Decimal(18, 2), precio_total)
+      .input('precio_final', sql.Decimal(18, 2), precio_final || precio_total)
       .input('descuento', sql.Decimal(18, 2), descuento || 0)
       .input('estado', sql.VarChar, estado || 'pendiente')
       .input('metodo_pago', sql.VarChar, metodo_pago || null)
@@ -190,22 +234,37 @@ exports.crearReserva = async (req, res) => {
       .query(`
         INSERT INTO dbo.reservas_cabanas (
           cabana_id, cliente_nombre, cliente_apellido, cliente_telefono, cliente_email, cliente_rut,
-          fecha_inicio, fecha_fin, cantidad_personas,
-          precio_por_noche, precio_total, descuento,
+          fecha_inicio, fecha_fin, cantidad_personas, personas_extra, costo_personas_extra,
+          cantidad_noches, precio_por_noche, precio_total, precio_final, descuento,
           estado, metodo_pago, estado_pago, monto_pagado,
           origen, numero_whatsapp, notas, usuario_creacion
         )
         OUTPUT INSERTED.id
         VALUES (
           @cabana_id, @cliente_nombre, @cliente_apellido, @cliente_telefono, @cliente_email, @cliente_rut,
-          @fecha_inicio, @fecha_fin, @cantidad_personas,
-          @precio_por_noche, @precio_total, @descuento,
+          @fecha_inicio, @fecha_fin, @cantidad_personas, @personas_extra, @costo_personas_extra,
+          @cantidad_noches, @precio_por_noche, @precio_total, @precio_final, @descuento,
           @estado, @metodo_pago, @estado_pago, @monto_pagado,
           @origen, @numero_whatsapp, @notas, @usuario_creacion
         )
       `);
 
     const reserva_id = resultado.recordset[0].id;
+
+    // Crear reservas de tinajas (ya verificamos disponibilidad antes)
+    if (tinajas && Array.isArray(tinajas) && tinajas.length > 0) {
+      for (const tinaja of tinajas) {
+        await pool.request()
+          .input('reserva_cabana_id', sql.Int, reserva_id)
+          .input('tinaja_id', sql.Int, tinaja.tinaja_id)
+          .input('fecha_uso', sql.Date, tinaja.fecha_uso)
+          .input('precio_dia', sql.Decimal(18, 2), tinaja.precio_dia)
+          .query(`
+            INSERT INTO dbo.reservas_tinajas (reserva_cabana_id, tinaja_id, fecha_uso, precio_dia, estado)
+            VALUES (@reserva_cabana_id, @tinaja_id, @fecha_uso, @precio_dia, 'confirmada')
+          `);
+      }
+    }
 
     // Crear bloqueo en calendario
     await pool.request()
@@ -250,25 +309,49 @@ exports.actualizarReserva = async (req, res) => {
 
     const pool = await poolPromise;
 
-    await pool.request()
-      .input('id', sql.Int, id)
-      .input('estado', sql.VarChar, estado)
-      .input('metodo_pago', sql.VarChar, metodo_pago)
-      .input('estado_pago', sql.VarChar, estado_pago)
-      .input('monto_pagado', sql.Decimal(18, 2), monto_pagado)
-      .input('notas', sql.Text, notas)
-      .input('usuario_modificacion', sql.VarChar, usuario_modificacion || 'sistema')
-      .query(`
-        UPDATE dbo.reservas_cabanas
-        SET estado = @estado,
-            metodo_pago = @metodo_pago,
-            estado_pago = @estado_pago,
-            monto_pagado = @monto_pagado,
-            notas = @notas,
-            usuario_modificacion = @usuario_modificacion,
-            fecha_modificacion = GETDATE()
-        WHERE id = @id
-      `);
+    // Construir query dinámicamente para solo actualizar campos enviados
+    let updateFields = [];
+    const request = pool.request().input('id', sql.Int, id);
+
+    if (estado !== undefined) {
+      updateFields.push('estado = @estado');
+      request.input('estado', sql.VarChar, estado);
+    }
+    if (metodo_pago !== undefined) {
+      updateFields.push('metodo_pago = @metodo_pago');
+      request.input('metodo_pago', sql.VarChar, metodo_pago);
+    }
+    if (estado_pago !== undefined) {
+      updateFields.push('estado_pago = @estado_pago');
+      request.input('estado_pago', sql.VarChar, estado_pago);
+    }
+    if (monto_pagado !== undefined) {
+      updateFields.push('monto_pagado = @monto_pagado');
+      request.input('monto_pagado', sql.Decimal(18, 2), monto_pagado);
+    }
+    if (notas !== undefined) {
+      updateFields.push('notas = @notas');
+      request.input('notas', sql.Text, notas);
+    }
+
+    updateFields.push('usuario_modificacion = @usuario_modificacion');
+    updateFields.push('fecha_modificacion = GETDATE()');
+    request.input('usuario_modificacion', sql.VarChar, usuario_modificacion || 'sistema');
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No hay campos para actualizar'
+      });
+    }
+
+    const query = `
+      UPDATE dbo.reservas_cabanas
+      SET ${updateFields.join(', ')}
+      WHERE id = @id
+    `;
+
+    await request.query(query);
 
     return res.json({
       success: true,

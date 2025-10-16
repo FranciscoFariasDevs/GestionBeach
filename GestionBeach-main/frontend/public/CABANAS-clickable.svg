@@ -1,0 +1,55 @@
+<svg width="1092" height="768" xmlns="http://www.w3.org/2000/svg">
+  <!-- Imagen de fondo -->
+  <image width="1092" height="768" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" opacity="0.3"/>
+
+  <!-- Rectángulos clicables para cada cabaña - AJUSTA LAS POSICIONES -->
+  <g id="cabaña1">
+    <rect x="50" y="50" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="125" y="115" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 1</text>
+  </g>
+
+  <g id="cabaña2">
+    <rect x="220" y="50" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="295" y="115" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 2</text>
+  </g>
+
+  <g id="cabaña3">
+    <rect x="390" y="50" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="465" y="115" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 3</text>
+  </g>
+
+  <g id="cabaña4">
+    <rect x="560" y="50" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="635" y="115" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 4</text>
+  </g>
+
+  <g id="cabaña5">
+    <rect x="50" y="200" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="125" y="265" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 5</text>
+  </g>
+
+  <g id="cabaña6">
+    <rect x="220" y="200" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="295" y="265" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 6</text>
+  </g>
+
+  <g id="cabaña7">
+    <rect x="390" y="200" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="465" y="265" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 7</text>
+  </g>
+
+  <g id="cabaña8">
+    <rect x="560" y="200" width="150" height="120" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="635" y="265" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Cabaña 8</text>
+  </g>
+
+  <g id="departamentoA">
+    <rect x="50" y="350" width="200" height="150" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="150" y="430" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Departamento A</text>
+  </g>
+
+  <g id="departamentoB">
+    <rect x="270" y="350" width="200" height="150" fill="transparent" stroke="white" stroke-width="2"/>
+    <text x="370" y="430" text-anchor="middle" fill="white" font-size="14" font-weight="bold">Departamento B</text>
+  </g>
+</svg>

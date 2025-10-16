@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@casl/ability": "^6.7.3",
+    "@craco/craco": "^7.1.0",
     "@emailjs/browser": "^4.4.1",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
@@ -71,5 +72,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "svgo": "^4.0.0"
   }
 }

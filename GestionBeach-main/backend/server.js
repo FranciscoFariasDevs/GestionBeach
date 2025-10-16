@@ -57,6 +57,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 console.log('📁 Carpeta uploads habilitada para servir archivos estáticos');
 
+// 🏡 SERVIR IMÁGENES DE CABAÑAS (PARA WHATSAPP)
+app.use('/imagenes-cabanas', express.static(path.join(__dirname, '../frontend/src/images')));
+console.log('🖼️ Carpeta de imágenes de cabañas habilitada');
+
 // FUNCIÓN PARA VERIFICAR RUTAS MEJORADA
 const loadRoute = (path, routePath) => {
   try {

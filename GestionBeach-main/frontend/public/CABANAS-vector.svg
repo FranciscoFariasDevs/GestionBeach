@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1092" height="768" viewBox="0 0 1092 768" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo opcional: Si quieres tu imagen de fondo, descomenta esto y agrega la ruta -->
+  <!-- <image x="0" y="0" width="1092" height="768" href="/tu-imagen-fondo.png" opacity="0.3"/> -->
+
+  <!-- Fila 1: Cabañas 1-4 -->
+  <g id="cabaña1">
+    <rect x="50" y="50" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="160" y="135" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 1</text>
+  </g>
+
+  <g id="cabaña2">
+    <rect x="290" y="50" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="400" y="135" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 2</text>
+  </g>
+
+  <g id="cabaña3">
+    <rect x="530" y="50" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="640" y="135" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 3</text>
+  </g>
+
+  <g id="cabaña4">
+    <rect x="770" y="50" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="880" y="135" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 4</text>
+  </g>
+
+  <!-- Fila 2: Cabañas 5-8 -->
+  <g id="cabaña5">
+    <rect x="50" y="220" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="160" y="305" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 5</text>
+  </g>
+
+  <g id="cabaña6">
+    <rect x="290" y="220" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="400" y="305" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 6</text>
+  </g>
+
+  <g id="cabaña7">
+    <rect x="530" y="220" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="640" y="305" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 7</text>
+  </g>
+
+  <g id="cabaña8">
+    <rect x="770" y="220" width="220" height="150" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="880" y="305" text-anchor="middle" font-family="Arial" font-size="20" font-weight="bold" fill="#333">Cabaña 8</text>
+  </g>
+
+  <!-- Fila 3: Departamentos A y B (más grandes) -->
+  <g id="departamentoA">
+    <rect x="50" y="390" width="470" height="300" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="285" y="555" text-anchor="middle" font-family="Arial" font-size="24" font-weight="bold" fill="#333">Departamento A</text>
+  </g>
+
+  <g id="departamentoB">
+    <rect x="540" y="390" width="470" height="300" fill="rgba(255,255,255,0.3)" stroke="#333" stroke-width="3" rx="10"/>
+    <text x="775" y="555" text-anchor="middle" font-family="Arial" font-size="24" font-weight="bold" fill="#333">Departamento B</text>
+  </g>
+</svg>

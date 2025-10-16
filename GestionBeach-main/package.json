@@ -47,6 +47,7 @@
   "devDependencies": {
     "concurrently": "^8.0.1",
     "nodemon": "^3.1.9",
-    "prisma": "^6.8.2"
+    "prisma": "^6.8.2",
+    "svgo": "^4.0.0"
   }
 }

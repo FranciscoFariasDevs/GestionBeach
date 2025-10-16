@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const cabanasController = require('../controllers/cabanasController');
 const reservasController = require('../controllers/reservasController');
-const twilioController = require('../controllers/twilioWhatsAppControllerV2'); // 🔄 Usando versión V2 mejorada
+const twilioController = require('../controllers/twilioWhatsAppControllerV3'); // 🔄 Usando versión V3 sin fotos
 
 // ============================================
 // RUTAS DE CABAÑAS
@@ -19,6 +19,11 @@ router.delete('/cabanas/:id', cabanasController.eliminarCabana);
 // Disponibilidad
 router.get('/cabanas/disponibilidad/verificar', cabanasController.verificarDisponibilidad);
 router.get('/cabanas/disponibilidad/calendario', cabanasController.obtenerCalendarioDisponibilidad);
+
+// Tinajas
+router.get('/tinajas', cabanasController.obtenerTinajas);
+router.put('/tinajas/:id', cabanasController.actualizarPreciosTinaja);
+router.get('/tinajas/reservas', cabanasController.obtenerReservasTinajas);
 
 // ============================================
 // RUTAS DE RESERVAS

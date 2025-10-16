@@ -22,6 +22,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 import LoginPage from './pages/LoginPage';
 import ConsultorPage from './pages/ConsultorPage';
 import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
+import ReservaCabanasPage from './pages/ReservaCabanasPage'; // 🏡 NUEVO - Mapa de Cabañas
 import NotFoundPage from './pages/NotFoundPage';
 import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema de Cabañas
 
@@ -74,6 +75,9 @@ function App() {
                 
                 {/* 🆕 CONCURSO DE PISCINAS - RUTA PÚBLICA */}
                 <Route path="/concurso-piscinas" element={<ConcursoPiscinasPage />} />
+
+                {/* 🏡 MAPA DE RESERVA DE CABAÑAS - RUTA PÚBLICA */}
+                <Route path="/reserva-cabanas" element={<ReservaCabanasPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS (Con autenticación)         */}

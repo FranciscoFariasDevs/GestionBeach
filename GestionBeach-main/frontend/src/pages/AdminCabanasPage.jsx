@@ -1,5 +1,5 @@
-// frontend/src/pages/AdminCabanasPage.jsx - DISEÑO MEJORADO Y ELEGANTE
-import React, { useState, useEffect } from 'react';
+// frontend/src/pages/AdminCabanasPage.jsx - VERSIÓN MEJORADA CON TODAS LAS FEATURES
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Container,
@@ -39,6 +39,10 @@ import {
   Grow,
   Tooltip,
   alpha,
+  CardMedia,
+  ImageList,
+  ImageListItem,
+  ImageListItemBar,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -62,12 +66,17 @@ import {
   Hotel as HotelIcon,
   Bathtub as BathtubIcon,
   LocationOn as LocationIcon,
+  HotTub as HotTubIcon,
+  Settings as SettingsIcon,
+  Upload as UploadIcon,
+  Image as ImageIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
 const AdminCabanasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
+  const fileInputRef = useRef(null);
 
   // Estados principales
   const [tabValue, setTabValue] = useState(0);
@@ -83,6 +92,14 @@ const AdminCabanasPage = () => {
   const [loadingReservas, setLoadingReservas] = useState(false);
   const [dialogReservaOpen, setDialogReservaOpen] = useState(false);
   const [reservaEdit, setReservaEdit] = useState(null);
+
+  // Estados para confirmación de pago
+  const [dialogPagoOpen, setDialogPagoOpen] = useState(false);
+  const [reservaParaPago, setReservaParaPago] = useState(null);
+
+  // Estados de Tinajas (Configuración)
+  const [tinajas, setTinajas] = useState([]);
+  const [loadingTinajas, setLoadingTinajas] = useState(false);
 
   // Estados de WhatsApp
   const [conversaciones, setConversaciones] = useState([]);
@@ -101,8 +118,12 @@ const AdminCabanasPage = () => {
     precio_noche: 0,
     precio_fin_semana: 0,
     estado: 'disponible',
-    ubicacion: ''
+    ubicacion: '',
+    imagenes: []
   });
+
+  // Estados para gestión de fotos
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const [formReserva, setFormReserva] = useState({
     cabana_id: '',
@@ -128,7 +149,18 @@ const AdminCabanasPage = () => {
     if (tabValue === 0) cargarCabanas();
     if (tabValue === 1) cargarReservas();
     if (tabValue === 2) cargarConversaciones();
+    if (tabValue === 3) cargarTinajas();
   }, [tabValue]);
+
+  // Auto-refresh para WhatsApp cada 10 segundos
+  useEffect(() => {
+    if (tabValue === 2 && conversacionActiva) {
+      const interval = setInterval(() => {
+        cargarMensajes(conversacionActiva);
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [tabValue, conversacionActiva]);
 
   // ============================================
   // FUNCIONES DE CARGA
@@ -137,8 +169,6 @@ const AdminCabanasPage = () => {
     try {
       setLoadingCabanas(true);
       const response = await api.get('/cabanas/cabanas');
-
-      // Backend returns { success: true, cabanas: [...] }
       const cabanasData = response.data?.cabanas || [];
       setCabanas(cabanasData);
     } catch (error) {
@@ -154,8 +184,6 @@ const AdminCabanasPage = () => {
     try {
       setLoadingReservas(true);
       const response = await api.get('/cabanas/reservas');
-
-      // Backend returns { success: true, reservas: [...] }
       const reservasData = response.data?.reservas || [];
       setReservas(reservasData);
     } catch (error) {
@@ -171,13 +199,11 @@ const AdminCabanasPage = () => {
     try {
       setLoadingWhatsApp(true);
       const response = await api.get('/cabanas/whatsapp/conversaciones');
-
-      // Backend returns { success: true, conversaciones: [...] }
       const conversacionesData = response.data?.conversaciones || [];
       setConversaciones(conversacionesData);
     } catch (error) {
       console.error('Error loading conversaciones:', error);
-      enqueueSnackbar('Error al cargar conversaciones', { variant: 'error' });
+      enqueueSnackbar('Error al cargar conversaciones WhatsApp', { variant: 'error' });
       setConversaciones([]);
     } finally {
       setLoadingWhatsApp(false);
@@ -187,8 +213,6 @@ const AdminCabanasPage = () => {
   const cargarMensajes = async (telefono) => {
     try {
       const response = await api.get(`/cabanas/whatsapp/conversaciones/${telefono}`);
-
-      // Backend returns { success: true, mensajes: [...] }
       const mensajesData = response.data?.mensajes || [];
       setMensajes(mensajesData);
       setConversacionActiva(telefono);
@@ -199,13 +223,82 @@ const AdminCabanasPage = () => {
     }
   };
 
+  const cargarTinajas = async () => {
+    try {
+      setLoadingTinajas(true);
+      const response = await api.get('/cabanas/tinajas');
+      const tinajasData = response.data?.tinajas || [];
+      setTinajas(tinajasData);
+    } catch (error) {
+      console.error('Error loading tinajas:', error);
+      enqueueSnackbar('Error al cargar tinajas', { variant: 'error' });
+      setTinajas([]);
+    } finally {
+      setLoadingTinajas(false);
+    }
+  };
+
+  // ============================================
+  // FUNCIONES PARA SUBIR IMÁGENES
+  // ============================================
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validar que sea una imagen
+    if (!file.type.startsWith('image/')) {
+      enqueueSnackbar('Por favor selecciona un archivo de imagen', { variant: 'warning' });
+      return;
+    }
+
+    // Validar tamaño (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      enqueueSnackbar('La imagen no debe superar 5MB', { variant: 'warning' });
+      return;
+    }
+
+    // Convertir a base64 para preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result;
+      setFormCabana(prev => ({
+        ...prev,
+        imagenes: [...(prev.imagenes || []), base64String]
+      }));
+      enqueueSnackbar('Imagen agregada correctamente', { variant: 'success' });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEliminarFoto = (index) => {
+    setFormCabana(prev => ({
+      ...prev,
+      imagenes: prev.imagenes.filter((_, i) => i !== index)
+    }));
+    enqueueSnackbar('Imagen eliminada', { variant: 'success' });
+  };
+
   // ============================================
   // HANDLERS DE DIÁLOGOS
   // ============================================
   const handleOpenDialogCabana = (cabana = null) => {
     if (cabana) {
       setCabanaEdit(cabana);
-      setFormCabana(cabana);
+      let imagenesArray = [];
+      if (cabana.imagenes) {
+        try {
+          imagenesArray = typeof cabana.imagenes === 'string'
+            ? JSON.parse(cabana.imagenes)
+            : cabana.imagenes;
+        } catch (e) {
+          console.error('Error parsing imagenes:', e);
+          imagenesArray = [];
+        }
+      }
+      setFormCabana({
+        ...cabana,
+        imagenes: Array.isArray(imagenesArray) ? imagenesArray : []
+      });
     } else {
       setCabanaEdit(null);
       setFormCabana({
@@ -217,7 +310,8 @@ const AdminCabanasPage = () => {
         precio_noche: 0,
         precio_fin_semana: 0,
         estado: 'disponible',
-        ubicacion: ''
+        ubicacion: '',
+        imagenes: []
       });
     }
     setDialogCabanaOpen(true);
@@ -232,15 +326,16 @@ const AdminCabanasPage = () => {
     try {
       if (cabanaEdit) {
         await api.put(`/cabanas/cabanas/${cabanaEdit.id}`, formCabana);
-        enqueueSnackbar('Cabaña actualizada exitosamente', { variant: 'success' });
+        enqueueSnackbar('✅ Cabaña actualizada exitosamente', { variant: 'success' });
       } else {
         await api.post('/cabanas/cabanas', formCabana);
-        enqueueSnackbar('Cabaña creada exitosamente', { variant: 'success' });
+        enqueueSnackbar('✅ Cabaña creada exitosamente', { variant: 'success' });
       }
       handleCloseDialogCabana();
       cargarCabanas();
     } catch (error) {
-      enqueueSnackbar('Error al guardar cabaña', { variant: 'error' });
+      console.error('Error al guardar cabaña:', error);
+      enqueueSnackbar(error.response?.data?.message || 'Error al guardar cabaña', { variant: 'error' });
     }
   };
 
@@ -248,10 +343,10 @@ const AdminCabanasPage = () => {
     if (!window.confirm('¿Estás seguro de eliminar esta cabaña?')) return;
     try {
       await api.delete(`/cabanas/cabanas/${id}`);
-      enqueueSnackbar('Cabaña eliminada exitosamente', { variant: 'success' });
+      enqueueSnackbar('✅ Cabaña eliminada exitosamente', { variant: 'success' });
       cargarCabanas();
     } catch (error) {
-      enqueueSnackbar('Error al eliminar cabaña', { variant: 'error' });
+      enqueueSnackbar(error.response?.data?.message || 'Error al eliminar cabaña', { variant: 'error' });
     }
   };
 
@@ -305,22 +400,61 @@ const AdminCabanasPage = () => {
     try {
       if (reservaEdit) {
         await api.put(`/cabanas/reservas/${reservaEdit.id}`, formReserva);
-        enqueueSnackbar('Reserva actualizada exitosamente', { variant: 'success' });
+        enqueueSnackbar('✅ Reserva actualizada exitosamente', { variant: 'success' });
       } else {
         await api.post('/cabanas/reservas', formReserva);
-        enqueueSnackbar('Reserva creada exitosamente', { variant: 'success' });
+        enqueueSnackbar('✅ Reserva creada exitosamente', { variant: 'success' });
       }
       handleCloseDialogReserva();
       cargarReservas();
     } catch (error) {
-      enqueueSnackbar('Error al guardar reserva', { variant: 'error' });
+      console.error('Error al guardar reserva:', error);
+      enqueueSnackbar(error.response?.data?.message || 'Error al guardar reserva', { variant: 'error' });
+    }
+  };
+
+  const handleOpenDialogPago = (reserva) => {
+    setReservaParaPago(reserva);
+    setDialogPagoOpen(true);
+  };
+
+  const handleCloseDialogPago = () => {
+    setDialogPagoOpen(false);
+    setReservaParaPago(null);
+  };
+
+  const handleConfirmarPago = async (tipoPago) => {
+    if (!reservaParaPago) return;
+
+    try {
+      const precioFinal = reservaParaPago.precio_final || 0;
+      const montoPagado = tipoPago === 'completo' ? precioFinal : precioFinal / 2;
+      const estadoPago = tipoPago === 'completo' ? 'pagado' : 'parcial';
+
+      await api.put(`/cabanas/reservas/${reservaParaPago.id}`, {
+        estado: 'confirmada',
+        estado_pago: estadoPago,
+        monto_pagado: montoPagado,
+        metodo_pago: 'transferencia',
+        usuario_modificacion: 'admin'
+      });
+
+      const mensaje = tipoPago === 'completo'
+        ? '✅ Pago completo confirmado. Reserva actualizada a CONFIRMADA'
+        : '✅ Pago parcial (50%) confirmado. Reserva actualizada a CONFIRMADA';
+
+      enqueueSnackbar(mensaje, { variant: 'success' });
+      handleCloseDialogPago();
+      cargarReservas();
+    } catch (error) {
+      enqueueSnackbar('Error al confirmar pago', { variant: 'error' });
     }
   };
 
   const handleCheckIn = async (id) => {
     try {
       await api.post(`/cabanas/reservas/${id}/checkin`);
-      enqueueSnackbar('Check-in realizado exitosamente', { variant: 'success' });
+      enqueueSnackbar('✅ Check-in realizado exitosamente', { variant: 'success' });
       cargarReservas();
     } catch (error) {
       enqueueSnackbar('Error al realizar check-in', { variant: 'error' });
@@ -330,7 +464,7 @@ const AdminCabanasPage = () => {
   const handleCheckOut = async (id) => {
     try {
       await api.post(`/cabanas/reservas/${id}/checkout`);
-      enqueueSnackbar('Check-out realizado exitosamente', { variant: 'success' });
+      enqueueSnackbar('✅ Check-out realizado exitosamente', { variant: 'success' });
       cargarReservas();
     } catch (error) {
       enqueueSnackbar('Error al realizar check-out', { variant: 'error' });
@@ -341,7 +475,7 @@ const AdminCabanasPage = () => {
     if (!window.confirm('¿Estás seguro de cancelar esta reserva?')) return;
     try {
       await api.delete(`/cabanas/reservas/${id}/cancelar`);
-      enqueueSnackbar('Reserva cancelada exitosamente', { variant: 'success' });
+      enqueueSnackbar('✅ Reserva cancelada exitosamente', { variant: 'success' });
       cargarReservas();
     } catch (error) {
       enqueueSnackbar('Error al cancelar reserva', { variant: 'error' });
@@ -357,9 +491,22 @@ const AdminCabanasPage = () => {
       });
       setNuevoMensaje('');
       cargarMensajes(conversacionActiva);
-      enqueueSnackbar('Mensaje enviado', { variant: 'success' });
+      enqueueSnackbar('✅ Mensaje enviado', { variant: 'success' });
     } catch (error) {
       enqueueSnackbar('Error al enviar mensaje', { variant: 'error' });
+    }
+  };
+
+  const handleActualizarPreciosTinaja = async (tinajaId, precioAlta, precioBaja) => {
+    try {
+      await api.put(`/cabanas/tinajas/${tinajaId}`, {
+        precio_temporada_alta: precioAlta,
+        precio_temporada_baja: precioBaja
+      });
+      enqueueSnackbar('✅ Precios de tinaja actualizados exitosamente', { variant: 'success' });
+      cargarTinajas();
+    } catch (error) {
+      enqueueSnackbar('Error al actualizar precios de tinaja', { variant: 'error' });
     }
   };
 
@@ -368,7 +515,7 @@ const AdminCabanasPage = () => {
   // ============================================
   const StatsCards = () => {
     const cabanasDisponibles = cabanas.filter(c => c.estado === 'disponible').length;
-    const reservasActivas = reservas.filter(r => r.estado === 'confirmada').length;
+    const reservasActivas = reservas.filter(r => r.estado === 'confirmada' || r.estado === 'en_curso').length;
     const conversacionesPendientes = conversaciones.length;
 
     return (
@@ -678,7 +825,7 @@ const AdminCabanasPage = () => {
   );
 
   // ============================================
-  // RENDER TAB RESERVAS
+  // RENDER TAB RESERVAS - CON CANTIDAD DE TINAJAS
   // ============================================
   const renderTabReservas = () => (
     <Fade in>
@@ -737,7 +884,9 @@ const AdminCabanasPage = () => {
                   <TableCell sx={{ fontWeight: 700 }}>Teléfono</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Fecha Inicio</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Fecha Fin</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Tinajas</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Estado</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Estado Pago</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Precio</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700 }}>Acciones</TableCell>
                 </TableRow>
@@ -769,6 +918,24 @@ const AdminCabanasPage = () => {
                     <TableCell>{new Date(reserva.fecha_inicio).toLocaleDateString('es-CL')}</TableCell>
                     <TableCell>{new Date(reserva.fecha_fin).toLocaleDateString('es-CL')}</TableCell>
                     <TableCell>
+                      {reserva.tiene_tinaja ? (
+                        <Chip
+                          icon={<HotTubIcon />}
+                          label={`${reserva.cantidad_tinajas} Tinaja${reserva.cantidad_tinajas > 1 ? 's' : ''}`}
+                          size="small"
+                          color="info"
+                          sx={{ fontWeight: 600, borderRadius: 2 }}
+                        />
+                      ) : (
+                        <Chip
+                          label="Sin tinajas"
+                          size="small"
+                          variant="outlined"
+                          sx={{ fontWeight: 600, borderRadius: 2 }}
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Chip
                         label={reserva.estado}
                         size="small"
@@ -781,12 +948,39 @@ const AdminCabanasPage = () => {
                       />
                     </TableCell>
                     <TableCell>
+                      <Chip
+                        label={
+                          reserva.estado_pago === 'pagado' ? 'Pagado Completo' :
+                          reserva.estado_pago === 'parcial' ? `Paga la Mitad (${reserva.monto_pagado ? `$${reserva.monto_pagado.toLocaleString('es-CL')}` : '50%'})` :
+                          'Pendiente'
+                        }
+                        size="small"
+                        color={
+                          reserva.estado_pago === 'pagado' ? 'success' :
+                          reserva.estado_pago === 'parcial' ? 'info' :
+                          'warning'
+                        }
+                        sx={{ fontWeight: 600, borderRadius: 2 }}
+                      />
+                    </TableCell>
+                    <TableCell>
                       <Typography variant="body2" fontWeight={600}>
                         ${reserva.precio_final?.toLocaleString('es-CL')}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                        {reserva.estado === 'pendiente' && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            onClick={() => handleOpenDialogPago(reserva)}
+                            sx={{ borderRadius: 2, fontWeight: 700 }}
+                          >
+                            Confirmar Pago
+                          </Button>
+                        )}
                         {reserva.estado === 'confirmada' && !reserva.check_in_realizado && (
                           <Button
                             size="small"
@@ -843,7 +1037,7 @@ const AdminCabanasPage = () => {
   );
 
   // ============================================
-  // RENDER TAB WHATSAPP
+  // RENDER TAB WHATSAPP - MEJORADO Y FUNCIONAL
   // ============================================
   const renderTabWhatsApp = () => (
     <Fade in>
@@ -865,7 +1059,7 @@ const AdminCabanasPage = () => {
             <Box
               sx={{
                 p: 2,
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
                 color: 'white',
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -889,48 +1083,56 @@ const AdminCabanasPage = () => {
               </Tooltip>
             </Box>
             <List sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
-              {Array.isArray(conversaciones) && conversaciones.map((conv, index) => (
-                <ListItem
-                  key={conv.telefono_cliente}
-                  button
-                  selected={conversacionActiva === conv.telefono_cliente}
-                  onClick={() => cargarMensajes(conv.telefono_cliente)}
-                  sx={{
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    '&.Mui-selected': {
-                      bgcolor: alpha('#4facfe', 0.1),
-                      borderLeft: '4px solid #4facfe',
-                    },
-                    '&:hover': {
-                      bgcolor: alpha('#4facfe', 0.05),
-                    }
-                  }}
-                >
-                  <ListItemAvatar>
-                    <Badge
-                      badgeContent={conv.mensajes_no_leidos || 0}
-                      color="error"
-                      sx={{
-                        '& .MuiBadge-badge': {
-                          fontSize: 10,
-                          height: 18,
-                          minWidth: 18,
-                        }
-                      }}
-                    >
-                      <Avatar sx={{ bgcolor: alpha('#4facfe', 0.2) }}>
-                        <PersonIcon />
-                      </Avatar>
-                    </Badge>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={conv.telefono_cliente}
-                    secondary={conv.ultimo_mensaje?.substring(0, 30) + '...' || 'Sin mensajes'}
-                    primaryTypographyProps={{ fontWeight: 600 }}
-                  />
-                </ListItem>
-              ))}
+              {Array.isArray(conversaciones) && conversaciones.length > 0 ? (
+                conversaciones.map((conv, index) => (
+                  <ListItem
+                    key={conv.telefono_cliente || index}
+                    button
+                    selected={conversacionActiva === conv.telefono_cliente}
+                    onClick={() => cargarMensajes(conv.telefono_cliente)}
+                    sx={{
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&.Mui-selected': {
+                        bgcolor: alpha('#25D366', 0.1),
+                        borderLeft: '4px solid #25D366',
+                      },
+                      '&:hover': {
+                        bgcolor: alpha('#25D366', 0.05),
+                      }
+                    }}
+                  >
+                    <ListItemAvatar>
+                      <Badge
+                        badgeContent={conv.mensajes_no_leidos || 0}
+                        color="error"
+                        sx={{
+                          '& .MuiBadge-badge': {
+                            fontSize: 10,
+                            height: 18,
+                            minWidth: 18,
+                          }
+                        }}
+                      >
+                        <Avatar sx={{ bgcolor: alpha('#25D366', 0.2) }}>
+                          <PersonIcon />
+                        </Avatar>
+                      </Badge>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={conv.telefono_cliente}
+                      secondary={conv.ultimo_mensaje?.substring(0, 30) + '...' || 'Sin mensajes'}
+                      primaryTypographyProps={{ fontWeight: 600 }}
+                    />
+                  </ListItem>
+                ))
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', p: 3 }}>
+                  <Typography variant="body2" color="text.secondary" textAlign="center">
+                    No hay conversaciones disponibles
+                  </Typography>
+                </Box>
+              )}
             </List>
           </Paper>
         </Grid>
@@ -954,7 +1156,7 @@ const AdminCabanasPage = () => {
                 <Box
                   sx={{
                     p: 2,
-                    background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
                     color: 'white',
                     display: 'flex',
                     alignItems: 'center',
@@ -969,12 +1171,12 @@ const AdminCabanasPage = () => {
                       {conversacionActiva}
                     </Typography>
                     <Typography variant="caption">
-                      Click para enviar mensaje
+                      WhatsApp - Click para enviar mensaje
                     </Typography>
                   </Box>
                 </Box>
 
-                <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3, bgcolor: '#f5f5f5' }}>
+                <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3, bgcolor: '#e5ddd5' }}>
                   {mensajes.map((mensaje, index) => (
                     <Fade in key={index} timeout={300 + index * 50}>
                       <Box
@@ -985,20 +1187,15 @@ const AdminCabanasPage = () => {
                         }}
                       >
                         <Paper
-                          elevation={0}
+                          elevation={1}
                           sx={{
                             p: 2,
                             maxWidth: '70%',
-                            borderRadius: 3,
+                            borderRadius: 2,
                             bgcolor: mensaje.direccion === 'saliente'
-                              ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+                              ? '#dcf8c6'
                               : 'white',
-                            color: mensaje.direccion === 'saliente' ? 'white' : 'text.primary',
-                            background: mensaje.direccion === 'saliente'
-                              ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-                              : 'white',
-                            border: mensaje.direccion === 'entrante' ? '1px solid' : 'none',
-                            borderColor: 'divider',
+                            color: 'text.primary',
                           }}
                         >
                           <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
@@ -1053,8 +1250,8 @@ const AdminCabanasPage = () => {
                         minWidth: 56,
                         height: 56,
                         borderRadius: 3,
-                        background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                        boxShadow: '0 4px 20px rgba(79, 172, 254, 0.4)',
+                        background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                        boxShadow: '0 4px 20px rgba(37, 211, 102, 0.4)',
                       }}
                     >
                       <SendIcon />
@@ -1073,7 +1270,7 @@ const AdminCabanasPage = () => {
                   gap: 2,
                 }}
               >
-                <ChatIcon sx={{ fontSize: 80, color: 'text.disabled' }} />
+                <WhatsAppIcon sx={{ fontSize: 80, color: '#25D366' }} />
                 <Typography variant="h6" color="text.secondary">
                   Selecciona una conversación para comenzar
                 </Typography>
@@ -1084,6 +1281,208 @@ const AdminCabanasPage = () => {
       </Grid>
     </Fade>
   );
+
+  // ============================================
+  // RENDER TAB CONFIGURACIÓN (PRECIOS DE TINAJAS)
+  // ============================================
+  const renderTabConfiguracion = () => {
+    const [localPrecios, setLocalPrecios] = useState({});
+
+    useEffect(() => {
+      const precios = {};
+      tinajas.forEach(tinaja => {
+        precios[tinaja.id] = {
+          precio_temporada_alta: tinaja.precio_temporada_alta,
+          precio_temporada_baja: tinaja.precio_temporada_baja
+        };
+      });
+      setLocalPrecios(precios);
+    }, [tinajas]);
+
+    const handlePrecioChange = (tinajaId, temporada, valor) => {
+      setLocalPrecios(prev => ({
+        ...prev,
+        [tinajaId]: {
+          ...prev[tinajaId],
+          [temporada]: parseFloat(valor) || 0
+        }
+      }));
+    };
+
+    const handleGuardarPrecios = (tinajaId) => {
+      const precios = localPrecios[tinajaId];
+      if (precios) {
+        handleActualizarPreciosTinaja(
+          tinajaId,
+          precios.precio_temporada_alta,
+          precios.precio_temporada_baja
+        );
+      }
+    };
+
+    return (
+      <Fade in>
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+            <Box>
+              <Typography variant="h4" fontWeight={700} gutterBottom>
+                Configuración de Precios
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Administra los precios de tinajas para temporada alta y baja
+              </Typography>
+            </Box>
+            <Tooltip title="Actualizar">
+              <IconButton
+                color="primary"
+                onClick={cargarTinajas}
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'primary.main',
+                  borderRadius: 2,
+                }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {loadingTinajas ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
+              <CircularProgress size={60} thickness={4} />
+            </Box>
+          ) : (
+            <Grid container spacing={3}>
+              {Array.isArray(tinajas) && tinajas.map((tinaja, index) => (
+                <Grid item xs={12} md={6} key={tinaja.id}>
+                  <Grow in timeout={300 + index * 100}>
+                    <Card
+                      elevation={0}
+                      sx={{
+                        borderRadius: 4,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          boxShadow: '0 12px 40px rgba(0,0,0,0.12)',
+                          transform: 'translateY(-4px)',
+                        }
+                      }}
+                    >
+                      <CardContent sx={{ p: 3 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Avatar
+                              sx={{
+                                bgcolor: alpha('#00bcd4', 0.1),
+                                color: '#00bcd4',
+                                width: 56,
+                                height: 56,
+                              }}
+                            >
+                              <HotTubIcon sx={{ fontSize: 32 }} />
+                            </Avatar>
+                            <Box>
+                              <Typography variant="h5" fontWeight={700}>
+                                {tinaja.nombre}
+                              </Typography>
+                              <Chip
+                                label={`Tinaja ${tinaja.numero}`}
+                                size="small"
+                                color="info"
+                                sx={{ fontWeight: 600, borderRadius: 2, mt: 0.5 }}
+                              />
+                            </Box>
+                          </Box>
+                        </Box>
+
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                          {tinaja.descripcion || 'Sin descripción'}
+                        </Typography>
+
+                        <Divider sx={{ my: 2 }} />
+
+                        <Grid container spacing={2}>
+                          <Grid item xs={12}>
+                            <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <MoneyIcon fontSize="small" color="error" />
+                              Precio Temporada Alta (Dic-Feb)
+                            </Typography>
+                            <TextField
+                              fullWidth
+                              type="number"
+                              value={localPrecios[tinaja.id]?.precio_temporada_alta || tinaja.precio_temporada_alta}
+                              onChange={(e) => handlePrecioChange(tinaja.id, 'precio_temporada_alta', e.target.value)}
+                              InputProps={{
+                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                              }}
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: 2,
+                                }
+                              }}
+                            />
+                          </Grid>
+
+                          <Grid item xs={12}>
+                            <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <MoneyIcon fontSize="small" color="primary" />
+                              Precio Temporada Baja (Mar-Nov)
+                            </Typography>
+                            <TextField
+                              fullWidth
+                              type="number"
+                              value={localPrecios[tinaja.id]?.precio_temporada_baja || tinaja.precio_temporada_baja}
+                              onChange={(e) => handlePrecioChange(tinaja.id, 'precio_temporada_baja', e.target.value)}
+                              InputProps={{
+                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                              }}
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: 2,
+                                }
+                              }}
+                            />
+                          </Grid>
+                        </Grid>
+                      </CardContent>
+
+                      <CardActions sx={{ px: 3, pb: 3, pt: 0 }}>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          startIcon={<CheckCircleIcon />}
+                          onClick={() => handleGuardarPrecios(tinaja.id)}
+                          disabled={
+                            !localPrecios[tinaja.id] ||
+                            (localPrecios[tinaja.id]?.precio_temporada_alta === tinaja.precio_temporada_alta &&
+                             localPrecios[tinaja.id]?.precio_temporada_baja === tinaja.precio_temporada_baja)
+                          }
+                          sx={{
+                            borderRadius: 2,
+                            fontWeight: 700,
+                            background: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
+                            '&:hover': {
+                              boxShadow: '0 6px 25px rgba(0, 188, 212, 0.4)',
+                            },
+                            '&:disabled': {
+                              background: 'rgba(0,0,0,0.12)',
+                            }
+                          }}
+                        >
+                          Guardar Cambios
+                        </Button>
+                      </CardActions>
+                    </Card>
+                  </Grow>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+      </Fade>
+    );
+  };
 
   // ============================================
   // RENDER PRINCIPAL
@@ -1178,6 +1577,11 @@ const AdminCabanasPage = () => {
             label="WhatsApp"
             iconPosition="start"
           />
+          <Tab
+            icon={<SettingsIcon />}
+            label="Configuración"
+            iconPosition="start"
+          />
         </Tabs>
       </Paper>
 
@@ -1186,9 +1590,19 @@ const AdminCabanasPage = () => {
         {tabValue === 0 && renderTabCabanas()}
         {tabValue === 1 && renderTabReservas()}
         {tabValue === 2 && renderTabWhatsApp()}
+        {tabValue === 3 && renderTabConfiguracion()}
       </Box>
 
-      {/* Diálogo de Cabaña */}
+      {/* Input oculto para seleccionar archivos */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept="image/*"
+        onChange={handleFileSelect}
+      />
+
+      {/* Diálogo de Cabaña - CON BOTÓN DE SUBIR IMÁGENES */}
       <Dialog
         open={dialogCabanaOpen}
         onClose={handleCloseDialogCabana}
@@ -1333,6 +1747,67 @@ const AdminCabanasPage = () => {
                 }}
               />
             </Grid>
+
+            {/* Sección de Gestión de Fotos - CON BOTÓN DE SUBIR */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ImageIcon /> Gestión de Imágenes
+              </Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Sube imágenes desde tu dispositivo
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<UploadIcon />}
+                onClick={() => fileInputRef.current?.click()}
+                sx={{
+                  borderRadius: 2,
+                  py: 1.5,
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                }}
+              >
+                Subir Imagen
+              </Button>
+            </Grid>
+
+            {/* Galería de imágenes */}
+            {formCabana.imagenes && formCabana.imagenes.length > 0 && (
+              <Grid item xs={12}>
+                <Paper elevation={0} sx={{ p: 2, bgcolor: alpha('#667eea', 0.05), borderRadius: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    Imágenes agregadas ({formCabana.imagenes.length})
+                  </Typography>
+                  <ImageList sx={{ mt: 2 }} cols={3} rowHeight={164}>
+                    {formCabana.imagenes.map((img, index) => (
+                      <ImageListItem key={index}>
+                        <img
+                          src={img}
+                          alt={`Imagen ${index + 1}`}
+                          loading="lazy"
+                          style={{ height: '100%', objectFit: 'cover' }}
+                        />
+                        <ImageListItemBar
+                          title={`Imagen ${index + 1}`}
+                          actionIcon={
+                            <IconButton
+                              sx={{ color: 'rgba(255, 255, 255, 0.9)' }}
+                              onClick={() => handleEliminarFoto(index)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          }
+                        />
+                      </ImageListItem>
+                    ))}
+                  </ImageList>
+                </Paper>
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
@@ -1385,7 +1860,7 @@ const AdminCabanasPage = () => {
                 required
               >
                 <option value="">Seleccionar cabaña</option>
-                {cabanas.filter(c => c.estado === 'disponible').map(c => (
+                {cabanas.map(c => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </TextField>
@@ -1533,6 +2008,127 @@ const AdminCabanasPage = () => {
             }}
           >
             Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de Confirmación de Pago */}
+      <Dialog
+        open={dialogPagoOpen}
+        onClose={handleCloseDialogPago}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+          }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: alpha('#4caf50', 0.05), fontWeight: 700 }}>
+          Confirmar Pago de Reserva
+        </DialogTitle>
+        <DialogContent sx={{ mt: 3 }}>
+          {reservaParaPago && (
+            <Box>
+              <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  Reserva #{reservaParaPago.id} - {reservaParaPago.nombre_cabana}
+                </Typography>
+                <Typography variant="body2">
+                  Cliente: {reservaParaPago.cliente_nombre} {reservaParaPago.cliente_apellido}
+                </Typography>
+                <Typography variant="body2">
+                  Precio Total: ${reservaParaPago.precio_final?.toLocaleString('es-CL')}
+                </Typography>
+              </Alert>
+
+              <Typography variant="h6" fontWeight={700} gutterBottom sx={{ mb: 2 }}>
+                Selecciona el tipo de pago:
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    color="success"
+                    size="large"
+                    onClick={() => handleConfirmarPago('completo')}
+                    sx={{
+                      py: 2,
+                      borderRadius: 3,
+                      fontWeight: 700,
+                      fontSize: '1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                      background: 'linear-gradient(135deg, #4caf50 0%, #45a049 100%)',
+                      boxShadow: '0 4px 20px rgba(76, 175, 80, 0.4)',
+                      '&:hover': {
+                        boxShadow: '0 6px 25px rgba(76, 175, 80, 0.6)',
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <MoneyIcon sx={{ fontSize: 40 }} />
+                    <Box>
+                      <Typography variant="button" fontWeight={700}>
+                        Pagado Completo
+                      </Typography>
+                      <Typography variant="caption" display="block">
+                        ${reservaParaPago.precio_final?.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+                  </Button>
+                </Grid>
+
+                <Grid item xs={12} sm={6}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    color="info"
+                    size="large"
+                    onClick={() => handleConfirmarPago('mitad')}
+                    sx={{
+                      py: 2,
+                      borderRadius: 3,
+                      fontWeight: 700,
+                      fontSize: '1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                      background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+                      boxShadow: '0 4px 20px rgba(33, 150, 243, 0.4)',
+                      '&:hover': {
+                        boxShadow: '0 6px 25px rgba(33, 150, 243, 0.6)',
+                        transform: 'translateY(-2px)',
+                      },
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <MoneyIcon sx={{ fontSize: 40 }} />
+                    <Box>
+                      <Typography variant="button" fontWeight={700}>
+                        Paga la Mitad
+                      </Typography>
+                      <Typography variant="caption" display="block">
+                        ${((reservaParaPago.precio_final || 0) / 2).toLocaleString('es-CL')} (50%)
+                      </Typography>
+                    </Box>
+                  </Button>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button
+            onClick={handleCloseDialogPago}
+            variant="outlined"
+            sx={{ borderRadius: 2 }}
+          >
+            Cancelar
           </Button>
         </DialogActions>
       </Dialog>

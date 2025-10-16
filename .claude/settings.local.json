@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(dir:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npx svgo:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []

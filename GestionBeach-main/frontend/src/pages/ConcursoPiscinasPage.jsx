@@ -45,13 +45,20 @@ import { useSnackbar } from 'notistack';
 import { keyframes } from '@mui/system';
 import api from '../api/api';
 import fondoImage from '../images/aqua.png';
-import fondoIntro from '../images/fondo.jpg';
+import logoIntro from '../images/logo.jpg';
 import estrellaIcon from '../images/estrella.png';
+import piscinaImg from '../images/piscina.jpg';
+import piscina2Img from '../images/piscina2.png';
 
 // Animaciones profesionales
 const float = keyframes`
   0%, 100% { transform: translateY(-50%) translateX(0px) rotate(0deg); }
   50% { transform: translateY(-50%) translateX(-10px) rotate(-2deg); }
+`;
+
+const float2 = keyframes`
+  0%, 100% { transform: translateY(-50%) translateX(0px) rotate(0deg); }
+  50% { transform: translateY(-50%) translateX(10px) rotate(2deg); }
 `;
 
 const pulse = keyframes`
@@ -143,6 +150,46 @@ const fallFromSky = keyframes`
   }
 `;
 
+const logoFall = keyframes`
+  0% {
+    transform: translateY(-800px) scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: translateY(30px) scale(1.05);
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-20px) scale(0.95);
+  }
+  85% {
+    transform: translateY(10px) scale(1.02);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+`;
+
+const fadeInOut = keyframes`
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  10% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+`;
+
 const splash = keyframes`
   0% {
     transform: scale(0) translateY(0);
@@ -229,6 +276,39 @@ const ConcursoPiscinasPage = () => {
     return `${cuerpoFormateado}-${dv}`;
   };
 
+  // Validar dígito verificador de RUT chileno
+  const validarRUT = (rutCompleto) => {
+    if (!rutCompleto) return false;
+
+    // Limpiar RUT
+    const rutLimpio = rutCompleto.replace(/\./g, '').replace(/-/g, '');
+    if (rutLimpio.length < 2) return false;
+
+    const cuerpo = rutLimpio.slice(0, -1);
+    const dv = rutLimpio.slice(-1).toUpperCase();
+
+    // Validar que el cuerpo sean solo números
+    if (!/^\d+$/.test(cuerpo)) return false;
+
+    // Calcular dígito verificador
+    let suma = 0;
+    let multiplicador = 2;
+
+    for (let i = cuerpo.length - 1; i >= 0; i--) {
+      suma += parseInt(cuerpo[i]) * multiplicador;
+      multiplicador = multiplicador === 7 ? 2 : multiplicador + 1;
+    }
+
+    const dvEsperado = 11 - (suma % 11);
+    let dvCalculado;
+
+    if (dvEsperado === 11) dvCalculado = '0';
+    else if (dvEsperado === 10) dvCalculado = 'K';
+    else dvCalculado = dvEsperado.toString();
+
+    return dv === dvCalculado;
+  };
+
   // Manejar cambio de RUT con formateo
   const handleRutChange = (e) => {
     const value = e.target.value;
@@ -261,11 +341,15 @@ const ConcursoPiscinasPage = () => {
 
   // Efecto para ocultar la intro después de la animación
   React.useEffect(() => {
-    const timer = setTimeout(() => {
+    const introTimer = setTimeout(() => {
       setShowIntro(false);
-    }, 2500); // 2.5 segundos para la animación de intro
-    return () => clearTimeout(timer);
+    }, 2000); // 2 segundos para la animación del logo
+
+    return () => {
+      clearTimeout(introTimer);
+    };
   }, []);
+
 
 
   // Actualizar step automáticamente
@@ -314,18 +398,33 @@ const ConcursoPiscinasPage = () => {
 
   // Validar formulario
   const validarFormulario = () => {
+    // Validar nombre (solo letras y espacios)
     if (!nombres.trim()) {
       enqueueSnackbar('Por favor ingresa tu nombre', { variant: 'warning' });
       return false;
     }
+    if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(nombres)) {
+      enqueueSnackbar('El nombre solo puede contener letras', { variant: 'warning' });
+      return false;
+    }
 
+    // Validar apellidos (solo letras y espacios)
     if (!apellidos.trim()) {
       enqueueSnackbar('Por favor ingresa tus apellidos', { variant: 'warning' });
       return false;
     }
+    if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(apellidos)) {
+      enqueueSnackbar('Los apellidos solo pueden contener letras', { variant: 'warning' });
+      return false;
+    }
 
+    // Validar RUT con dígito verificador
     if (!rut.trim()) {
       enqueueSnackbar('Por favor ingresa tu RUT', { variant: 'warning' });
+      return false;
+    }
+    if (!validarRUT(rut)) {
+      enqueueSnackbar('RUT inválido. Verifica el dígito verificador', { variant: 'error' });
       return false;
     }
 
@@ -455,7 +554,7 @@ const ConcursoPiscinasPage = () => {
 
   return (
     <>
-      {/* Pantalla de intro con imagen de fondo */}
+      {/* Pantalla de intro con logo cayendo */}
       {showIntro && (
         <Box
           sx={{
@@ -469,110 +568,27 @@ const ConcursoPiscinasPage = () => {
             alignItems: 'center',
             justifyContent: 'center',
             background: 'linear-gradient(135deg, #E3F9FF 0%, #B3E5FC 25%, #81D4FA 50%, #4FC3F7 75%, #29B6F6 100%)',
-            animation: `${zoomIntro} 2.5s ease-out forwards`,
-            overflow: 'visible',
-            '&::before': {
-              content: '""',
-              position: 'absolute',
-              top: 0,
-              left: '-100%',
-              width: '200%',
-              height: '100%',
-              background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
-              animation: `${shimmerIntro} 2s infinite`,
-              zIndex: 2,
-            },
+            overflow: 'hidden',
           }}
         >
-          {/* Gotas de agua cayendo - Optimizado */}
-          {[...Array(8)].map((_, i) => {
-            const randomLeft = Math.random() * 100;
-            const randomDelay = Math.random() * 2;
-            const randomDuration = 1.5 + Math.random() * 1.5;
-
-            return (
-              <Box
-                key={`drop-${i}`}
-                sx={{
-                  position: 'absolute',
-                  left: `${randomLeft}%`,
-                  top: `-50px`,
-                  width: `${14 + Math.random() * 18}px`,
-                  height: `${24 + Math.random() * 32}px`,
-                  background: 'radial-gradient(ellipse, rgba(255, 255, 255, 0.9) 0%, rgba(0, 212, 255, 0.6) 100%)',
-                  borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%',
-                  animation: `${waterDrop} ${randomDuration}s ease-in infinite`,
-                  animationDelay: `${randomDelay}s`,
-                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
-                  zIndex: 3,
-                }}
-              />
-            );
-          })}
-
-          {/* Splash PNG de agua - Más ligero */}
-          {[...Array(6)].map((_, i) => {
-            const randomTop = 20 + Math.random() * 60;
-            const randomLeft = 10 + Math.random() * 80;
-            const randomDelay = i * 0.3;
-            const randomSize = 80 + Math.random() * 60;
-
-            return (
-              <Box
-                key={`splash-${i}`}
-                sx={{
-                  position: 'absolute',
-                  left: `${randomLeft}%`,
-                  top: `${randomTop}%`,
-                  width: `${randomSize}px`,
-                  height: `${randomSize}px`,
-                  opacity: 0,
-                  animation: `${waterSplash} 2s ease-out infinite`,
-                  animationDelay: `${randomDelay}s`,
-                  zIndex: 1,
-                  fontSize: `${randomSize}px`,
-                }}
-              >
-                💧
-              </Box>
-            );
-          })}
-
           <Box
             sx={{
-              position: 'relative',
-              maxWidth: { xs: '90%', md: '70%', lg: '60%' },
-              maxHeight: '80vh',
+              background: 'white',
+              borderRadius: 6,
               padding: 4,
-              background: 'linear-gradient(135deg, #00D4FF 0%, #0099CC 50%, #0077AA 100%)',
-              borderRadius: 4,
-              boxShadow: '0 20px 80px rgba(0, 0, 0, 0.3)',
-              animation: `${zoomIntro} 2.5s ease-out forwards`,
-              overflow: 'hidden',
-              zIndex: 5,
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: '-100%',
-                width: '200%',
-                height: '100%',
-                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent)',
-                animation: `${shimmerIntro} 1.5s ease-in-out infinite`,
-                zIndex: 10,
-              },
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.2)',
+              animation: `${logoFall} 1.8s ease-out forwards`,
             }}
           >
             <Box
               component="img"
-              src={fondoIntro}
-              alt="Intro"
+              src={logoIntro}
+              alt="Logo"
               sx={{
-                width: '100%',
-                height: '100%',
+                maxWidth: { xs: '60vw', md: '40vw', lg: '30vw' },
+                maxHeight: '50vh',
                 objectFit: 'contain',
-                position: 'relative',
-                zIndex: 0,
+                display: 'block',
               }}
             />
           </Box>
@@ -636,27 +652,54 @@ const ConcursoPiscinasPage = () => {
         />
       ))}
 
-      {/* Imagen de fondo - Más pequeña y con bordes redondeados */}
+      {/* Imágenes de piscina - Solo visible en desktop */}
       <Box
-        component="img"
-        src={fondoImage}
-        alt="Piscina"
         sx={{
-          position: 'fixed',
-          right: { xs: 10, sm: 20, md: 40 },
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: { xs: '180px', sm: '220px', md: '280px', lg: '320px' },
-          height: 'auto',
-          opacity: 0.95,
-          zIndex: 1,
-          animation: `${float} 8s ease-in-out infinite`,
-          pointerEvents: 'none',
-          borderRadius: '24px',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
-          border: '4px solid white',
+          display: { xs: 'none', md: 'block' },
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={piscinaImg}
+          alt="Piscina 1"
+          sx={{
+            position: 'fixed',
+            right: { md: 40 },
+            top: '35%',
+            transform: 'translateY(-50%)',
+            width: { md: '250px', lg: '280px' },
+            height: 'auto',
+            opacity: 0.95,
+            zIndex: 1,
+            animation: `${float} 8s ease-in-out infinite`,
+            pointerEvents: 'none',
+            borderRadius: '24px',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
+            border: '4px solid white',
+          }}
+        />
+
+        <Box
+          component="img"
+          src={piscina2Img}
+          alt="Piscina 2"
+          sx={{
+            position: 'fixed',
+            right: { md: 40 },
+            top: '65%',
+            transform: 'translateY(-50%)',
+            width: { md: '250px', lg: '280px' },
+            height: 'auto',
+            opacity: 0.95,
+            zIndex: 1,
+            animation: `${float2} 7s ease-in-out infinite`,
+            pointerEvents: 'none',
+            borderRadius: '24px',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
+            border: '4px solid white',
+          }}
+        />
+      </Box>
 
       <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 2 }}>
         {/* Header profesional */}
@@ -1655,63 +1698,54 @@ const ConcursoPiscinasPage = () => {
                       />
                     </Avatar>
                     <Typography variant="h6" sx={{ fontWeight: 800, color: '#FF6B35', fontSize: '1.1rem' }}>
-                      PREMIOS
+                      PREMIO
                     </Typography>
                   </Box>
 
                   <List sx={{ pt: 0 }}>
-                    {[
-                      { pos: '1°', title: 'Gran Premio', desc: 'Piscina completa + accesorios', color: '#FFD700', bg: '#FFFBEA' },
-                      { pos: '2°', title: 'Segundo Premio', desc: 'Kit de mantenimiento', color: '#00D4FF', bg: '#F0FBFF' },
-                      { pos: '3°', title: 'Tercer Premio', desc: 'Productos para piscina', color: '#4CAF50', bg: '#E8F5E9' },
-                    ].map((premio, index) => (
-                      <React.Fragment key={index}>
-                        <ListItem
+                    <ListItem
+                      sx={{
+                        borderRadius: 2,
+                        mb: 1,
+                        bgcolor: '#FFFBEA',
+                        transition: 'all 0.3s ease',
+                        border: '2px solid #FFD70020',
+                        py: 1,
+                        '&:hover': {
+                          transform: 'translateX(4px)',
+                          boxShadow: '0 2px 8px #FFD70040',
+                        }
+                      }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar
                           sx={{
-                            borderRadius: 2,
-                            mb: 1,
-                            bgcolor: premio.bg,
-                            transition: 'all 0.3s ease',
-                            border: `2px solid ${premio.color}20`,
-                            py: 0.5,
-                            '&:hover': {
-                              transform: 'translateX(4px)',
-                              boxShadow: `0 2px 8px ${premio.color}40`,
-                            }
+                            bgcolor: '#FFD700',
+                            fontWeight: 800,
+                            width: 35,
+                            height: 35,
+                            fontSize: '0.9rem',
+                            boxShadow: '0 2px 8px #FFD70060',
                           }}
                         >
-                          <ListItemAvatar>
-                            <Avatar
-                              sx={{
-                                bgcolor: premio.color,
-                                fontWeight: 800,
-                                width: 35,
-                                height: 35,
-                                fontSize: '0.9rem',
-                                boxShadow: `0 2px 8px ${premio.color}60`,
-                              }}
-                            >
-                              {premio.pos}
-                            </Avatar>
-                          </ListItemAvatar>
-                          <ListItemText
-                            primary={premio.title}
-                            secondary={premio.desc}
-                            primaryTypographyProps={{
-                              fontWeight: 800,
-                              color: '#333',
-                              fontSize: '0.85rem',
-                            }}
-                            secondaryTypographyProps={{
-                              color: '#666',
-                              fontWeight: 500,
-                              fontSize: '0.75rem',
-                            }}
-                          />
-                        </ListItem>
-                        {index < 2 && <Divider sx={{ my: 0.5 }} />}
-                      </React.Fragment>
-                    ))}
+                          🏆
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary="Gran Premio"
+                        secondary="Piscina bestway power steel 640 x 274 x 132 cm"
+                        primaryTypographyProps={{
+                          fontWeight: 800,
+                          color: '#333',
+                          fontSize: '0.95rem',
+                        }}
+                        secondaryTypographyProps={{
+                          color: '#666',
+                          fontWeight: 600,
+                          fontSize: '0.8rem',
+                        }}
+                      />
+                    </ListItem>
                   </List>
                 </CardContent>
               </Card>
@@ -1810,6 +1844,47 @@ const ConcursoPiscinasPage = () => {
             </Zoom>
           </Grid>
         </Grid>
+
+        {/* Imágenes de piscina - Solo visible en móvil, al final del contenido */}
+        <Box
+          sx={{
+            display: { xs: 'flex', md: 'none' },
+            gap: 2,
+            mt: 4,
+            justifyContent: 'center',
+            flexWrap: 'nowrap',
+            overflow: 'visible',
+          }}
+        >
+          <Box
+            component="img"
+            src={piscinaImg}
+            alt="Piscina 1"
+            sx={{
+              width: { xs: '48%', sm: '40%' },
+              maxWidth: '250px',
+              height: 'auto',
+              borderRadius: '24px',
+              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+              border: '3px solid white',
+              animation: `${float} 8s ease-in-out infinite`,
+            }}
+          />
+          <Box
+            component="img"
+            src={piscina2Img}
+            alt="Piscina 2"
+            sx={{
+              width: { xs: '48%', sm: '40%' },
+              maxWidth: '250px',
+              height: 'auto',
+              borderRadius: '24px',
+              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+              border: '3px solid white',
+              animation: `${float2} 7s ease-in-out infinite`,
+            }}
+          />
+        </Box>
       </Container>
     </Box>
     </>
