@@ -8,7 +8,10 @@
       "Bash(ls:*)",
       "Bash(wc:*)",
       "Bash(npm install:*)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(for dir in */)",
+      "Bash(do echo \"\"\"$dir%/\"\": [\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

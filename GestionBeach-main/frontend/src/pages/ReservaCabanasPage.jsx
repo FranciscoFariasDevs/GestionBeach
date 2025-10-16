@@ -71,6 +71,8 @@ const COLORES_CABANAS = {
   'path8': '#FF9A56',
   'departamentoa': '#FF5722',
   'departamentob': '#FF7043',
+  'departamentoA': '#FF5722',  // Con mayúscula también
+  'departamentoB': '#FF7043',  // Con mayúscula también
 };
 
 // Mapeo de IDs del SVG a nombres de carpetas de imágenes
@@ -85,6 +87,8 @@ const ID_TO_FOLDER = {
   'path8': 'Cabaña 8',
   'departamentoa': 'Departamento A',
   'departamentob': 'Departamento B',
+  'departamentoA': 'Departamento A',  // Con mayúscula también
+  'departamentoB': 'Departamento B',  // Con mayúscula también
 };
 
 // Mapeo de IDs del SVG a nombres de cabañas para mostrar
@@ -99,6 +103,8 @@ const ID_TO_NOMBRE = {
   'path8': 'Cabaña 8',
   'departamentoa': 'Departamento A',
   'departamentob': 'Departamento B',
+  'departamentoA': 'Departamento A',  // Con mayúscula también
+  'departamentoB': 'Departamento B',  // Con mayúscula también
 };
 
 const ReservaCabanasPage = () => {
@@ -149,8 +155,8 @@ const ReservaCabanasPage = () => {
     'path6',
     'path7',
     'path8',
-    'departamentoA',
-    'departamentoB'
+    'departamentoA',  // ⚠️ MAYÚSCULA A
+    'departamentoB'   // ⚠️ MAYÚSCULA B
   ];
 
   const steps = [
@@ -271,51 +277,21 @@ const ReservaCabanasPage = () => {
 
       console.log(`🖼️ Cargando imágenes para: ${nombreCarpeta}`);
 
-      const imagenes = [];
+      // 🎯 Cargar el manifest de imágenes (generado con el script)
+      const response = await fetch('/images-manifest.json');
 
-      // 🎯 Lista OPTIMIZADA - solo patrones comunes
-      const patronesNombres = [
-        // WhatsApp Images - patrones comunes
-        'WhatsApp Image 2025-10-07 at 3.11.05 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.11.05 PM (2)',
-        'WhatsApp Image 2025-10-07 at 3.11.05 PM',
-        'WhatsApp Image 2025-10-07 at 3.11.06 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.11.06 PM',
-        'WhatsApp Image 2025-10-07 at 3.11.07 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.11.07 PM (2)',
-        'WhatsApp Image 2025-10-07 at 3.11.07 PM',
-        'WhatsApp Image 2025-10-07 at 3.11.08 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.11.08 PM (2)',
-        'WhatsApp Image 2025-10-07 at 3.11.08 PM',
-        'WhatsApp Image 2025-10-07 at 3.16.06 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.16.06 PM',
-        'WhatsApp Image 2025-10-07 at 3.16.07 PM (1)',
-        'WhatsApp Image 2025-10-07 at 3.16.07 PM',
-        // Solo 10 números simples
-        ...Array.from({length: 10}, (_, i) => `${i + 1}`),
-      ];
-
-      const extensiones = ['jpeg', 'jpg'];  // Solo las más comunes
-
-      // Crear promesas para verificar en paralelo
-      const promesas = [];
-      for (const nombreArchivo of patronesNombres) {
-        for (const ext of extensiones) {
-          const pathEncoded = encodeURI(`/images/${nombreCarpeta}/${nombreArchivo}.${ext}`);
-          promesas.push(
-            fetch(pathEncoded, { method: 'HEAD' })
-              .then(response => response.ok ? pathEncoded : null)
-              .catch(() => null)
-          );
-        }
+      if (!response.ok) {
+        console.error('❌ No se pudo cargar images-manifest.json');
+        return [];
       }
 
-      // Ejecutar todas las verificaciones en paralelo
-      const resultados = await Promise.all(promesas);
-      const imagenesEncontradas = resultados.filter(img => img !== null);
+      const manifest = await response.json();
+      const imagenes = manifest[nombreCarpeta] || [];
 
-      console.log(`📸 Total de imágenes cargadas para ${nombreCarpeta}:`, imagenesEncontradas.length);
-      return imagenesEncontradas;
+      console.log(`📸 Imágenes cargadas para ${nombreCarpeta}:`, imagenes.length);
+      console.log('   Imágenes:', imagenes);
+
+      return imagenes;
     } catch (error) {
       console.error('Error al cargar imágenes:', error);
       return [];
@@ -452,8 +428,16 @@ const ReservaCabanasPage = () => {
     console.log('🎨 === APLICANDO COLORES ===');
     console.log('🎯 IDs que estamos buscando:', cabanaIds);
 
+    // 🔥 Obtener el elemento SVG del contenedor
+    const svgElement = svgContainerRef.current?.querySelector('svg');
+    if (!svgElement) {
+      console.error('❌ No se encontró elemento SVG en el contenedor');
+      return;
+    }
+
     cabanaIds.forEach(id => {
-      const elemento = document.getElementById(id);
+      // 🎯 Buscar usando querySelector en el contexto del SVG
+      const elemento = svgElement.querySelector(`#${id}`);
 
       if (elemento) {
         const { color } = obtenerEstadoCabana(id);
@@ -482,14 +466,22 @@ const ReservaCabanasPage = () => {
 
   const configurarEventos = () => {
     console.log('🖱️ Configurando eventos click...');
-    
+
+    // 🔥 Obtener el elemento SVG del contenedor
+    const svgElement = svgContainerRef.current?.querySelector('svg');
+    if (!svgElement) {
+      console.error('❌ No se encontró elemento SVG en el contenedor');
+      return;
+    }
+
     cabanaIds.forEach(id => {
-      const elemento = document.getElementById(id);
+      // 🎯 Buscar usando querySelector en el contexto del SVG
+      const elemento = svgElement.querySelector(`#${id}`);
 
       if (elemento) {
         console.log(`✅ Click configurado para: "${id}"`);
         elemento.style.cursor = 'pointer';
-        
+
         // Agregar atributo para debugging
         elemento.setAttribute('data-clickeable', 'true');
         elemento.setAttribute('data-cabana-id', id);
@@ -497,9 +489,9 @@ const ReservaCabanasPage = () => {
         elemento.addEventListener('click', async (e) => {
           console.log(`🖱️ CLICK detectado en: "${id}"`);
           e.stopPropagation();
-          
+
           const { cabana, nombreCabana } = obtenerEstadoCabana(id);
-          
+
           // Crear objeto de cabaña temporal si no existe en BD
           const cabanaData = cabana || {
             id: id,
@@ -509,7 +501,7 @@ const ReservaCabanasPage = () => {
             precio_fin_semana: 70000,
             descripcion: 'Cabaña acogedora en entorno natural'
           };
-          
+
           console.log('📦 Cabaña:', cabanaData);
           setSelectedCabana(cabanaData);
 
