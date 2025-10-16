@@ -61,16 +61,44 @@ import api from '../api/api';
 
 // Colores ÚNICOS para cada cabaña (tonos naranjas/cálidos diferentes)
 const COLORES_CABANAS = {
-  'cabaña1': '#FF6B35',
-  'cabaña2': '#FF8C42',
-  'cabaña3': '#FFA351',
-  'cabaña4': '#FFB961',
-  'cabaña5': '#FFCF70',
-  'cabaña6': '#FF7E5F',
-  'cabaña7': '#FEB47B',
-  'cabaña8': '#FF9A56',
-  'departamentoA': '#FF5722',
-  'departamentoB': '#FF7043',
+  'path1': '#FF6B35',
+  'path2': '#FF8C42',
+  'path3': '#FFA351',
+  'path4': '#FFB961',
+  'path5': '#FFCF70',
+  'path6': '#FF7E5F',
+  'path7': '#FEB47B',
+  'path8': '#FF9A56',
+  'departamentoa': '#FF5722',
+  'departamentob': '#FF7043',
+};
+
+// Mapeo de IDs del SVG a nombres de carpetas de imágenes
+const ID_TO_FOLDER = {
+  'path1': 'Cabaña 1',
+  'path2': 'Cabaña 2',
+  'path3': 'Cabaña 3',
+  'path4': 'Cabaña 4',
+  'path5': 'Cabaña 5',
+  'path6': 'Cabaña 6',
+  'path7': 'Cabaña 7',
+  'path8': 'Cabaña 8',
+  'departamentoa': 'Departamento A',
+  'departamentob': 'Departamento B',
+};
+
+// Mapeo de IDs del SVG a nombres de cabañas para mostrar
+const ID_TO_NOMBRE = {
+  'path1': 'Cabaña 1',
+  'path2': 'Cabaña 2',
+  'path3': 'Cabaña 3',
+  'path4': 'Cabaña 4',
+  'path5': 'Cabaña 5',
+  'path6': 'Cabaña 6',
+  'path7': 'Cabaña 7',
+  'path8': 'Cabaña 8',
+  'departamentoa': 'Departamento A',
+  'departamentob': 'Departamento B',
 };
 
 const ReservaCabanasPage = () => {
@@ -111,16 +139,16 @@ const ReservaCabanasPage = () => {
   // Estado para carousel de imágenes
   const [carouselImages, setCarouselImages] = useState([]);
 
-  // IDs de las cabañas en el SVG (CORREGIDOS - encontrados en CABANAS-clickable.svg)
+  // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
-    'cabaña1',
-    'cabaña2',
-    'cabaña3',
-    'cabaña4',
-    'cabaña5',
-    'cabaña6',
-    'cabaña7',
-    'cabaña8',
+    'path1',
+    'path2',
+    'path3',
+    'path4',
+    'path5',
+    'path6',
+    'path7',
+    'path8',
     'departamentoA',
     'departamentoB'
   ];
@@ -133,6 +161,19 @@ const ReservaCabanasPage = () => {
   ];
 
   const WHATSAPP_NUMBER = '+56942652034';
+
+  // ============================================
+  // FUNCIÓN PARA NORMALIZAR NOMBRES
+  // ============================================
+
+  const normalizarNombre = (nombre) => {
+    if (!nombre) return '';
+    return nombre
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Eliminar acentos
+      .replace(/\s+/g, ''); // Eliminar espacios
+  };
 
   // ============================================
   // FUNCIONES AUXILIARES PARA MANEJO DE FECHAS
@@ -218,34 +259,63 @@ const ReservaCabanasPage = () => {
   // FUNCIÓN PARA CARGAR IMÁGENES DESDE CARPETAS
   // ============================================
 
-  const cargarImagenesCabana = async (nombreCabana) => {
+  const cargarImagenesCabana = async (idCabana) => {
     try {
-      // Normalizar el nombre de la cabaña: "Cabaña 1" -> "cabaña1"
-      const nombreNormalizado = nombreCabana.toLowerCase().replace(/\s+/g, '');
+      // Obtener el nombre de carpeta correcto usando el mapeo
+      const nombreCarpeta = ID_TO_FOLDER[idCabana.toLowerCase()];
 
-      console.log('🖼️ Intentando cargar imágenes para:', nombreNormalizado);
+      if (!nombreCarpeta) {
+        console.warn(`❌ No se encontró mapeo para: ${idCabana}`);
+        return [];
+      }
+
+      console.log(`🖼️ Cargando imágenes para: ${nombreCarpeta}`);
 
       const imagenes = [];
-      const extensiones = ['jpg', 'jpeg', 'png', 'webp'];
-      const numeros = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-      for (const num of numeros) {
+      // 🎯 Lista OPTIMIZADA - solo patrones comunes
+      const patronesNombres = [
+        // WhatsApp Images - patrones comunes
+        'WhatsApp Image 2025-10-07 at 3.11.05 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.11.05 PM (2)',
+        'WhatsApp Image 2025-10-07 at 3.11.05 PM',
+        'WhatsApp Image 2025-10-07 at 3.11.06 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.11.06 PM',
+        'WhatsApp Image 2025-10-07 at 3.11.07 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.11.07 PM (2)',
+        'WhatsApp Image 2025-10-07 at 3.11.07 PM',
+        'WhatsApp Image 2025-10-07 at 3.11.08 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.11.08 PM (2)',
+        'WhatsApp Image 2025-10-07 at 3.11.08 PM',
+        'WhatsApp Image 2025-10-07 at 3.16.06 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.16.06 PM',
+        'WhatsApp Image 2025-10-07 at 3.16.07 PM (1)',
+        'WhatsApp Image 2025-10-07 at 3.16.07 PM',
+        // Solo 10 números simples
+        ...Array.from({length: 10}, (_, i) => `${i + 1}`),
+      ];
+
+      const extensiones = ['jpeg', 'jpg'];  // Solo las más comunes
+
+      // Crear promesas para verificar en paralelo
+      const promesas = [];
+      for (const nombreArchivo of patronesNombres) {
         for (const ext of extensiones) {
-          try {
-            const path = `/src/images/${nombreNormalizado}/${num}.${ext}`;
-            const response = await fetch(path, { method: 'HEAD' });
-            if (response.ok) {
-              imagenes.push(path);
-              console.log('✅ Imagen encontrada:', path);
-            }
-          } catch (e) {
-            // Imagen no existe, continuar
-          }
+          const pathEncoded = encodeURI(`/images/${nombreCarpeta}/${nombreArchivo}.${ext}`);
+          promesas.push(
+            fetch(pathEncoded, { method: 'HEAD' })
+              .then(response => response.ok ? pathEncoded : null)
+              .catch(() => null)
+          );
         }
       }
 
-      console.log(`📸 Total de imágenes cargadas para ${nombreNormalizado}:`, imagenes.length);
-      return imagenes;
+      // Ejecutar todas las verificaciones en paralelo
+      const resultados = await Promise.all(promesas);
+      const imagenesEncontradas = resultados.filter(img => img !== null);
+
+      console.log(`📸 Total de imágenes cargadas para ${nombreCarpeta}:`, imagenesEncontradas.length);
+      return imagenesEncontradas;
     } catch (error) {
       console.error('Error al cargar imágenes:', error);
       return [];
@@ -258,43 +328,83 @@ const ReservaCabanasPage = () => {
 
   const cargarSVG = async () => {
     try {
-      // Usar CABANAS-clickable.svg que tiene los IDs correctos
-      const response = await fetch('/CABANA-clickable.svg');
+      console.log('📥 Cargando SVG desde /plano1.svg...');
+      const response = await fetch('/plano1.svg');
       if (!response.ok) throw new Error(`Error al cargar SVG: ${response.status}`);
 
       const svgText = await response.text();
+      console.log('✅ SVG descargado, tamaño:', svgText.length, 'caracteres');
 
       if (svgContainerRef.current && svgText) {
         svgContainerRef.current.innerHTML = svgText;
+        console.log('✅ SVG insertado en el DOM');
 
+        // ⚡ Esperar múltiples ciclos de render para asegurar que el SVG esté completamente cargado
         setTimeout(() => {
           const svgElement = svgContainerRef.current.querySelector('svg');
+
           if (svgElement) {
-            console.log('✅ SVG cargado correctamente');
+            console.log('✅ Elemento SVG encontrado en el DOM');
+
+            // 🔍 DEBUG: Listar TODOS los IDs encontrados
+            console.log('🔍 === DEBUGGING IDS DEL SVG ===');
+            const todosLosElementos = svgElement.querySelectorAll('[id]');
+            console.log(`📊 Total de elementos con ID: ${todosLosElementos.length}`);
+            todosLosElementos.forEach((el, idx) => {
+              console.log(`${idx + 1}. ID: "${el.id}" - Tag: <${el.tagName.toLowerCase()}>`);
+            });
+            console.log('🔍 === FIN DEBUG ===');
+
+            // 🎨 Aplicar colores INMEDIATAMENTE
             aplicarColores();
+
+            // 🖱️ Configurar eventos de click
             configurarEventos();
+
+            // ✅ Marcar como cargado
             setSvgLoaded(true);
+
+            console.log('✅ SVG completamente inicializado');
           } else {
-            console.error('❌ No se encontró elemento SVG');
+            console.error('❌ No se encontró elemento <svg> después de insertar');
           }
-        }, 300);
+        }, 500);  // Aumentar el tiempo de espera a 500ms
       }
     } catch (error) {
-      console.error('Error al cargar SVG:', error);
+      console.error('❌ Error al cargar SVG:', error);
       enqueueSnackbar(`Error al cargar mapa: ${error.message}`, { variant: 'error' });
     }
   };
 
   const obtenerEstadoCabana = (cabanaId) => {
+    const idNormalizado = cabanaId.toLowerCase();
+    const nombreCabana = ID_TO_NOMBRE[idNormalizado];
+    
+    if (!nombreCabana) {
+      console.warn(`⚠️ No se encontró mapeo para ID: ${cabanaId}`);
+      return { 
+        estado: 'disponible', 
+        color: COLORES_CABANAS[idNormalizado] || '#FF8C42',
+        idOriginal: cabanaId
+      };
+    }
+    
     const cabana = cabanas.find(c => {
-      const nombreNormalizado = c.nombre.toLowerCase().replace(/\s+/g, '');
-      const idNormalizado = cabanaId.toLowerCase().replace(/\s+/g, '');
-      return nombreNormalizado === idNormalizado ||
-             nombreNormalizado.includes(idNormalizado) ||
-             idNormalizado.includes(nombreNormalizado);
+      const nombreNormalizado = normalizarNombre(c.nombre);
+      const nombreBuscado = normalizarNombre(nombreCabana);
+      return nombreNormalizado === nombreBuscado ||
+             nombreNormalizado.includes(nombreBuscado) ||
+             nombreBuscado.includes(nombreNormalizado);
     });
 
-    if (!cabana) return { estado: 'disponible', color: COLORES_CABANAS[cabanaId] || '#FF8C42' };
+    if (!cabana) {
+      return { 
+        estado: 'disponible', 
+        color: COLORES_CABANAS[idNormalizado] || '#FF8C42',
+        idOriginal: cabanaId,
+        nombreCabana
+      };
+    }
 
     const hoy = getTodayDate();
     const reservaActiva = reservas.find(r => {
@@ -308,94 +418,140 @@ const ReservaCabanasPage = () => {
     });
 
     if (!reservaActiva) {
-      return { estado: 'disponible', color: COLORES_CABANAS[cabanaId] || '#FF8C42', cabana };
+      return { 
+        estado: 'disponible', 
+        color: COLORES_CABANAS[idNormalizado] || '#FF8C42', 
+        cabana,
+        idOriginal: cabanaId,
+        nombreCabana
+      };
     }
 
     if (reservaActiva.estado_pago === 'pagado' || reservaActiva.estado === 'confirmada') {
-      return { estado: 'reservada-pagada', color: '#4CAF50', cabana, reserva: reservaActiva };
+      return { 
+        estado: 'reservada-pagada', 
+        color: '#4CAF50', 
+        cabana, 
+        reserva: reservaActiva,
+        idOriginal: cabanaId,
+        nombreCabana
+      };
     } else {
-      return { estado: 'reservada-pendiente', color: '#FFC107', cabana, reserva: reservaActiva };
+      return { 
+        estado: 'reservada-pendiente', 
+        color: '#FFC107', 
+        cabana, 
+        reserva: reservaActiva,
+        idOriginal: cabanaId,
+        nombreCabana
+      };
     }
   };
 
   const aplicarColores = () => {
-    console.log('🎨 Aplicando colores a las cabañas...');
+    console.log('🎨 === APLICANDO COLORES ===');
+    console.log('🎯 IDs que estamos buscando:', cabanaIds);
+
     cabanaIds.forEach(id => {
       const elemento = document.getElementById(id);
+
       if (elemento) {
-        console.log(`✅ Encontrado: ${id}`);
         const { color } = obtenerEstadoCabana(id);
 
-        const paths = elemento.querySelectorAll('path, rect, circle, polygon, ellipse');
-        paths.forEach(path => {
-          path.style.fill = color;
-          path.style.transition = 'fill 0.3s ease';
-        });
+        console.log(`✅ ENCONTRADO: "${id}" - Aplicando color: ${color}`);
 
-        if (elemento.tagName.toLowerCase() !== 'g') {
-          elemento.style.fill = color;
-          elemento.style.transition = 'fill 0.3s ease';
-        }
+        // 🔥 FORZAR aplicación de color con máxima prioridad
+        elemento.setAttribute('fill', color);
+        elemento.style.setProperty('fill', color, 'important');
+        elemento.style.fill = color;
+        elemento.style.stroke = 'none';
+        elemento.style.opacity = '1';
+        elemento.style.transition = 'fill 0.3s ease, opacity 0.3s ease';
+        elemento.style.cursor = 'pointer';
+
+        // Verificar que se aplicó
+        const computedStyle = window.getComputedStyle(elemento);
+        console.log(`   → Fill aplicado: ${computedStyle.fill}`);
       } else {
-        console.warn(`❌ No encontrado: ${id}`);
+        console.error(`❌ NO ENCONTRADO: "${id}"`);
       }
     });
+
+    console.log('🎨 === FIN APLICAR COLORES ===');
   };
 
   const configurarEventos = () => {
+    console.log('🖱️ Configurando eventos click...');
+    
     cabanaIds.forEach(id => {
       const elemento = document.getElementById(id);
+
       if (elemento) {
+        console.log(`✅ Click configurado para: "${id}"`);
         elemento.style.cursor = 'pointer';
+        
+        // Agregar atributo para debugging
+        elemento.setAttribute('data-clickeable', 'true');
+        elemento.setAttribute('data-cabana-id', id);
 
-        elemento.addEventListener('click', async () => {
-          const { cabana } = obtenerEstadoCabana(id);
-          if (cabana) {
-            setSelectedCabana(cabana);
+        elemento.addEventListener('click', async (e) => {
+          console.log(`🖱️ CLICK detectado en: "${id}"`);
+          e.stopPropagation();
+          
+          const { cabana, nombreCabana } = obtenerEstadoCabana(id);
+          
+          // Crear objeto de cabaña temporal si no existe en BD
+          const cabanaData = cabana || {
+            id: id,
+            nombre: nombreCabana || ID_TO_NOMBRE[id.toLowerCase()],
+            capacidad_personas: 4,
+            precio_noche: 50000,
+            precio_fin_semana: 70000,
+            descripcion: 'Cabaña acogedora en entorno natural'
+          };
+          
+          console.log('📦 Cabaña:', cabanaData);
+          setSelectedCabana(cabanaData);
 
-            // Cargar imágenes desde la carpeta
-            const imagenes = await cargarImagenesCabana(cabana.nombre);
-            setCarouselImages(imagenes);
+          // Cargar imágenes usando el ID
+          const imagenes = await cargarImagenesCabana(id);
+          console.log(`📸 Imágenes cargadas: ${imagenes.length}`);
+          setCarouselImages(imagenes);
 
-            // Abrir stepper directamente
-            setFormData({
-              cantidad_personas: cabana.capacidad_personas || 1,
-              personas_extra: 0,
-              cliente_nombre: '',
-              cliente_apellido: '',
-              cliente_telefono: '',
-              cliente_email: '',
-              cliente_rut: '',
-              fecha_inicio: null,
-              fecha_fin: null,
-              quiere_tinajas: false,
-              tinajas_seleccionadas: [],
-              metodo_pago: 'transferencia',
-              tipo_pago: 'completo',
-              estado_pago: 'pendiente',
-              monto_pagado: 0,
-              notas: '',
-            });
-            setActiveStep(0);
-            setOpenReservaDialog(true);
-          }
+          // Abrir stepper directamente
+          setFormData({
+            cantidad_personas: cabanaData.capacidad_personas || 1,
+            personas_extra: 0,
+            cliente_nombre: '',
+            cliente_apellido: '',
+            cliente_telefono: '',
+            cliente_email: '',
+            cliente_rut: '',
+            fecha_inicio: null,
+            fecha_fin: null,
+            quiere_tinajas: false,
+            tinajas_seleccionadas: [],
+            metodo_pago: 'transferencia',
+            tipo_pago: 'completo',
+            estado_pago: 'pendiente',
+            monto_pagado: 0,
+            notas: '',
+          });
+          setActiveStep(0);
+          setOpenReservaDialog(true);
         });
 
         elemento.addEventListener('mouseenter', () => {
-          const paths = elemento.querySelectorAll('path, rect, circle, polygon, ellipse');
-          paths.forEach(path => {
-            path.style.opacity = '0.8';
-            path.style.filter = 'brightness(1.2)';
-          });
+          elemento.style.opacity = '0.8';
+          elemento.style.filter = 'brightness(1.2)';
         });
 
         elemento.addEventListener('mouseleave', () => {
-          const paths = elemento.querySelectorAll('path, rect, circle, polygon, ellipse');
-          paths.forEach(path => {
-            path.style.opacity = '1';
-            path.style.filter = 'brightness(1)';
-          });
+          elemento.style.opacity = '1';
+          elemento.style.filter = 'brightness(1)';
         });
+      } else {
+        console.warn(`❌ No se pudo configurar click para: "${id}"`);
       }
     });
   };
@@ -758,7 +914,7 @@ const ReservaCabanasPage = () => {
       enqueueSnackbar('✅ Reserva creada exitosamente en estado PENDIENTE', { variant: 'success' });
 
       const montoPagar = calcularMontoAPagar();
-      const mensaje = `¡Reserva confirmada!\n\nEnvía el comprobante de pago por $${montoPagar.toLocaleString('es-CL')} a WhatsApp`;
+      const mensaje = `¡Reserva confirmada!\n\nEnvía el comprobante de pago por ${montoPagar.toLocaleString('es-CL')} a WhatsApp`;
       enqueueSnackbar(mensaje, { variant: 'info', autoHideDuration: 10000 });
 
       setOpenReservaDialog(false);
@@ -775,7 +931,7 @@ const ReservaCabanasPage = () => {
 
   const abrirWhatsApp = () => {
     const montoPagar = calcularMontoAPagar();
-    const mensaje = `Hola, quiero enviar el comprobante de pago de mi reserva por $${montoPagar.toLocaleString('es-CL')}`;
+    const mensaje = `Hola, quiero enviar el comprobante de pago de mi reserva por ${montoPagar.toLocaleString('es-CL')}`;
     const url = `https://wa.me/${WHATSAPP_NUMBER.replace(/\D/g, '')}?text=${encodeURIComponent(mensaje)}`;
     window.open(url, '_blank');
   };
@@ -796,7 +952,7 @@ const ReservaCabanasPage = () => {
                 mb: 3,
                 p: 3,
                 textAlign: 'center',
-                background: `linear-gradient(135deg, ${COLORES_CABANAS[selectedCabana?.nombre.toLowerCase().replace(/\s+/g, '')] || '#FF8C42'} 0%, ${COLORES_CABANAS[selectedCabana?.nombre.toLowerCase().replace(/\s+/g, '')] || '#FF8C42'}CC 100%)`,
+                background: `linear-gradient(135deg, ${COLORES_CABANAS[normalizarNombre(selectedCabana?.nombre)] || '#FF8C42'} 0%, ${COLORES_CABANAS[normalizarNombre(selectedCabana?.nombre)] || '#FF8C42'}CC 100%)`,
                 color: 'white',
                 borderRadius: 3,
               }}
@@ -864,7 +1020,7 @@ const ReservaCabanasPage = () => {
                   No hay imágenes disponibles para esta cabaña
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Carpeta esperada: /images/{selectedCabana?.nombre.toLowerCase().replace(/\s+/g, '')}
+                  Carpeta esperada: /images/{ID_TO_FOLDER[normalizarNombre(selectedCabana?.nombre)]}
                 </Typography>
               </Paper>
             )}
@@ -1226,7 +1382,7 @@ const ReservaCabanasPage = () => {
                   <Typography variant="body1" sx={{ fontWeight: 700 }}>
                     {formData.cantidad_personas}
                     {calcularCostoPersonasExtra() > 0 &&
-                      ` (+$${calcularCostoPersonasExtra().toLocaleString('es-CL')} extra)`
+                      ` (+${calcularCostoPersonasExtra().toLocaleString('es-CL')} extra)`
                     }
                   </Typography>
                 </Box>
