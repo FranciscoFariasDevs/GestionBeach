@@ -217,7 +217,8 @@ const ReservaCabanasPage = () => {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    return d >= start && d <= end;
+    // El día de checkout no cuenta como ocupado (< en vez de <=)
+    return d >= start && d < end;
   };
 
   // ============================================
@@ -505,23 +506,6 @@ const ReservaCabanasPage = () => {
             return;
           }
 
-          // Validar que la cabaña no esté ocupada ANTES de permitir seleccionarla
-          if (estado === 'reservada-pagada') {
-            enqueueSnackbar(`❌ La cabaña "${cabana.nombre}" está ocupada (Reserva Pagada). Check-out: ${formatDateForServer(parseServerDate(reserva.fecha_fin))}`, {
-              variant: 'error',
-              autoHideDuration: 5000
-            });
-            return;
-          }
-
-          if (estado === 'reservada-pendiente') {
-            enqueueSnackbar(`⚠️ La cabaña "${cabana.nombre}" tiene una reserva con pago pendiente. Check-out: ${formatDateForServer(parseServerDate(reserva.fecha_fin))}`, {
-              variant: 'warning',
-              autoHideDuration: 5000
-            });
-            return;
-          }
-
           const cabanaData = cabana;
 
           console.log('📦 Cabaña:', cabanaData);
@@ -585,7 +569,9 @@ const ReservaCabanasPage = () => {
 
     let dayColor = null;
     let dayLabel = '';
+    let isDisabled = false;
 
+    // Buscar reservas en esta fecha para esta cabaña
     const reservasEnDia = reservas.filter(r => {
       if (r.cabana_id !== selectedCabana.id) return false;
       if (r.estado === 'cancelada') return false;
@@ -596,33 +582,46 @@ const ReservaCabanasPage = () => {
       return isDateInRange(date, fechaInicio, fechaFin);
     });
 
+    // Si hay reservas en esta fecha, deshabilitar y colorear
     if (reservasEnDia.length > 0) {
       const reserva = reservasEnDia[0];
-      if (reserva.estado_pago === 'pagado') {
-        dayColor = '#4CAF50';
-        dayLabel = 'Pagada';
-      } else {
-        dayColor = '#FFC107';
-        dayLabel = 'Pendiente';
+      isDisabled = true; // ⚠️ DESHABILITAR FECHA OCUPADA
+
+      // Validar por estado de pago O por estado de reserva
+      if (reserva.estado_pago === 'pagado' || reserva.estado === 'confirmada' || reserva.check_in_realizado) {
+        dayColor = '#F44336'; // Rojo fuerte para fechas OCUPADAS
+        dayLabel = '🚫 Ocupada (Pagada o Check-in)';
+      } else if (reserva.estado_pago === 'pendiente' || reserva.estado === 'pendiente') {
+        dayColor = '#FFC107'; // Amarillo para pendientes
+        dayLabel = '⚠️ Pendiente de pago';
+        isDisabled = true; // También deshabilitar las pendientes
       }
     }
 
     return (
-      <Tooltip title={dayLabel} arrow>
-        <PickersDay
-          {...pickersDayProps}
-          sx={{
-            ...(dayColor && {
-              backgroundColor: dayColor,
-              color: 'white',
-              fontWeight: 'bold',
-              '&:hover': {
+      <Tooltip title={dayLabel || 'Disponible'} arrow>
+        <span>
+          <PickersDay
+            {...pickersDayProps}
+            disabled={isDisabled || pickersDayProps.disabled}
+            sx={{
+              ...(dayColor && {
                 backgroundColor: dayColor,
-                opacity: 0.8,
-              },
-            }),
-          }}
-        />
+                color: 'white',
+                fontWeight: 'bold',
+                '&:hover': {
+                  backgroundColor: dayColor,
+                  opacity: 0.8,
+                },
+                '&.Mui-disabled': {
+                  backgroundColor: dayColor,
+                  color: 'white',
+                  opacity: 0.7,
+                },
+              }),
+            }}
+          />
+        </span>
       </Tooltip>
     );
   };
@@ -651,6 +650,14 @@ const ReservaCabanasPage = () => {
         </Paper>
       );
     }
+
+    // 🔍 DEBUG: Log TODAS las reservas de tinajas cargadas
+    console.log('🔍 === DEBUG RESERVAS TINAJAS ===');
+    console.log(`📊 Total reservas tinajas: ${reservasTinajas.length}`);
+    reservasTinajas.forEach((rt, idx) => {
+      console.log(`${idx + 1}. Tinaja ID: ${rt.tinaja_id}, Fecha: ${rt.fecha_uso}`);
+    });
+    console.log('🔍 === FIN DEBUG ===');
 
     const fechas = [];
     let currentDate = new Date(formData.fecha_inicio);
@@ -700,10 +707,37 @@ const ReservaCabanasPage = () => {
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                     {fechas.map((fecha, idx) => {
                       const fechaStr = formatDateForServer(fecha);
-                      const estaOcupada = reservasTinajas.some(rt =>
-                        rt.tinaja_id === tinaja.id &&
-                        formatDateForServer(parseServerDate(rt.fecha_uso)) === fechaStr
-                      );
+
+                      // 🔍 DEBUG detallado de comparación de fechas
+                      console.log(`\n🔍 Verificando fecha ${fechaStr} para tinaja "${tinaja.nombre}" (ID: ${tinaja.id})`);
+
+                      // Verificar si esta fecha está ocupada
+                      const estaOcupada = reservasTinajas.some(rt => {
+                        // Log cada reserva que se está verificando
+                        console.log(`  📋 Comparando con reserva: Tinaja ID ${rt.tinaja_id}, Fecha original: "${rt.fecha_uso}"`);
+
+                        if (rt.tinaja_id !== tinaja.id) {
+                          console.log(`  ⏩ SKIP - Diferente tinaja (${rt.tinaja_id} vs ${tinaja.id})`);
+                          return false;
+                        }
+
+                        const fechaUsoReserva = formatDateForServer(parseServerDate(rt.fecha_uso));
+                        const ocupada = fechaUsoReserva === fechaStr;
+
+                        console.log(`  ⚙️ Procesada: "${rt.fecha_uso}" → Parseada → Formateada: "${fechaUsoReserva}"`);
+                        console.log(`  🔍 Comparación: "${fechaUsoReserva}" === "${fechaStr}" → ${ocupada ? '✅ OCUPADA' : '❌ Libre'}`);
+
+                        // Debug: mostrar en consola las comparaciones
+                        if (ocupada) {
+                          console.log(`  🚫 ¡¡¡FECHA OCUPADA!!! Tinaja ${tinaja.nombre}:`, {
+                            fechaReserva: fechaUsoReserva,
+                            fechaSeleccionada: fechaStr,
+                            tinaja_id: rt.tinaja_id
+                          });
+                        }
+
+                        return ocupada;
+                      });
 
                       const estaSeleccionada = formData.tinajas_seleccionadas.some(ts =>
                         ts.tinaja_id === tinaja.id && formatDateForServer(ts.fecha_uso) === fechaStr
@@ -833,10 +867,19 @@ const ReservaCabanasPage = () => {
   };
 
   const calcularCostoPersonasExtra = () => {
-    if (!selectedCabana) return 0;
+    if (!selectedCabana || !formData.fecha_inicio || !formData.fecha_fin) return 0;
+
     const capacidad = selectedCabana.capacidad_personas || 0;
     const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
-    return personasExtra * 20000;
+
+    // Calcular cantidad de noches
+    const fechaInicio = new Date(formData.fecha_inicio);
+    const fechaFin = new Date(formData.fecha_fin);
+    const diffTime = Math.abs(fechaFin - fechaInicio);
+    const cantidadNoches = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // $20,000 por persona extra POR NOCHE
+    return personasExtra * 20000 * cantidadNoches;
   };
 
   const calcularPrecioTotal = () => {
@@ -1305,14 +1348,79 @@ const ReservaCabanasPage = () => {
         );
 
       case 1:
-        // PASO 2: Personas y Fechas (MEJORADO CON UI ELEGANTE)
+        // PASO 2: Fechas, Personas y Datos del Cliente
         const capacidad = selectedCabana?.capacidad_personas || 0;
         const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
-        const costoExtra = personasExtra * 20000;
+
+        // Calcular noches si hay fechas seleccionadas
+        let cantidadNoches = 0;
+        if (formData.fecha_inicio && formData.fecha_fin) {
+          const fechaInicioCalc = new Date(formData.fecha_inicio);
+          const fechaFinCalc = new Date(formData.fecha_fin);
+          const diffTime = Math.abs(fechaFinCalc - fechaInicioCalc);
+          cantidadNoches = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+
+        const precioNocheCabana = getPrecioActual(selectedCabana);
+        const costoExtra = personasExtra * 20000 * (cantidadNoches || 1);
+        const costoTotalNoche = (cantidadNoches > 0) ? (precioNocheCabana * cantidadNoches) + costoExtra : 0;
 
         return (
           <Stack spacing={4}>
-            {/* Cantidad de personas con botones +/- */}
+            {/* PRIMERO: Fechas */}
+            <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#E3F2FD' }}>
+              <Box sx={{ textAlign: 'center', mb: 3 }}>
+                <Avatar sx={{ bgcolor: '#1976D2', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
+                  <CalendarIcon sx={{ fontSize: 40 }} />
+                </Avatar>
+                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+                  📅 Fechas de Reserva
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada (no seleccionable) •
+                  <strong style={{ color: '#FFC107' }}> Amarillo</strong>: Pendiente (no seleccionable)
+                </Typography>
+              </Box>
+
+              <Grid container spacing={3}>
+                <Grid item xs={12} sm={6}>
+                  <DatePicker
+                    label="Fecha Check-In"
+                    value={formData.fecha_inicio}
+                    onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
+                    minDate={new Date()}
+                    slots={{
+                      day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
+                    }}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        variant: 'outlined',
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <DatePicker
+                    label="Fecha Check-Out"
+                    value={formData.fecha_fin}
+                    onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
+                    minDate={formData.fecha_inicio || new Date()}
+                    slots={{
+                      day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
+                    }}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        variant: 'outlined',
+                      }
+                    }}
+                  />
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {/* SEGUNDO: Cantidad de personas con resumen de costos */}
             <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#FFF3E0' }}>
               <Box sx={{ textAlign: 'center', mb: 3 }}>
                 <Avatar sx={{ bgcolor: '#FF8C42', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
@@ -1326,17 +1434,36 @@ const ReservaCabanasPage = () => {
                 </Typography>
               </Box>
 
+              {/* Mensaje de ayuda si no hay fechas seleccionadas */}
+              {!formData.fecha_inicio || !formData.fecha_fin ? (
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 3,
+                    textAlign: 'center',
+                    bgcolor: '#FFF3E0',
+                    borderRadius: 2,
+                    border: '2px dashed #FFB74D'
+                  }}
+                >
+                  <CalendarIcon sx={{ fontSize: 48, color: '#FFB74D', mb: 1 }} />
+                  <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Primero selecciona las fechas de tu reserva
+                  </Typography>
+                </Paper>
+              ) : null}
+
               <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
                 <IconButton
                   onClick={() => setFormData({ ...formData, cantidad_personas: Math.max(1, formData.cantidad_personas - 1) })}
-                  disabled={formData.cantidad_personas <= 1}
+                  disabled={!formData.fecha_inicio || !formData.fecha_fin || formData.cantidad_personas <= 1}
                   sx={{
                     bgcolor: '#FF8C42',
                     color: 'white',
                     width: 56,
                     height: 56,
                     '&:hover': { bgcolor: '#FF7722' },
-                    '&:disabled': { bgcolor: '#E0E0E0' }
+                    '&:disabled': { bgcolor: '#E0E0E0', color: '#9E9E9E' }
                   }}
                 >
                   <RemoveIcon fontSize="large" />
@@ -1349,51 +1476,84 @@ const ReservaCabanasPage = () => {
                     py: 3,
                     bgcolor: 'white',
                     borderRadius: 2,
-                    border: '3px solid #FF8C42'
+                    border: `3px solid ${!formData.fecha_inicio || !formData.fecha_fin ? '#E0E0E0' : '#FF8C42'}`,
+                    opacity: !formData.fecha_inicio || !formData.fecha_fin ? 0.5 : 1
                   }}
                 >
-                  <Typography variant="h2" sx={{ fontWeight: 900, color: '#FF8C42', minWidth: '80px', textAlign: 'center' }}>
+                  <Typography variant="h2" sx={{ fontWeight: 900, color: !formData.fecha_inicio || !formData.fecha_fin ? '#E0E0E0' : '#FF8C42', minWidth: '80px', textAlign: 'center' }}>
                     {formData.cantidad_personas}
                   </Typography>
                 </Paper>
 
                 <IconButton
                   onClick={() => setFormData({ ...formData, cantidad_personas: formData.cantidad_personas + 1 })}
+                  disabled={!formData.fecha_inicio || !formData.fecha_fin}
                   sx={{
                     bgcolor: '#FF8C42',
                     color: 'white',
                     width: 56,
                     height: 56,
-                    '&:hover': { bgcolor: '#FF7722' }
+                    '&:hover': { bgcolor: '#FF7722' },
+                    '&:disabled': { bgcolor: '#E0E0E0', color: '#9E9E9E' }
                   }}
                 >
                   <AddIcon fontSize="large" />
                 </IconButton>
               </Box>
 
-              {personasExtra > 0 && (
-                <Paper elevation={0} sx={{ mt: 3, p: 3, bgcolor: '#FFF8E1', borderRadius: 2, border: '2px solid #FFB74D' }}>
-                  <Typography variant="h6" color="warning.main" sx={{ fontWeight: 700, mb: 1 }}>
-                    ⚠️ Personas Extra: {personasExtra}
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary">
-                    Costo adicional: <strong>${costoExtra.toLocaleString('es-CL')}</strong>
-                  </Typography>
-                  <Typography variant="caption" display="block" sx={{ mt: 1, color: 'text.secondary' }}>
-                    ($20,000 por persona adicional)
-                  </Typography>
-                </Paper>
+              {/* Resumen de costos */}
+              {cantidadNoches > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Paper elevation={2} sx={{ p: 3, bgcolor: 'white', borderRadius: 2 }}>
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
+                      💰 Costo de la Estadía
+                    </Typography>
+
+                    {/* Costo base de la cabaña */}
+                    <Box sx={{ mb: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        Cabaña × Noches:
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                        ${precioNocheCabana.toLocaleString('es-CL')} × {cantidadNoches} noche{cantidadNoches !== 1 ? 's' : ''} = ${(precioNocheCabana * cantidadNoches).toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+
+                    {/* Personas extra */}
+                    {personasExtra > 0 && (
+                      <Box sx={{ mb: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 1 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                          Personas Extra:
+                        </Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 600, color: '#F57C00' }}>
+                          {personasExtra} persona{personasExtra !== 1 ? 's' : ''} × {cantidadNoches} noche{cantidadNoches !== 1 ? 's' : ''} × $20,000 = ${costoExtra.toLocaleString('es-CL')}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {/* Total */}
+                    <Divider sx={{ my: 2 }} />
+                    <Box sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 1 }}>
+                      <Typography variant="h5" sx={{ fontWeight: 900, color: '#2E7D32', textAlign: 'center' }}>
+                        TOTAL: ${costoTotalNoche.toLocaleString('es-CL')}
+                      </Typography>
+                      <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, color: 'text.secondary' }}>
+                        (sin incluir tinajas)
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Box>
               )}
             </Paper>
 
-            {/* Datos del cliente */}
+            {/* TERCERO: Datos del cliente */}
             <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
               <Box sx={{ textAlign: 'center', mb: 3 }}>
                 <Avatar sx={{ bgcolor: '#2196F3', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
                   <PersonIcon sx={{ fontSize: 40 }} />
                 </Avatar>
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                  📋 Datos del Cliente
+                  📋 Tus Datos
                 </Typography>
               </Box>
 
@@ -1466,59 +1626,6 @@ const ReservaCabanasPage = () => {
                 </Grid>
               </Grid>
             </Paper>
-
-            {/* Fechas */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#E3F2FD' }}>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Avatar sx={{ bgcolor: '#1976D2', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
-                  <CalendarIcon sx={{ fontSize: 40 }} />
-                </Avatar>
-                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-                  📅 Fechas de Reserva
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong style={{ color: '#4CAF50' }}>Verde</strong>: Reservado y pagado •
-                  <strong style={{ color: '#FFC107' }}> Amarillo</strong>: Pago pendiente
-                </Typography>
-              </Box>
-
-              <Grid container spacing={3}>
-                <Grid item xs={12} sm={6}>
-                  <DatePicker
-                    label="Fecha Check-In"
-                    value={formData.fecha_inicio}
-                    onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
-                    minDate={new Date()}
-                    slots={{
-                      day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
-                    }}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        variant: 'outlined',
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <DatePicker
-                    label="Fecha Check-Out"
-                    value={formData.fecha_fin}
-                    onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
-                    minDate={formData.fecha_inicio || new Date()}
-                    slots={{
-                      day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
-                    }}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        variant: 'outlined',
-                      }
-                    }}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
           </Stack>
         );
 
@@ -1572,6 +1679,18 @@ const ReservaCabanasPage = () => {
         const total = calcularPrecioTotal();
         const montoPagar = calcularMontoAPagar();
 
+        // Calcular desglose detallado
+        const fechaInicioResumen = new Date(formData.fecha_inicio);
+        const fechaFinResumen = new Date(formData.fecha_fin);
+        const diffTimeResumen = Math.abs(fechaFinResumen - fechaInicioResumen);
+        const nochesReserva = Math.ceil(diffTimeResumen / (1000 * 60 * 60 * 24));
+        const precioNoche = getPrecioActual(selectedCabana);
+        const subtotalCabana = precioNoche * nochesReserva;
+        const costoPersonasExtra = calcularCostoPersonasExtra();
+        const capacidadCabana = selectedCabana?.capacidad_personas || 0;
+        const personasExtraResumen = Math.max(0, formData.cantidad_personas - capacidadCabana);
+        const costoTinajas = formData.tinajas_seleccionadas.reduce((sum, t) => sum + parseFloat(t.precio_dia || 0), 0);
+
         return (
           <Stack spacing={3}>
             {/* Resumen */}
@@ -1597,9 +1716,6 @@ const ReservaCabanasPage = () => {
                   <Typography variant="body1" color="text.secondary">Personas:</Typography>
                   <Typography variant="body1" sx={{ fontWeight: 700 }}>
                     {formData.cantidad_personas}
-                    {calcularCostoPersonasExtra() > 0 &&
-                      ` (+${calcularCostoPersonasExtra().toLocaleString('es-CL')} extra)`
-                    }
                   </Typography>
                 </Box>
 
@@ -1617,11 +1733,56 @@ const ReservaCabanasPage = () => {
                   </Typography>
                 </Box>
 
+                <Divider sx={{ my: 2 }} />
+
+                {/* Desglose detallado de costos */}
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
+                  💰 Desglose de Costos
+                </Typography>
+
+                {/* Costo de la cabaña */}
+                <Box sx={{ p: 2, bgcolor: '#E3F2FD', borderRadius: 2 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                    Cabaña {selectedCabana?.nombre}:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    ${precioNoche.toLocaleString('es-CL')} × {nochesReserva} noche{nochesReserva !== 1 ? 's' : ''}
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                    = ${subtotalCabana.toLocaleString('es-CL')}
+                  </Typography>
+                </Box>
+
+                {/* Personas extra */}
+                {personasExtraResumen > 0 && (
+                  <Box sx={{ p: 2, bgcolor: '#FFF8E1', borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      Personas Extra:
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      {personasExtraResumen} persona{personasExtraResumen !== 1 ? 's' : ''} × {nochesReserva} noche{nochesReserva !== 1 ? 's' : ''} × $20,000
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F57C00' }}>
+                      = ${costoPersonasExtra.toLocaleString('es-CL')}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Tinajas */}
                 {formData.tinajas_seleccionadas.length > 0 && (
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                    <Typography variant="body1" color="text.secondary">Tinajas:</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                      {formData.tinajas_seleccionadas.length} seleccionada(s)
+                  <Box sx={{ p: 2, bgcolor: '#F3E5F5', borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                      Tinajas:
+                    </Typography>
+                    <Stack spacing={0.5}>
+                      {formData.tinajas_seleccionadas.map((ts, idx) => (
+                        <Typography key={idx} variant="body2" sx={{ fontWeight: 500, pl: 1 }}>
+                          • {ts.tinaja_nombre} ({formatDateForServer(ts.fecha_uso)}): ${ts.precio_dia?.toLocaleString('es-CL')}
+                        </Typography>
+                      ))}
+                    </Stack>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#9C27B0', mt: 1 }}>
+                      = ${costoTinajas.toLocaleString('es-CL')}
                     </Typography>
                   </Box>
                 )}
