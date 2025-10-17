@@ -494,11 +494,28 @@ const ReservaCabanasPage = () => {
           console.log(`🖱️ CLICK detectado en: "${id}"`);
           e.stopPropagation();
 
-          const { cabana, nombreCabana } = obtenerEstadoCabana(id);
+          const { cabana, nombreCabana, estado, reserva } = obtenerEstadoCabana(id);
 
           // Si no existe cabaña en BD, mostrar error
           if (!cabana) {
             enqueueSnackbar(`⚠️ La cabaña "${nombreCabana || id}" no está registrada en el sistema. Contacta al administrador.`, {
+              variant: 'warning',
+              autoHideDuration: 5000
+            });
+            return;
+          }
+
+          // Validar que la cabaña no esté ocupada ANTES de permitir seleccionarla
+          if (estado === 'reservada-pagada') {
+            enqueueSnackbar(`❌ La cabaña "${cabana.nombre}" está ocupada (Reserva Pagada). Check-out: ${formatDateForServer(parseServerDate(reserva.fecha_fin))}`, {
+              variant: 'error',
+              autoHideDuration: 5000
+            });
+            return;
+          }
+
+          if (estado === 'reservada-pendiente') {
+            enqueueSnackbar(`⚠️ La cabaña "${cabana.nombre}" tiene una reserva con pago pendiente. Check-out: ${formatDateForServer(parseServerDate(reserva.fecha_fin))}`, {
               variant: 'warning',
               autoHideDuration: 5000
             });
@@ -1016,6 +1033,36 @@ const ReservaCabanasPage = () => {
 
       if (formData.fecha_fin <= formData.fecha_inicio) {
         enqueueSnackbar('La fecha de fin debe ser posterior a la fecha de inicio', { variant: 'warning' });
+        return;
+      }
+
+      // Validar que las fechas seleccionadas no tengan conflictos con reservas existentes
+      const fechaInicioSeleccionada = new Date(formData.fecha_inicio);
+      const fechaFinSeleccionada = new Date(formData.fecha_fin);
+      fechaInicioSeleccionada.setHours(0, 0, 0, 0);
+      fechaFinSeleccionada.setHours(0, 0, 0, 0);
+
+      const reservaConflicto = reservas.find(r => {
+        if (r.cabana_id !== selectedCabana.id) return false;
+        if (r.estado === 'cancelada') return false;
+
+        const fechaInicio = parseServerDate(r.fecha_inicio);
+        const fechaFin = parseServerDate(r.fecha_fin);
+
+        // Verificar si hay solapamiento de fechas
+        return (
+          (fechaInicioSeleccionada >= fechaInicio && fechaInicioSeleccionada < fechaFin) ||
+          (fechaFinSeleccionada > fechaInicio && fechaFinSeleccionada <= fechaFin) ||
+          (fechaInicioSeleccionada <= fechaInicio && fechaFinSeleccionada >= fechaFin)
+        );
+      });
+
+      if (reservaConflicto) {
+        const estadoReserva = reservaConflicto.estado_pago === 'pagado' ? 'Pagada' : 'Pago Pendiente';
+        enqueueSnackbar(
+          `❌ Las fechas seleccionadas están ocupadas. La cabaña tiene una reserva del ${formatDateForServer(parseServerDate(reservaConflicto.fecha_inicio))} al ${formatDateForServer(parseServerDate(reservaConflicto.fecha_fin))} (${estadoReserva})`,
+          { variant: 'error', autoHideDuration: 7000 }
+        );
         return;
       }
     }

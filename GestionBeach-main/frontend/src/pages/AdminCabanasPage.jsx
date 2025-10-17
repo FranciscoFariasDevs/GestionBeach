@@ -1005,60 +1005,156 @@ const AdminCabanasPage = () => {
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap', minWidth: 280 }}>
+                        {/* Botón Confirmar Pago - MUY VISUAL */}
                         {reserva.estado === 'pendiente' && (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="success"
-                            onClick={() => handleOpenDialogPago(reserva)}
-                            sx={{ borderRadius: 2, fontWeight: 700 }}
-                          >
-                            Confirmar Pago
-                          </Button>
-                        )}
-                        {reserva.estado === 'confirmada' && !reserva.check_in_realizado && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                            onClick={() => handleCheckIn(reserva.id)}
-                            sx={{ borderRadius: 2 }}
-                          >
-                            Check-In
-                          </Button>
-                        )}
-                        {reserva.check_in_realizado && !reserva.check_out_realizado && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="primary"
-                            onClick={() => handleCheckOut(reserva.id)}
-                            sx={{ borderRadius: 2 }}
-                          >
-                            Check-Out
-                          </Button>
-                        )}
-                        <Tooltip title="Editar">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleOpenDialogReserva(reserva)}
-                            sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        {reserva.estado !== 'cancelada' && (
-                          <Tooltip title="Cancelar">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleCancelarReserva(reserva.id)}
-                              sx={{ border: '1px solid', borderColor: 'error.main', borderRadius: 1.5 }}
+                          <Grow in timeout={300}>
+                            <Button
+                              size="large"
+                              variant="contained"
+                              startIcon={<MoneyIcon sx={{ fontSize: 24 }} />}
+                              onClick={() => handleOpenDialogPago(reserva)}
+                              sx={{
+                                borderRadius: 3,
+                                px: 3,
+                                py: 1.5,
+                                fontWeight: 900,
+                                fontSize: '0.95rem',
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)',
+                                boxShadow: '0 4px 20px rgba(76, 175, 80, 0.4)',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  boxShadow: '0 6px 30px rgba(76, 175, 80, 0.6)',
+                                  transform: 'scale(1.05) translateY(-2px)',
+                                  background: 'linear-gradient(135deg, #45A049 0%, #388E3C 100%)',
+                                }
+                              }}
                             >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
+                              Confirmar Pago
+                            </Button>
+                          </Grow>
+                        )}
+
+                        {/* Botón Check-In - MUY VISUAL */}
+                        {reserva.estado === 'confirmada' && !reserva.check_in_realizado && (
+                          <Grow in timeout={400}>
+                            <Button
+                              size="large"
+                              variant="contained"
+                              startIcon={<CheckCircleIcon sx={{ fontSize: 24 }} />}
+                              onClick={() => handleCheckIn(reserva.id)}
+                              sx={{
+                                borderRadius: 3,
+                                px: 3,
+                                py: 1.5,
+                                fontWeight: 900,
+                                fontSize: '0.95rem',
+                                background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                boxShadow: '0 4px 20px rgba(33, 150, 243, 0.4)',
+                                color: 'white',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  boxShadow: '0 6px 30px rgba(33, 150, 243, 0.6)',
+                                  transform: 'scale(1.05) translateY(-2px)',
+                                  background: 'linear-gradient(135deg, #1976D2 0%, #1565C0 100%)',
+                                }
+                              }}
+                            >
+                              Check-In
+                            </Button>
+                          </Grow>
+                        )}
+
+                        {/* Botón Check-Out - MUY VISUAL */}
+                        {reserva.check_in_realizado && !reserva.check_out_realizado && (
+                          <Grow in timeout={500}>
+                            <Button
+                              size="large"
+                              variant="contained"
+                              startIcon={<CheckCircleIcon sx={{ fontSize: 24 }} />}
+                              onClick={() => handleCheckOut(reserva.id)}
+                              sx={{
+                                borderRadius: 3,
+                                px: 3,
+                                py: 1.5,
+                                fontWeight: 900,
+                                fontSize: '0.95rem',
+                                background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                boxShadow: '0 4px 20px rgba(255, 152, 0, 0.4)',
+                                color: 'white',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  boxShadow: '0 6px 30px rgba(255, 152, 0, 0.6)',
+                                  transform: 'scale(1.05) translateY(-2px)',
+                                  background: 'linear-gradient(135deg, #F57C00 0%, #E65100 100%)',
+                                }
+                              }}
+                            >
+                              Check-Out
+                            </Button>
+                          </Grow>
+                        )}
+
+                        {/* Botón Editar - GRANDE Y VISUAL */}
+                        <Grow in timeout={600}>
+                          <Tooltip title="Editar Reserva" placement="top">
+                            <Button
+                              size="large"
+                              variant="outlined"
+                              onClick={() => handleOpenDialogReserva(reserva)}
+                              sx={{
+                                borderRadius: 3,
+                                px: 2,
+                                py: 1.5,
+                                minWidth: 56,
+                                borderWidth: 2,
+                                borderColor: '#667eea',
+                                color: '#667eea',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  borderWidth: 2,
+                                  borderColor: '#667eea',
+                                  bgcolor: alpha('#667eea', 0.1),
+                                  transform: 'scale(1.1) rotate(5deg)',
+                                  boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)',
+                                }
+                              }}
+                            >
+                              <EditIcon sx={{ fontSize: 24 }} />
+                            </Button>
                           </Tooltip>
+                        </Grow>
+
+                        {/* Botón Cancelar - GRANDE Y VISUAL */}
+                        {reserva.estado !== 'cancelada' && (
+                          <Grow in timeout={700}>
+                            <Tooltip title="Cancelar Reserva" placement="top">
+                              <Button
+                                size="large"
+                                variant="outlined"
+                                onClick={() => handleCancelarReserva(reserva.id)}
+                                sx={{
+                                  borderRadius: 3,
+                                  px: 2,
+                                  py: 1.5,
+                                  minWidth: 56,
+                                  borderWidth: 2,
+                                  borderColor: '#f44336',
+                                  color: '#f44336',
+                                  transition: 'all 0.3s ease',
+                                  '&:hover': {
+                                    borderWidth: 2,
+                                    borderColor: '#d32f2f',
+                                    bgcolor: alpha('#f44336', 0.1),
+                                    transform: 'scale(1.1) rotate(-5deg)',
+                                    boxShadow: '0 4px 20px rgba(244, 67, 54, 0.3)',
+                                  }
+                                }}
+                              >
+                                <CancelIcon sx={{ fontSize: 24 }} />
+                              </Button>
+                            </Tooltip>
+                          </Grow>
                         )}
                       </Box>
                     </TableCell>
@@ -1069,67 +1165,212 @@ const AdminCabanasPage = () => {
           </TableContainer>
         )}
 
-        {/* Timeline visual de reservas por cabaña */}
+        {/* Timeline SUPER VISUAL de reservas por cabaña */}
         {!loadingReservas && cabanas.length > 0 && (
-          <Box sx={{ mt: 5 }}>
-            <Typography variant="h5" fontWeight={700} gutterBottom sx={{ mb: 3 }}>
-              📅 Timeline de Reservas por Cabaña
-            </Typography>
-            <Grid container spacing={2}>
-              {cabanas.slice(0, 3).map((cabana, idx) => {
+          <Box sx={{ mt: 6 }}>
+            <Paper
+              elevation={4}
+              sx={{
+                p: 4,
+                borderRadius: 4,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                mb: 4
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 64, height: 64 }}>
+                  <EventIcon sx={{ fontSize: 36 }} />
+                </Avatar>
+                <Box>
+                  <Typography variant="h4" fontWeight={900}>
+                    📅 Timeline Interactivo de Reservas
+                  </Typography>
+                  <Typography variant="subtitle1" sx={{ opacity: 0.9, mt: 0.5 }}>
+                    Vista detallada de todas las cabañas y sus reservas activas
+                  </Typography>
+                </Box>
+              </Box>
+            </Paper>
+
+            <Grid container spacing={3}>
+              {cabanas.map((cabana, idx) => {
                 const reservasCabana = reservas.filter(r => r.cabana_id === cabana.id && r.estado !== 'cancelada');
+                const colorCabana = COLORES_CABANAS[normalizarNombre(cabana.nombre)] || '#667eea';
+
                 return (
                   <Grid item xs={12} key={cabana.id}>
-                    <Paper elevation={2} sx={{ p: 3, borderRadius: 3, bgcolor: alpha('#667eea', 0.02) }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                        <Avatar sx={{ bgcolor: COLORES_CABANAS[normalizarNombre(cabana.nombre)] || '#667eea', width: 48, height: 48 }}>
-                          <CottageIcon />
-                        </Avatar>
-                        <Typography variant="h6" fontWeight={700}>
-                          {cabana.nombre}
-                        </Typography>
-                        <Chip
-                          label={`${reservasCabana.length} reserva${reservasCabana.length !== 1 ? 's' : ''}`}
-                          size="small"
-                          color="primary"
-                          sx={{ fontWeight: 600, borderRadius: 2 }}
-                        />
-                      </Box>
-
-                      {reservasCabana.length > 0 ? (
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                          {reservasCabana.slice(0, 5).map((reserva, rIdx) => (
-                            <Chip
-                              key={reserva.id}
-                              label={`${new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })} - ${new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })}`}
-                              color={reserva.estado_pago === 'pagado' ? 'success' : 'warning'}
-                              size="medium"
-                              sx={{ fontWeight: 600, borderRadius: 2, px: 2 }}
-                              icon={<CalendarIcon />}
-                            />
-                          ))}
-                          {reservasCabana.length > 5 && (
-                            <Chip label={`+${reservasCabana.length - 5} más`} size="small" variant="outlined" />
-                          )}
+                    <Grow in timeout={300 + idx * 100}>
+                      <Card
+                        elevation={6}
+                        sx={{
+                          borderRadius: 4,
+                          overflow: 'hidden',
+                          transition: 'all 0.3s ease',
+                          border: `3px solid ${colorCabana}`,
+                          '&:hover': {
+                            transform: 'scale(1.02)',
+                            boxShadow: `0 12px 40px ${colorCabana}40`,
+                          }
+                        }}
+                      >
+                        {/* Header de la cabaña */}
+                        <Box
+                          sx={{
+                            background: `linear-gradient(135deg, ${colorCabana} 0%, ${colorCabana}CC 100%)`,
+                            p: 3,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 64, height: 64 }}>
+                              <CottageIcon sx={{ fontSize: 36, color: 'white' }} />
+                            </Avatar>
+                            <Box>
+                              <Typography variant="h4" fontWeight={900} sx={{ color: 'white' }}>
+                                {cabana.nombre}
+                              </Typography>
+                              <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
+                                Capacidad: {cabana.capacidad_personas} personas • {cabana.numero_habitaciones} hab.
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Chip
+                            label={`${reservasCabana.length} ${reservasCabana.length === 1 ? 'Reserva' : 'Reservas'}`}
+                            size="large"
+                            sx={{
+                              bgcolor: 'rgba(255,255,255,0.2)',
+                              color: 'white',
+                              fontWeight: 900,
+                              fontSize: '1.1rem',
+                              height: 48,
+                              borderRadius: 3,
+                              px: 3,
+                              backdropFilter: 'blur(10px)'
+                            }}
+                          />
                         </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                          Sin reservas activas
-                        </Typography>
-                      )}
-                    </Paper>
+
+                        {/* Contenido: Reservas en cards */}
+                        <CardContent sx={{ p: 4, bgcolor: alpha(colorCabana, 0.03) }}>
+                          {reservasCabana.length > 0 ? (
+                            <Grid container spacing={2}>
+                              {reservasCabana.map((reserva, rIdx) => (
+                                <Grid item xs={12} sm={6} md={4} key={reserva.id}>
+                                  <Fade in timeout={400 + rIdx * 100}>
+                                    <Card
+                                      elevation={3}
+                                      sx={{
+                                        borderRadius: 3,
+                                        border: '2px solid',
+                                        borderColor: reserva.estado_pago === 'pagado' ? '#4CAF50' : '#FFC107',
+                                        transition: 'all 0.3s ease',
+                                        cursor: 'pointer',
+                                        '&:hover': {
+                                          transform: 'translateY(-8px)',
+                                          boxShadow: 6,
+                                          borderWidth: '3px'
+                                        }
+                                      }}
+                                      onClick={() => handleOpenDialogReserva(reserva)}
+                                    >
+                                      <Box
+                                        sx={{
+                                          background: reserva.estado_pago === 'pagado'
+                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)'
+                                            : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
+                                          p: 2,
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center'
+                                        }}
+                                      >
+                                        <Typography variant="h6" fontWeight={900} sx={{ color: 'white' }}>
+                                          Reserva #{reserva.id}
+                                        </Typography>
+                                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 40, height: 40 }}>
+                                          <PersonIcon sx={{ color: 'white' }} />
+                                        </Avatar>
+                                      </Box>
+                                      <CardContent sx={{ p: 2.5 }}>
+                                        <Typography variant="body1" fontWeight={700} gutterBottom sx={{ color: 'text.primary' }}>
+                                          {reserva.cliente_nombre} {reserva.cliente_apellido}
+                                        </Typography>
+                                        <Divider sx={{ my: 1.5 }} />
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                          <CalendarIcon fontSize="small" color="action" />
+                                          <Typography variant="body2" color="text.secondary">
+                                            Check-in: {new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'long' })}
+                                          </Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                          <CalendarIcon fontSize="small" color="action" />
+                                          <Typography variant="body2" color="text.secondary">
+                                            Check-out: {new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'long' })}
+                                          </Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                          <PeopleIcon fontSize="small" color="action" />
+                                          <Typography variant="body2" color="text.secondary">
+                                            {reserva.cantidad_personas} persona{reserva.cantidad_personas !== 1 ? 's' : ''}
+                                          </Typography>
+                                        </Box>
+                                        <Chip
+                                          label={reserva.estado_pago === 'pagado' ? '✓ PAGADO' : '⏳ PENDIENTE'}
+                                          size="medium"
+                                          sx={{
+                                            width: '100%',
+                                            fontWeight: 900,
+                                            bgcolor: reserva.estado_pago === 'pagado' ? '#4CAF50' : '#FFC107',
+                                            color: 'white',
+                                            fontSize: '0.9rem',
+                                            py: 1.5
+                                          }}
+                                        />
+                                        {reserva.tiene_tinaja && (
+                                          <Chip
+                                            icon={<HotTubIcon />}
+                                            label={`${reserva.cantidad_tinajas} Tinaja${reserva.cantidad_tinajas > 1 ? 's' : ''}`}
+                                            size="small"
+                                            color="info"
+                                            sx={{ mt: 1, fontWeight: 600 }}
+                                          />
+                                        )}
+                                      </CardContent>
+                                    </Card>
+                                  </Fade>
+                                </Grid>
+                              ))}
+                            </Grid>
+                          ) : (
+                            <Box
+                              sx={{
+                                textAlign: 'center',
+                                py: 6,
+                                px: 3,
+                                bgcolor: 'white',
+                                borderRadius: 3,
+                                border: '2px dashed',
+                                borderColor: 'divider'
+                              }}
+                            >
+                              <EventIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+                              <Typography variant="h6" color="text.secondary" fontWeight={600}>
+                                Sin reservas activas
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                Esta cabaña está disponible para nuevas reservas
+                              </Typography>
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Grow>
                   </Grid>
                 );
               })}
-              {cabanas.length > 3 && (
-                <Grid item xs={12}>
-                  <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: alpha('#667eea', 0.05), borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Y {cabanas.length - 3} cabañas más...
-                    </Typography>
-                  </Paper>
-                </Grid>
-              )}
             </Grid>
           </Box>
         )}
