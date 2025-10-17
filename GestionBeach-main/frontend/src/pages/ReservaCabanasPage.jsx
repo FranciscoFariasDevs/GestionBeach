@@ -59,20 +59,20 @@ import {
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
 
-// Colores ÚNICOS para cada cabaña (tonos naranjas/cálidos diferentes)
+// Colores ÚNICOS para cada cabaña (tonos VIBRANTES y brillantes)
 const COLORES_CABANAS = {
-  'path1': '#FF6B35',
-  'path2': '#FF8C42',
-  'path3': '#FFA351',
-  'path4': '#FFB961',
-  'path5': '#FFCF70',
-  'path6': '#FF7E5F',
-  'path7': '#FEB47B',
-  'path8': '#FF9A56',
-  'departamentoa': '#FF5722',
-  'departamentob': '#FF7043',
-  'departamentoA': '#FF5722',  // Con mayúscula también
-  'departamentoB': '#FF7043',  // Con mayúscula también
+  'path1': '#FF1744',  // Rojo vibrante
+  'path2': '#FF6F00',  // Naranja intenso
+  'path3': '#FFD600',  // Amarillo brillante
+  'path4': '#00E676',  // Verde lima
+  'path5': '#00BCD4',  // Cyan brillante
+  'path6': '#2979FF',  // Azul eléctrico
+  'path7': '#D500F9',  // Morado vibrante
+  'path8': '#FF6D00',  // Naranja fuego
+  'departamentoa': '#E91E63',  // Rosa fuerte
+  'departamentob': '#9C27B0',  // Púrpura
+  'departamentoA': '#E91E63',  // Rosa fuerte
+  'departamentoB': '#9C27B0',  // Púrpura
 };
 
 // Mapeo de IDs del SVG a nombres de carpetas de imágenes
@@ -446,16 +446,20 @@ const ReservaCabanasPage = () => {
 
         // 🔥 FORZAR aplicación de color con máxima prioridad
         elemento.setAttribute('fill', color);
+        elemento.setAttribute('fill-opacity', '0.5');  // MÁS transparente
+        elemento.setAttribute('stroke', '#000000');
+        elemento.setAttribute('stroke-width', '3');
         elemento.style.setProperty('fill', color, 'important');
-        elemento.style.fill = color;
-        elemento.style.stroke = 'none';
+        elemento.style.setProperty('fill-opacity', '0.5', 'important');  // MÁS transparente
+        elemento.style.setProperty('stroke', '#000000', 'important');
+        elemento.style.setProperty('stroke-width', '3', 'important');
         elemento.style.opacity = '1';
-        elemento.style.transition = 'fill 0.3s ease, opacity 0.3s ease';
+        elemento.style.transition = 'all 0.3s ease';
         elemento.style.cursor = 'pointer';
 
         // Verificar que se aplicó
         const computedStyle = window.getComputedStyle(elemento);
-        console.log(`   → Fill aplicado: ${computedStyle.fill}`);
+        console.log(`   → Fill aplicado: ${computedStyle.fill}, Stroke: ${computedStyle.stroke}`);
       } else {
         console.error(`❌ NO ENCONTRADO: "${id}"`);
       }
@@ -492,15 +496,16 @@ const ReservaCabanasPage = () => {
 
           const { cabana, nombreCabana } = obtenerEstadoCabana(id);
 
-          // Crear objeto de cabaña temporal si no existe en BD
-          const cabanaData = cabana || {
-            id: id,
-            nombre: nombreCabana || ID_TO_NOMBRE[id.toLowerCase()],
-            capacidad_personas: 4,
-            precio_noche: 50000,
-            precio_fin_semana: 70000,
-            descripcion: 'Cabaña acogedora en entorno natural'
-          };
+          // Si no existe cabaña en BD, mostrar error
+          if (!cabana) {
+            enqueueSnackbar(`⚠️ La cabaña "${nombreCabana || id}" no está registrada en el sistema. Contacta al administrador.`, {
+              variant: 'warning',
+              autoHideDuration: 5000
+            });
+            return;
+          }
+
+          const cabanaData = cabana;
 
           console.log('📦 Cabaña:', cabanaData);
           setSelectedCabana(cabanaData);
@@ -534,13 +539,19 @@ const ReservaCabanasPage = () => {
         });
 
         elemento.addEventListener('mouseenter', () => {
-          elemento.style.opacity = '0.8';
-          elemento.style.filter = 'brightness(1.2)';
+          elemento.setAttribute('fill-opacity', '0.8');
+          elemento.setAttribute('stroke-width', '5');
+          elemento.style.setProperty('fill-opacity', '0.8', 'important');
+          elemento.style.setProperty('stroke-width', '5', 'important');
+          elemento.style.filter = 'brightness(1.2) drop-shadow(0 0 10px rgba(0,0,0,0.5))';
         });
 
         elemento.addEventListener('mouseleave', () => {
-          elemento.style.opacity = '1';
-          elemento.style.filter = 'brightness(1)';
+          elemento.setAttribute('fill-opacity', '0.5');
+          elemento.setAttribute('stroke-width', '3');
+          elemento.style.setProperty('fill-opacity', '0.5', 'important');
+          elemento.style.setProperty('stroke-width', '3', 'important');
+          elemento.style.filter = 'none';
         });
       } else {
         console.warn(`❌ No se pudo configurar click para: "${id}"`);
@@ -628,7 +639,8 @@ const ReservaCabanasPage = () => {
     let currentDate = new Date(formData.fecha_inicio);
     const endDate = new Date(formData.fecha_fin);
 
-    while (currentDate <= endDate) {
+    // Excluir el último día (checkout)
+    while (currentDate < endDate) {
       fechas.push(new Date(currentDate));
       currentDate.setDate(currentDate.getDate() + 1);
     }
@@ -830,6 +842,109 @@ const ReservaCabanasPage = () => {
     return formData.tipo_pago === 'mitad' ? total / 2 : total;
   };
 
+  // Función para formatear RUT chileno mientras el usuario escribe
+  const formatearRUT = (rut) => {
+    // Eliminar caracteres no válidos
+    const rutLimpio = rut.replace(/[^0-9kK]/g, '');
+
+    if (rutLimpio.length === 0) return '';
+    if (rutLimpio.length === 1) return rutLimpio;
+
+    // Separar cuerpo y dígito verificador
+    const cuerpo = rutLimpio.slice(0, -1);
+    const dv = rutLimpio.slice(-1).toUpperCase();
+
+    // Formatear el cuerpo con puntos
+    let cuerpoFormateado = '';
+    let contador = 0;
+
+    for (let i = cuerpo.length - 1; i >= 0; i--) {
+      if (contador > 0 && contador % 3 === 0) {
+        cuerpoFormateado = '.' + cuerpoFormateado;
+      }
+      cuerpoFormateado = cuerpo[i] + cuerpoFormateado;
+      contador++;
+    }
+
+    return `${cuerpoFormateado}-${dv}`;
+  };
+
+  // Función para validar RUT chileno
+  const validarRUT = (rut) => {
+    if (!rut) return true; // RUT es opcional
+
+    // Limpiar RUT
+    const rutLimpio = rut.replace(/[^0-9kK]/g, '');
+    if (rutLimpio.length < 2) return false;
+
+    const cuerpo = rutLimpio.slice(0, -1);
+    const dv = rutLimpio.slice(-1).toUpperCase();
+
+    // Calcular dígito verificador
+    let suma = 0;
+    let multiplo = 2;
+
+    for (let i = cuerpo.length - 1; i >= 0; i--) {
+      suma += parseInt(cuerpo.charAt(i)) * multiplo;
+      multiplo = multiplo === 7 ? 2 : multiplo + 1;
+    }
+
+    const dvEsperado = 11 - (suma % 11);
+    const dvCalculado = dvEsperado === 11 ? '0' : dvEsperado === 10 ? 'K' : dvEsperado.toString();
+
+    return dv === dvCalculado;
+  };
+
+  // Handler para el cambio de RUT con formateo en vivo
+  const handleRUTChange = (e) => {
+    const valor = e.target.value;
+    const rutFormateado = formatearRUT(valor);
+    setFormData({ ...formData, cliente_rut: rutFormateado });
+  };
+
+  // Función para formatear teléfono chileno mientras el usuario escribe
+  const formatearTelefono = (telefono) => {
+    // Eliminar todo excepto números
+    const numeroLimpio = telefono.replace(/\D/g, '');
+
+    // Si está vacío, retornar el prefijo
+    if (numeroLimpio.length === 0) return '+569';
+
+    // Si empieza con 56, quitar ese prefijo
+    let numero = numeroLimpio;
+    if (numero.startsWith('56')) {
+      numero = numero.slice(2);
+    }
+
+    // Si empieza con 9, mantenerlo
+    if (numero.startsWith('9')) {
+      // Limitar a 9 dígitos (9 + 8 dígitos)
+      numero = numero.slice(0, 9);
+      return `+569${numero.slice(1)}`;
+    }
+
+    // Si no empieza con 9, agregarlo
+    numero = numero.slice(0, 8);
+    return `+569${numero}`;
+  };
+
+  // Handler para el cambio de teléfono con formateo en vivo
+  const handleTelefonoChange = (e) => {
+    const valor = e.target.value;
+
+    // Si el usuario borra todo, dejar el campo vacío (no forzar +569)
+    if (valor === '' || valor === '+' || valor === '+5' || valor === '+56') {
+      setFormData({ ...formData, cliente_telefono: '' });
+      return;
+    }
+
+    // Si el usuario está escribiendo y tiene contenido, formatear
+    if (valor.length > 0) {
+      const telefonoFormateado = formatearTelefono(valor);
+      setFormData({ ...formData, cliente_telefono: telefonoFormateado });
+    }
+  };
+
   const handleNext = () => {
     if (activeStep === 0) {
       setActiveStep((prev) => prev + 1);
@@ -837,16 +952,70 @@ const ReservaCabanasPage = () => {
     }
 
     if (activeStep === 1) {
+      // Validar cantidad de personas
       if (!formData.cantidad_personas || formData.cantidad_personas < 1) {
         enqueueSnackbar('Debe ingresar al menos 1 persona', { variant: 'warning' });
         return;
       }
-      if (!formData.cliente_nombre || !formData.cliente_telefono) {
-        enqueueSnackbar('Nombre y teléfono son requeridos', { variant: 'warning' });
+
+      // Validar nombre (sin números)
+      if (!formData.cliente_nombre || formData.cliente_nombre.trim() === '') {
+        enqueueSnackbar('El nombre es requerido', { variant: 'warning' });
         return;
       }
+      if (/\d/.test(formData.cliente_nombre)) {
+        enqueueSnackbar('El nombre no puede contener números', { variant: 'warning' });
+        return;
+      }
+
+      // Validar teléfono (formato +569XXXXXXXX)
+      if (!formData.cliente_telefono || formData.cliente_telefono.trim() === '') {
+        enqueueSnackbar('El teléfono es requerido', { variant: 'warning' });
+        return;
+      }
+      const telefonoLimpio = formData.cliente_telefono.replace(/\s/g, '');
+      if (!/^\+569\d{8}$/.test(telefonoLimpio)) {
+        enqueueSnackbar('El teléfono debe tener formato +569XXXXXXXX (ejemplo: +56912345678)', { variant: 'warning' });
+        return;
+      }
+
+      // Validar email (si está presente)
+      if (formData.cliente_email && formData.cliente_email.trim() !== '') {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.cliente_email)) {
+          enqueueSnackbar('El email no tiene un formato válido', { variant: 'warning' });
+          return;
+        }
+      }
+
+      // Validar RUT (si está presente)
+      if (formData.cliente_rut && formData.cliente_rut.trim() !== '') {
+        if (!validarRUT(formData.cliente_rut)) {
+          enqueueSnackbar('El RUT no es válido', { variant: 'warning' });
+          return;
+        }
+      }
+
+      // Validar fechas
       if (!formData.fecha_inicio || !formData.fecha_fin) {
         enqueueSnackbar('Debe seleccionar fechas de inicio y fin', { variant: 'warning' });
+        return;
+      }
+
+      // Validar que no sean fechas pasadas
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      const fechaInicio = new Date(formData.fecha_inicio);
+      fechaInicio.setHours(0, 0, 0, 0);
+
+      if (fechaInicio < hoy) {
+        enqueueSnackbar('No se pueden hacer reservas en fechas pasadas', { variant: 'warning' });
+        return;
+      }
+
+      if (formData.fecha_fin <= formData.fecha_inicio) {
+        enqueueSnackbar('La fecha de fin debe ser posterior a la fecha de inicio', { variant: 'warning' });
         return;
       }
     }
@@ -1209,8 +1378,10 @@ const ReservaCabanasPage = () => {
                     fullWidth
                     label="Teléfono"
                     value={formData.cliente_telefono}
-                    onChange={(e) => setFormData({ ...formData, cliente_telefono: e.target.value })}
+                    onChange={handleTelefonoChange}
                     required
+                    placeholder="+569XXXXXXXX"
+                    helperText="Se formatea automáticamente"
                     InputProps={{
                       startAdornment: <PhoneIcon sx={{ mr: 1, color: 'action.active' }} />,
                     }}
@@ -1224,6 +1395,8 @@ const ReservaCabanasPage = () => {
                     type="email"
                     value={formData.cliente_email}
                     onChange={(e) => setFormData({ ...formData, cliente_email: e.target.value })}
+                    placeholder="ejemplo@correo.com"
+                    helperText="Opcional"
                     InputProps={{
                       startAdornment: <EmailIcon sx={{ mr: 1, color: 'action.active' }} />,
                     }}
@@ -1235,7 +1408,9 @@ const ReservaCabanasPage = () => {
                     fullWidth
                     label="RUT"
                     value={formData.cliente_rut}
-                    onChange={(e) => setFormData({ ...formData, cliente_rut: e.target.value })}
+                    onChange={handleRUTChange}
+                    placeholder="12.345.678-9"
+                    helperText="Opcional - Se formatea automáticamente"
                     InputProps={{
                       startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />,
                     }}
@@ -1266,6 +1441,7 @@ const ReservaCabanasPage = () => {
                     label="Fecha Check-In"
                     value={formData.fecha_inicio}
                     onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
+                    minDate={new Date()}
                     slots={{
                       day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
                     }}
@@ -1282,6 +1458,7 @@ const ReservaCabanasPage = () => {
                     label="Fecha Check-Out"
                     value={formData.fecha_fin}
                     onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
+                    minDate={formData.fecha_inicio || new Date()}
                     slots={{
                       day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
                     }}

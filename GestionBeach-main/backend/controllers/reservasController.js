@@ -205,7 +205,7 @@ exports.crearReserva = async (req, res) => {
       }
     }
 
-    // Crear reserva
+    // Crear reserva (SIN cantidad_noches y precio_final porque son columnas calculadas)
     const resultado = await pool.request()
       .input('cabana_id', sql.Int, cabana_id)
       .input('cliente_nombre', sql.VarChar, cliente_nombre)
@@ -218,10 +218,8 @@ exports.crearReserva = async (req, res) => {
       .input('cantidad_personas', sql.Int, cantidad_personas)
       .input('personas_extra', sql.Int, personas_extra || 0)
       .input('costo_personas_extra', sql.Decimal(18, 2), costo_personas_extra || 0)
-      .input('cantidad_noches', sql.Int, cantidad_noches || 1)
       .input('precio_por_noche', sql.Decimal(18, 2), precio_por_noche)
       .input('precio_total', sql.Decimal(18, 2), precio_total)
-      .input('precio_final', sql.Decimal(18, 2), precio_final || precio_total)
       .input('descuento', sql.Decimal(18, 2), descuento || 0)
       .input('estado', sql.VarChar, estado || 'pendiente')
       .input('metodo_pago', sql.VarChar, metodo_pago || null)
@@ -235,7 +233,7 @@ exports.crearReserva = async (req, res) => {
         INSERT INTO dbo.reservas_cabanas (
           cabana_id, cliente_nombre, cliente_apellido, cliente_telefono, cliente_email, cliente_rut,
           fecha_inicio, fecha_fin, cantidad_personas, personas_extra, costo_personas_extra,
-          cantidad_noches, precio_por_noche, precio_total, precio_final, descuento,
+          precio_por_noche, precio_total, descuento,
           estado, metodo_pago, estado_pago, monto_pagado,
           origen, numero_whatsapp, notas, usuario_creacion
         )
@@ -243,7 +241,7 @@ exports.crearReserva = async (req, res) => {
         VALUES (
           @cabana_id, @cliente_nombre, @cliente_apellido, @cliente_telefono, @cliente_email, @cliente_rut,
           @fecha_inicio, @fecha_fin, @cantidad_personas, @personas_extra, @costo_personas_extra,
-          @cantidad_noches, @precio_por_noche, @precio_total, @precio_final, @descuento,
+          @precio_por_noche, @precio_total, @descuento,
           @estado, @metodo_pago, @estado_pago, @monto_pagado,
           @origen, @numero_whatsapp, @notas, @usuario_creacion
         )

@@ -74,6 +74,30 @@ import {
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
+// Colores únicos para cada cabaña
+const COLORES_CABANAS = {
+  'cabana1': '#FF1744',
+  'cabana2': '#FF6F00',
+  'cabana3': '#FFD600',
+  'cabana4': '#00E676',
+  'cabana5': '#00BCD4',
+  'cabana6': '#2979FF',
+  'cabana7': '#D500F9',
+  'cabana8': '#FF6D00',
+  'departamentoa': '#E91E63',
+  'departamentob': '#9C27B0',
+};
+
+// Función para normalizar nombres
+const normalizarNombre = (nombre) => {
+  if (!nombre) return '';
+  return nombre
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, '');
+};
+
 const AdminCabanasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   const fileInputRef = useRef(null);
@@ -825,17 +849,29 @@ const AdminCabanasPage = () => {
   );
 
   // ============================================
-  // RENDER TAB RESERVAS - CON CANTIDAD DE TINAJAS
+  // RENDER TAB RESERVAS - CON CANTIDAD DE TINAJAS Y TIMELINE
   // ============================================
-  const renderTabReservas = () => (
+  const renderTabReservas = () => {
+    // Filtrar reservas pendientes (no pagadas)
+    const reservasPendientes = reservas.filter(r => r.estado_pago === 'pendiente');
+
+    return (
     <Fade in>
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
           <Box>
             <Typography variant="h4" fontWeight={700} gutterBottom>
-              Gestión de Reservas
+              Cabañas Reservadas
             </Typography>
             <Typography variant="body2" color="text.secondary">
+              {reservasPendientes.length > 0 && (
+                <Chip
+                  label={`${reservasPendientes.length} reserva${reservasPendientes.length > 1 ? 's' : ''} pendiente${reservasPendientes.length > 1 ? 's' : ''} de pago`}
+                  color="warning"
+                  size="small"
+                  sx={{ fontWeight: 600, borderRadius: 2, mr: 1 }}
+                />
+              )}
               Administra las reservas de cabañas
             </Typography>
           </Box>
@@ -1032,9 +1068,75 @@ const AdminCabanasPage = () => {
             </Table>
           </TableContainer>
         )}
+
+        {/* Timeline visual de reservas por cabaña */}
+        {!loadingReservas && cabanas.length > 0 && (
+          <Box sx={{ mt: 5 }}>
+            <Typography variant="h5" fontWeight={700} gutterBottom sx={{ mb: 3 }}>
+              📅 Timeline de Reservas por Cabaña
+            </Typography>
+            <Grid container spacing={2}>
+              {cabanas.slice(0, 3).map((cabana, idx) => {
+                const reservasCabana = reservas.filter(r => r.cabana_id === cabana.id && r.estado !== 'cancelada');
+                return (
+                  <Grid item xs={12} key={cabana.id}>
+                    <Paper elevation={2} sx={{ p: 3, borderRadius: 3, bgcolor: alpha('#667eea', 0.02) }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                        <Avatar sx={{ bgcolor: COLORES_CABANAS[normalizarNombre(cabana.nombre)] || '#667eea', width: 48, height: 48 }}>
+                          <CottageIcon />
+                        </Avatar>
+                        <Typography variant="h6" fontWeight={700}>
+                          {cabana.nombre}
+                        </Typography>
+                        <Chip
+                          label={`${reservasCabana.length} reserva${reservasCabana.length !== 1 ? 's' : ''}`}
+                          size="small"
+                          color="primary"
+                          sx={{ fontWeight: 600, borderRadius: 2 }}
+                        />
+                      </Box>
+
+                      {reservasCabana.length > 0 ? (
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {reservasCabana.slice(0, 5).map((reserva, rIdx) => (
+                            <Chip
+                              key={reserva.id}
+                              label={`${new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })} - ${new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })}`}
+                              color={reserva.estado_pago === 'pagado' ? 'success' : 'warning'}
+                              size="medium"
+                              sx={{ fontWeight: 600, borderRadius: 2, px: 2 }}
+                              icon={<CalendarIcon />}
+                            />
+                          ))}
+                          {reservasCabana.length > 5 && (
+                            <Chip label={`+${reservasCabana.length - 5} más`} size="small" variant="outlined" />
+                          )}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          Sin reservas activas
+                        </Typography>
+                      )}
+                    </Paper>
+                  </Grid>
+                );
+              })}
+              {cabanas.length > 3 && (
+                <Grid item xs={12}>
+                  <Paper elevation={0} sx={{ p: 2, textAlign: 'center', bgcolor: alpha('#667eea', 0.05), borderRadius: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Y {cabanas.length - 3} cabañas más...
+                    </Typography>
+                  </Paper>
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+        )}
       </Box>
     </Fade>
-  );
+    );
+  };
 
   // ============================================
   // RENDER TAB WHATSAPP - MEJORADO Y FUNCIONAL
@@ -1567,14 +1669,7 @@ const AdminCabanasPage = () => {
           />
           <Tab
             icon={<EventIcon />}
-            label="Reservas"
-            iconPosition="start"
-          />
-          <Tab
-            icon={<Badge badgeContent={conversaciones.length} color="error">
-              <WhatsAppIcon />
-            </Badge>}
-            label="WhatsApp"
+            label="Reservas & Timeline"
             iconPosition="start"
           />
           <Tab
@@ -1589,8 +1684,7 @@ const AdminCabanasPage = () => {
       <Box sx={{ mt: 3 }}>
         {tabValue === 0 && renderTabCabanas()}
         {tabValue === 1 && renderTabReservas()}
-        {tabValue === 2 && renderTabWhatsApp()}
-        {tabValue === 3 && renderTabConfiguracion()}
+        {tabValue === 2 && renderTabConfiguracion()}
       </Box>
 
       {/* Input oculto para seleccionar archivos */}
