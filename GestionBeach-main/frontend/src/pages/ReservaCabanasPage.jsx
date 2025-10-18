@@ -447,16 +447,17 @@ const ReservaCabanasPage = () => {
 
         // 🔥 FORZAR aplicación de color con máxima prioridad
         elemento.setAttribute('fill', color);
-        elemento.setAttribute('fill-opacity', '0.5');  // MÁS transparente
-        elemento.setAttribute('stroke', '#000000');
-        elemento.setAttribute('stroke-width', '3');
+        elemento.setAttribute('fill-opacity', '0.15');  // Súper transparente
+        elemento.setAttribute('stroke', '#A5D6A7');  // Verde pastel suave para bordes
+        elemento.setAttribute('stroke-width', '1');  // Borde muy delgado
         elemento.style.setProperty('fill', color, 'important');
-        elemento.style.setProperty('fill-opacity', '0.5', 'important');  // MÁS transparente
-        elemento.style.setProperty('stroke', '#000000', 'important');
-        elemento.style.setProperty('stroke-width', '3', 'important');
+        elemento.style.setProperty('fill-opacity', '0.15', 'important');  // Súper transparente
+        elemento.style.setProperty('stroke', '#A5D6A7', 'important');
+        elemento.style.setProperty('stroke-width', '1', 'important');
         elemento.style.opacity = '1';
         elemento.style.transition = 'all 0.3s ease';
         elemento.style.cursor = 'pointer';
+        elemento.style.filter = 'brightness(1.2)';  // Más claro
 
         // Verificar que se aplicó
         const computedStyle = window.getComputedStyle(elemento);
@@ -540,19 +541,19 @@ const ReservaCabanasPage = () => {
         });
 
         elemento.addEventListener('mouseenter', () => {
-          elemento.setAttribute('fill-opacity', '0.8');
-          elemento.setAttribute('stroke-width', '5');
-          elemento.style.setProperty('fill-opacity', '0.8', 'important');
-          elemento.style.setProperty('stroke-width', '5', 'important');
-          elemento.style.filter = 'brightness(1.2) drop-shadow(0 0 10px rgba(0,0,0,0.5))';
+          elemento.setAttribute('fill-opacity', '0.3');
+          elemento.setAttribute('stroke-width', '2');
+          elemento.style.setProperty('fill-opacity', '0.3', 'important');
+          elemento.style.setProperty('stroke-width', '2', 'important');
+          elemento.style.filter = 'brightness(1.3) drop-shadow(0 0 12px rgba(165, 214, 167, 0.5))';
         });
 
         elemento.addEventListener('mouseleave', () => {
-          elemento.setAttribute('fill-opacity', '0.5');
-          elemento.setAttribute('stroke-width', '3');
-          elemento.style.setProperty('fill-opacity', '0.5', 'important');
-          elemento.style.setProperty('stroke-width', '3', 'important');
-          elemento.style.filter = 'none';
+          elemento.setAttribute('fill-opacity', '0.15');
+          elemento.setAttribute('stroke-width', '1');
+          elemento.style.setProperty('fill-opacity', '0.15', 'important');
+          elemento.style.setProperty('stroke-width', '1', 'important');
+          elemento.style.filter = 'brightness(1.2)';
         });
       } else {
         console.warn(`❌ No se pudo configurar click para: "${id}"`);
@@ -1899,26 +1900,49 @@ const ReservaCabanasPage = () => {
       <Box
         sx={{
           minHeight: '100vh',
-          background: 'linear-gradient(135deg, #FFE5D9 0%, #FFDDC1 50%, #FFC4A3 100%)',
+          background: 'linear-gradient(180deg, #B3E5FC 0%, #E1F5FE 12%, #FFF9C4 25%, #FFECB3 40%, #FFE082 55%, #FFCC80 70%, #FFB74D 85%, #FFA726 100%)',
+          backgroundAttachment: 'fixed',
           py: 4,
+          position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'radial-gradient(circle at 15% 15%, rgba(255, 255, 255, 0.5) 0%, transparent 40%), radial-gradient(circle at 85% 85%, rgba(255, 248, 225, 0.4) 0%, transparent 50%)',
+            pointerEvents: 'none',
+          }
         }}
       >
         <Container maxWidth="xl">
           {/* Header */}
           <Fade in timeout={800}>
-            <Box sx={{ textAlign: 'center', mb: 4 }}>
+            <Box sx={{ textAlign: 'center', mb: 4, position: 'relative', zIndex: 1 }}>
               <Typography
                 variant="h3"
                 sx={{
                   fontWeight: 900,
-                  color: '#D84315',
+                  background: 'linear-gradient(135deg, #4DD0E1 0%, #26C6DA 50%, #00ACC1 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
                   mb: 2,
-                  textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
+                  textShadow: '0 2px 10px rgba(77, 208, 225, 0.3)',
+                  filter: 'drop-shadow(0 2px 6px rgba(255, 255, 255, 0.9))',
                 }}
               >
                 Mapa Interactivo de Cabañas
               </Typography>
-              <Typography variant="h6" sx={{ color: '#E64A19', fontWeight: 600 }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  color: '#26A69A',
+                  fontWeight: 600,
+                  textShadow: '0 1px 4px rgba(255, 255, 255, 0.9)',
+                }}
+              >
                 Selecciona una cabaña para ver detalles y crear tu reserva
               </Typography>
             </Box>
@@ -1930,12 +1954,17 @@ const ReservaCabanasPage = () => {
               elevation={4}
               sx={{
                 p: 3,
-                background: 'white',
-                borderRadius: 2,
+                background: 'rgba(255, 255, 255, 0.75)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: 5,
                 minHeight: '600px',
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
+                border: '2px solid rgba(255, 255, 255, 0.8)',
+                boxShadow: '0 6px 24px rgba(77, 208, 225, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.6)',
+                position: 'relative',
+                zIndex: 1,
               }}
             >
               {loading ? (
@@ -1948,9 +1977,11 @@ const ReservaCabanasPage = () => {
                   sx={{
                     width: '100%',
                     height: 'auto',
+                    filter: 'brightness(1.15) contrast(1.05) saturate(1.1)',
                     '& svg': {
                       width: '100%',
                       height: 'auto',
+                      filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1))',
                     },
                   }}
                 />
