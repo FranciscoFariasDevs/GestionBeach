@@ -15,7 +15,8 @@
       "Bash(git push:*)",
       "Bash(git add:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nRemover credenciales hardcodeadas de Twilio\n\n- Eliminadas credenciales de Twilio hardcodeadas en controllers\n- Ahora usa solo variables de entorno\n- Seguridad mejorada\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git commit -m \"$(cat <<''EOF''\nMejoras visuales e interactivas en admin de cabañas\n\n- Timeline super visual con cards coloridas por cabaña\n- Botones de estado grandes con gradientes y animaciones\n- Validación temprana de cabañas ocupadas en reserva\n- Efectos hover con escalado y rotación en botones\n- Iconos más grandes y tooltips informativos\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nMejoras visuales e interactivas en admin de cabañas\n\n- Timeline super visual con cards coloridas por cabaña\n- Botones de estado grandes con gradientes y animaciones\n- Validación temprana de cabañas ocupadas en reserva\n- Efectos hover con escalado y rotación en botones\n- Iconos más grandes y tooltips informativos\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(npm run build)"
     ],
     "deny": [],
     "ask": []

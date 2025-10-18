@@ -121,16 +121,6 @@ const AdminCabanasPage = () => {
   const [dialogPagoOpen, setDialogPagoOpen] = useState(false);
   const [reservaParaPago, setReservaParaPago] = useState(null);
 
-  // Estados de Tinajas (Configuración)
-  const [tinajas, setTinajas] = useState([]);
-  const [loadingTinajas, setLoadingTinajas] = useState(false);
-
-  // Estados de WhatsApp
-  const [conversaciones, setConversaciones] = useState([]);
-  const [conversacionActiva, setConversacionActiva] = useState(null);
-  const [mensajes, setMensajes] = useState([]);
-  const [nuevoMensaje, setNuevoMensaje] = useState('');
-  const [loadingWhatsApp, setLoadingWhatsApp] = useState(false);
 
   // Form states
   const [formCabana, setFormCabana] = useState({
@@ -172,19 +162,12 @@ const AdminCabanasPage = () => {
   useEffect(() => {
     if (tabValue === 0) cargarCabanas();
     if (tabValue === 1) cargarReservas();
-    if (tabValue === 2) cargarConversaciones();
-    if (tabValue === 3) cargarTinajas();
+    if (tabValue === 2) {
+      cargarReservas();
+      if (cabanas.length === 0) cargarCabanas();
+    }
   }, [tabValue]);
 
-  // Auto-refresh para WhatsApp cada 10 segundos
-  useEffect(() => {
-    if (tabValue === 2 && conversacionActiva) {
-      const interval = setInterval(() => {
-        cargarMensajes(conversacionActiva);
-      }, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [tabValue, conversacionActiva]);
 
   // ============================================
   // FUNCIONES DE CARGA
@@ -219,48 +202,6 @@ const AdminCabanasPage = () => {
     }
   };
 
-  const cargarConversaciones = async () => {
-    try {
-      setLoadingWhatsApp(true);
-      const response = await api.get('/cabanas/whatsapp/conversaciones');
-      const conversacionesData = response.data?.conversaciones || [];
-      setConversaciones(conversacionesData);
-    } catch (error) {
-      console.error('Error loading conversaciones:', error);
-      enqueueSnackbar('Error al cargar conversaciones WhatsApp', { variant: 'error' });
-      setConversaciones([]);
-    } finally {
-      setLoadingWhatsApp(false);
-    }
-  };
-
-  const cargarMensajes = async (telefono) => {
-    try {
-      const response = await api.get(`/cabanas/whatsapp/conversaciones/${telefono}`);
-      const mensajesData = response.data?.mensajes || [];
-      setMensajes(mensajesData);
-      setConversacionActiva(telefono);
-    } catch (error) {
-      console.error('Error loading mensajes:', error);
-      enqueueSnackbar('Error al cargar mensajes', { variant: 'error' });
-      setMensajes([]);
-    }
-  };
-
-  const cargarTinajas = async () => {
-    try {
-      setLoadingTinajas(true);
-      const response = await api.get('/cabanas/tinajas');
-      const tinajasData = response.data?.tinajas || [];
-      setTinajas(tinajasData);
-    } catch (error) {
-      console.error('Error loading tinajas:', error);
-      enqueueSnackbar('Error al cargar tinajas', { variant: 'error' });
-      setTinajas([]);
-    } finally {
-      setLoadingTinajas(false);
-    }
-  };
 
   // ============================================
   // FUNCIONES PARA SUBIR IMÁGENES
@@ -506,33 +447,6 @@ const AdminCabanasPage = () => {
     }
   };
 
-  const handleEnviarMensaje = async () => {
-    if (!nuevoMensaje.trim() || !conversacionActiva) return;
-    try {
-      await api.post('/cabanas/whatsapp/enviar', {
-        telefono_destino: conversacionActiva,
-        mensaje: nuevoMensaje
-      });
-      setNuevoMensaje('');
-      cargarMensajes(conversacionActiva);
-      enqueueSnackbar('✅ Mensaje enviado', { variant: 'success' });
-    } catch (error) {
-      enqueueSnackbar('Error al enviar mensaje', { variant: 'error' });
-    }
-  };
-
-  const handleActualizarPreciosTinaja = async (tinajaId, precioAlta, precioBaja) => {
-    try {
-      await api.put(`/cabanas/tinajas/${tinajaId}`, {
-        precio_temporada_alta: precioAlta,
-        precio_temporada_baja: precioBaja
-      });
-      enqueueSnackbar('✅ Precios de tinaja actualizados exitosamente', { variant: 'success' });
-      cargarTinajas();
-    } catch (error) {
-      enqueueSnackbar('Error al actualizar precios de tinaja', { variant: 'error' });
-    }
-  };
 
   // ============================================
   // CARDS DE ESTADÍSTICAS
@@ -540,7 +454,7 @@ const AdminCabanasPage = () => {
   const StatsCards = () => {
     const cabanasDisponibles = cabanas.filter(c => c.estado === 'disponible').length;
     const reservasActivas = reservas.filter(r => r.estado === 'confirmada' || r.estado === 'en_curso').length;
-    const conversacionesPendientes = conversaciones.length;
+    const reservasPendientesPago = reservas.filter(r => r.estado_pago === 'pendiente').length;
 
     return (
       <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -652,14 +566,14 @@ const AdminCabanasPage = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="h3" fontWeight={700}>
-                      {conversacionesPendientes}
+                      {reservasPendientesPago}
                     </Typography>
                     <Typography variant="subtitle1" sx={{ opacity: 0.9 }}>
-                      Conversaciones
+                      Pendientes de Pago
                     </Typography>
                   </Box>
                   <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 60, height: 60 }}>
-                    <WhatsAppIcon sx={{ fontSize: 32 }} />
+                    <MoneyIcon sx={{ fontSize: 32 }} />
                   </Avatar>
                 </Box>
               </CardContent>
@@ -1164,36 +1078,51 @@ const AdminCabanasPage = () => {
             </Table>
           </TableContainer>
         )}
+      </Box>
+    </Fade>
+    );
+  };
 
-        {/* Timeline SUPER VISUAL de reservas por cabaña */}
-        {!loadingReservas && cabanas.length > 0 && (
-          <Box sx={{ mt: 6 }}>
-            <Paper
-              elevation={4}
-              sx={{
-                p: 4,
-                borderRadius: 4,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                mb: 4
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 64, height: 64 }}>
-                  <EventIcon sx={{ fontSize: 36 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" fontWeight={900}>
-                    📅 Timeline Interactivo de Reservas
-                  </Typography>
-                  <Typography variant="subtitle1" sx={{ opacity: 0.9, mt: 0.5 }}>
-                    Vista detallada de todas las cabañas y sus reservas activas
-                  </Typography>
-                </Box>
+  // ============================================
+  // RENDER TAB TIMELINE - SUPER MEJORADO
+  // ============================================
+  const renderTabTimeline = () => {
+    return (
+      <Fade in>
+        <Box>
+          {/* Header del Timeline */}
+          <Paper
+            elevation={6}
+            sx={{
+              p: 4,
+              borderRadius: 4,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              mb: 4,
+              boxShadow: '0 12px 40px rgba(102, 126, 234, 0.4)'
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 72, height: 72 }}>
+                <EventIcon sx={{ fontSize: 42 }} />
+              </Avatar>
+              <Box>
+                <Typography variant="h3" fontWeight={900}>
+                  Timeline de Reservas
+                </Typography>
+                <Typography variant="h6" sx={{ opacity: 0.95, mt: 1 }}>
+                  Vista detallada de todas las cabanas y sus reservas activas con acciones completas
+                </Typography>
               </Box>
-            </Paper>
+            </Box>
+          </Paper>
 
-            <Grid container spacing={3}>
+          {loadingReservas ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
+              <CircularProgress size={60} thickness={4} />
+            </Box>
+          ) : cabanas.length > 0 ? (
+            <Grid container spacing={4}>
               {cabanas.map((cabana, idx) => {
                 const reservasCabana = reservas.filter(r => r.cabana_id === cabana.id && r.estado !== 'cancelada');
                 const colorCabana = COLORES_CABANAS[normalizarNombre(cabana.nombre)] || '#667eea';
@@ -1202,38 +1131,55 @@ const AdminCabanasPage = () => {
                   <Grid item xs={12} key={cabana.id}>
                     <Grow in timeout={300 + idx * 100}>
                       <Card
-                        elevation={6}
+                        elevation={8}
                         sx={{
                           borderRadius: 4,
-                          overflow: 'hidden',
-                          transition: 'all 0.3s ease',
-                          border: `3px solid ${colorCabana}`,
+                          overflow: 'visible',
+                          transition: 'all 0.4s ease',
+                          border: `4px solid ${colorCabana}`,
+                          position: 'relative',
                           '&:hover': {
-                            transform: 'scale(1.02)',
-                            boxShadow: `0 12px 40px ${colorCabana}40`,
+                            transform: 'translateY(-8px)',
+                            boxShadow: `0 16px 48px ${colorCabana}50`,
                           }
                         }}
                       >
-                        {/* Header de la cabaña */}
+                        {/* Header de la cabana con color unico */}
                         <Box
                           sx={{
-                            background: `linear-gradient(135deg, ${colorCabana} 0%, ${colorCabana}CC 100%)`,
-                            p: 3,
+                            background: `linear-gradient(135deg, ${colorCabana} 0%, ${colorCabana}DD 100%)`,
+                            p: 3.5,
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'space-between'
+                            justifyContent: 'space-between',
+                            position: 'relative',
+                            '&::before': {
+                              content: '""',
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              background: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\'/%3E%3Cpath d=\'M10 0L0 10l10 10 10-10z\' fill=\'%23ffffff\' opacity=\'0.05\'/%3E%3C/svg%3E")',
+                              opacity: 0.1
+                            }
                           }}
                         >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 64, height: 64 }}>
-                              <CottageIcon sx={{ fontSize: 36, color: 'white' }} />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+                            <Avatar sx={{
+                              bgcolor: 'rgba(255,255,255,0.25)',
+                              width: 72,
+                              height: 72,
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                            }}>
+                              <CottageIcon sx={{ fontSize: 40, color: 'white' }} />
                             </Avatar>
                             <Box>
-                              <Typography variant="h4" fontWeight={900} sx={{ color: 'white' }}>
+                              <Typography variant="h3" fontWeight={900} sx={{ color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
                                 {cabana.nombre}
                               </Typography>
-                              <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', mt: 0.5 }}>
-                                Capacidad: {cabana.capacidad_personas} personas • {cabana.numero_habitaciones} hab.
+                              <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.95)', mt: 0.5 }}>
+                                Capacidad: {cabana.capacidad_personas} personas • {cabana.numero_habitaciones} habitacion{cabana.numero_habitaciones !== 1 ? 'es' : ''}
                               </Typography>
                             </Box>
                           </Box>
@@ -1241,103 +1187,289 @@ const AdminCabanasPage = () => {
                             label={`${reservasCabana.length} ${reservasCabana.length === 1 ? 'Reserva' : 'Reservas'}`}
                             size="large"
                             sx={{
-                              bgcolor: 'rgba(255,255,255,0.2)',
+                              bgcolor: 'rgba(255,255,255,0.25)',
                               color: 'white',
                               fontWeight: 900,
-                              fontSize: '1.1rem',
-                              height: 48,
+                              fontSize: '1.2rem',
+                              height: 56,
                               borderRadius: 3,
-                              px: 3,
-                              backdropFilter: 'blur(10px)'
+                              px: 4,
+                              backdropFilter: 'blur(10px)',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                              position: 'relative',
+                              zIndex: 1
                             }}
                           />
                         </Box>
 
-                        {/* Contenido: Reservas en cards */}
-                        <CardContent sx={{ p: 4, bgcolor: alpha(colorCabana, 0.03) }}>
+                        {/* Contenido: Reservas en cards mejoradas */}
+                        <CardContent sx={{ p: 4, bgcolor: alpha(colorCabana, 0.04) }}>
                           {reservasCabana.length > 0 ? (
-                            <Grid container spacing={2}>
+                            <Grid container spacing={3}>
                               {reservasCabana.map((reserva, rIdx) => (
                                 <Grid item xs={12} sm={6} md={4} key={reserva.id}>
                                   <Fade in timeout={400 + rIdx * 100}>
                                     <Card
-                                      elevation={3}
+                                      elevation={6}
                                       sx={{
                                         borderRadius: 3,
-                                        border: '2px solid',
-                                        borderColor: reserva.estado_pago === 'pagado' ? '#4CAF50' : '#FFC107',
+                                        border: '3px solid',
+                                        borderColor:
+                                          reserva.estado_pago === 'pagado' ? '#4CAF50' :
+                                          reserva.estado_pago === 'parcial' ? '#2196F3' : '#FFC107',
                                         transition: 'all 0.3s ease',
-                                        cursor: 'pointer',
+                                        overflow: 'hidden',
                                         '&:hover': {
                                           transform: 'translateY(-8px)',
-                                          boxShadow: 6,
-                                          borderWidth: '3px'
+                                          boxShadow: 8,
+                                          borderWidth: '4px'
                                         }
                                       }}
-                                      onClick={() => handleOpenDialogReserva(reserva)}
                                     >
+                                      {/* Header de reserva */}
                                       <Box
                                         sx={{
-                                          background: reserva.estado_pago === 'pagado'
-                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)'
-                                            : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
-                                          p: 2,
+                                          background:
+                                            reserva.estado_pago === 'pagado'
+                                              ? 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)'
+                                              : reserva.estado_pago === 'parcial'
+                                              ? 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)'
+                                              : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
+                                          p: 2.5,
                                           display: 'flex',
                                           justifyContent: 'space-between',
                                           alignItems: 'center'
                                         }}
                                       >
-                                        <Typography variant="h6" fontWeight={900} sx={{ color: 'white' }}>
+                                        <Typography variant="h5" fontWeight={900} sx={{ color: 'white' }}>
                                           Reserva #{reserva.id}
                                         </Typography>
-                                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 40, height: 40 }}>
-                                          <PersonIcon sx={{ color: 'white' }} />
+                                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 48, height: 48 }}>
+                                          <PersonIcon sx={{ color: 'white', fontSize: 28 }} />
                                         </Avatar>
                                       </Box>
-                                      <CardContent sx={{ p: 2.5 }}>
-                                        <Typography variant="body1" fontWeight={700} gutterBottom sx={{ color: 'text.primary' }}>
+
+                                      {/* Informacion de reserva */}
+                                      <CardContent sx={{ p: 3 }}>
+                                        <Typography variant="h6" fontWeight={700} gutterBottom sx={{ color: 'text.primary' }}>
                                           {reserva.cliente_nombre} {reserva.cliente_apellido}
                                         </Typography>
-                                        <Divider sx={{ my: 1.5 }} />
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                        <Divider sx={{ my: 2 }} />
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                                           <CalendarIcon fontSize="small" color="action" />
-                                          <Typography variant="body2" color="text.secondary">
-                                            Check-in: {new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'long' })}
+                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
+                                            Check-in: {new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}
                                           </Typography>
                                         </Box>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                                           <CalendarIcon fontSize="small" color="action" />
-                                          <Typography variant="body2" color="text.secondary">
-                                            Check-out: {new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'long' })}
+                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
+                                            Check-out: {new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}
                                           </Typography>
                                         </Box>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
                                           <PeopleIcon fontSize="small" color="action" />
-                                          <Typography variant="body2" color="text.secondary">
+                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
                                             {reserva.cantidad_personas} persona{reserva.cantidad_personas !== 1 ? 's' : ''}
                                           </Typography>
                                         </Box>
+
+                                        {/* Estado de pago */}
                                         <Chip
-                                          label={reserva.estado_pago === 'pagado' ? '✓ PAGADO' : '⏳ PENDIENTE'}
+                                          label={
+                                            reserva.estado_pago === 'pagado' ? 'PAGADO COMPLETO' :
+                                            reserva.estado_pago === 'parcial' ? `PAGO PARCIAL (${reserva.monto_pagado ? `$${reserva.monto_pagado.toLocaleString('es-CL')}` : '50%'})` :
+                                            'PENDIENTE DE PAGO'
+                                          }
                                           size="medium"
                                           sx={{
                                             width: '100%',
                                             fontWeight: 900,
-                                            bgcolor: reserva.estado_pago === 'pagado' ? '#4CAF50' : '#FFC107',
+                                            bgcolor:
+                                              reserva.estado_pago === 'pagado' ? '#4CAF50' :
+                                              reserva.estado_pago === 'parcial' ? '#2196F3' : '#FFC107',
                                             color: 'white',
                                             fontSize: '0.9rem',
-                                            py: 1.5
+                                            py: 2,
+                                            mb: 1.5
                                           }}
                                         />
+
+                                        {/* Tinajas */}
                                         {reserva.tiene_tinaja && (
                                           <Chip
                                             icon={<HotTubIcon />}
                                             label={`${reserva.cantidad_tinajas} Tinaja${reserva.cantidad_tinajas > 1 ? 's' : ''}`}
-                                            size="small"
+                                            size="medium"
                                             color="info"
-                                            sx={{ mt: 1, fontWeight: 600 }}
+                                            sx={{ mb: 2, fontWeight: 700, fontSize: '0.9rem' }}
                                           />
                                         )}
+
+                                        {/* Precio */}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, p: 1.5, bgcolor: alpha('#667eea', 0.08), borderRadius: 2 }}>
+                                          <MoneyIcon color="primary" />
+                                          <Typography variant="h6" fontWeight={700} color="primary">
+                                            ${reserva.precio_final?.toLocaleString('es-CL')}
+                                          </Typography>
+                                        </Box>
+
+                                        <Divider sx={{ my: 2 }} />
+
+                                        {/* BOTONES DE ACCION - TODOS INCLUIDOS */}
+                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                          {/* Boton Confirmar Pago */}
+                                          {reserva.estado === 'pendiente' && (
+                                            <Grow in timeout={300}>
+                                              <Button
+                                                fullWidth
+                                                size="large"
+                                                variant="contained"
+                                                startIcon={<MoneyIcon sx={{ fontSize: 22 }} />}
+                                                onClick={() => handleOpenDialogPago(reserva)}
+                                                sx={{
+                                                  borderRadius: 2.5,
+                                                  py: 1.5,
+                                                  fontWeight: 900,
+                                                  fontSize: '0.95rem',
+                                                  background: 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)',
+                                                  boxShadow: '0 4px 16px rgba(76, 175, 80, 0.4)',
+                                                  transition: 'all 0.3s ease',
+                                                  '&:hover': {
+                                                    boxShadow: '0 6px 24px rgba(76, 175, 80, 0.6)',
+                                                    transform: 'scale(1.03)',
+                                                    background: 'linear-gradient(135deg, #45A049 0%, #388E3C 100%)',
+                                                  }
+                                                }}
+                                              >
+                                                Confirmar Pago
+                                              </Button>
+                                            </Grow>
+                                          )}
+
+                                          {/* Boton Check-In */}
+                                          {reserva.estado === 'confirmada' && !reserva.check_in_realizado && (
+                                            <Grow in timeout={400}>
+                                              <Button
+                                                fullWidth
+                                                size="large"
+                                                variant="contained"
+                                                startIcon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
+                                                onClick={() => handleCheckIn(reserva.id)}
+                                                sx={{
+                                                  borderRadius: 2.5,
+                                                  py: 1.5,
+                                                  fontWeight: 900,
+                                                  fontSize: '0.95rem',
+                                                  background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                                                  boxShadow: '0 4px 16px rgba(33, 150, 243, 0.4)',
+                                                  color: 'white',
+                                                  transition: 'all 0.3s ease',
+                                                  '&:hover': {
+                                                    boxShadow: '0 6px 24px rgba(33, 150, 243, 0.6)',
+                                                    transform: 'scale(1.03)',
+                                                    background: 'linear-gradient(135deg, #1976D2 0%, #1565C0 100%)',
+                                                  }
+                                                }}
+                                              >
+                                                Check-In
+                                              </Button>
+                                            </Grow>
+                                          )}
+
+                                          {/* Boton Check-Out */}
+                                          {reserva.check_in_realizado && !reserva.check_out_realizado && (
+                                            <Grow in timeout={500}>
+                                              <Button
+                                                fullWidth
+                                                size="large"
+                                                variant="contained"
+                                                startIcon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
+                                                onClick={() => handleCheckOut(reserva.id)}
+                                                sx={{
+                                                  borderRadius: 2.5,
+                                                  py: 1.5,
+                                                  fontWeight: 900,
+                                                  fontSize: '0.95rem',
+                                                  background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                                  boxShadow: '0 4px 16px rgba(255, 152, 0, 0.4)',
+                                                  color: 'white',
+                                                  transition: 'all 0.3s ease',
+                                                  '&:hover': {
+                                                    boxShadow: '0 6px 24px rgba(255, 152, 0, 0.6)',
+                                                    transform: 'scale(1.03)',
+                                                    background: 'linear-gradient(135deg, #F57C00 0%, #E65100 100%)',
+                                                  }
+                                                }}
+                                              >
+                                                Check-Out
+                                              </Button>
+                                            </Grow>
+                                          )}
+
+                                          {/* Botones Editar y Cancelar en fila */}
+                                          <Box sx={{ display: 'flex', gap: 1.5 }}>
+                                            <Grow in timeout={600}>
+                                              <Tooltip title="Editar Reserva" placement="top">
+                                                <Button
+                                                  fullWidth
+                                                  size="large"
+                                                  variant="outlined"
+                                                  onClick={() => handleOpenDialogReserva(reserva)}
+                                                  sx={{
+                                                    borderRadius: 2.5,
+                                                    py: 1.5,
+                                                    borderWidth: 2.5,
+                                                    borderColor: '#667eea',
+                                                    color: '#667eea',
+                                                    fontWeight: 700,
+                                                    transition: 'all 0.3s ease',
+                                                    '&:hover': {
+                                                      borderWidth: 2.5,
+                                                      borderColor: '#667eea',
+                                                      bgcolor: alpha('#667eea', 0.12),
+                                                      transform: 'scale(1.05)',
+                                                      boxShadow: '0 4px 16px rgba(102, 126, 234, 0.3)',
+                                                    }
+                                                  }}
+                                                >
+                                                  <EditIcon sx={{ fontSize: 22 }} />
+                                                </Button>
+                                              </Tooltip>
+                                            </Grow>
+
+                                            {reserva.estado !== 'cancelada' && (
+                                              <Grow in timeout={700}>
+                                                <Tooltip title="Cancelar Reserva" placement="top">
+                                                  <Button
+                                                    fullWidth
+                                                    size="large"
+                                                    variant="outlined"
+                                                    onClick={() => handleCancelarReserva(reserva.id)}
+                                                    sx={{
+                                                      borderRadius: 2.5,
+                                                      py: 1.5,
+                                                      borderWidth: 2.5,
+                                                      borderColor: '#f44336',
+                                                      color: '#f44336',
+                                                      fontWeight: 700,
+                                                      transition: 'all 0.3s ease',
+                                                      '&:hover': {
+                                                        borderWidth: 2.5,
+                                                        borderColor: '#d32f2f',
+                                                        bgcolor: alpha('#f44336', 0.12),
+                                                        transform: 'scale(1.05)',
+                                                        boxShadow: '0 4px 16px rgba(244, 67, 54, 0.3)',
+                                                      }
+                                                    }}
+                                                  >
+                                                    <CancelIcon sx={{ fontSize: 22 }} />
+                                                  </Button>
+                                                </Tooltip>
+                                              </Grow>
+                                            )}
+                                          </Box>
+                                        </Box>
                                       </CardContent>
                                     </Card>
                                   </Fade>
@@ -1348,20 +1480,20 @@ const AdminCabanasPage = () => {
                             <Box
                               sx={{
                                 textAlign: 'center',
-                                py: 6,
-                                px: 3,
+                                py: 8,
+                                px: 4,
                                 bgcolor: 'white',
-                                borderRadius: 3,
-                                border: '2px dashed',
-                                borderColor: 'divider'
+                                borderRadius: 4,
+                                border: '3px dashed',
+                                borderColor: alpha(colorCabana, 0.3)
                               }}
                             >
-                              <EventIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-                              <Typography variant="h6" color="text.secondary" fontWeight={600}>
+                              <EventIcon sx={{ fontSize: 100, color: alpha(colorCabana, 0.4), mb: 3 }} />
+                              <Typography variant="h5" color="text.secondary" fontWeight={700}>
                                 Sin reservas activas
                               </Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Esta cabaña está disponible para nuevas reservas
+                              <Typography variant="body1" color="text.secondary" sx={{ mt: 1.5 }}>
+                                Esta cabana esta disponible para nuevas reservas
                               </Typography>
                             </Box>
                           )}
@@ -1372,460 +1504,19 @@ const AdminCabanasPage = () => {
                 );
               })}
             </Grid>
-          </Box>
-        )}
-      </Box>
-    </Fade>
-    );
-  };
-
-  // ============================================
-  // RENDER TAB WHATSAPP - MEJORADO Y FUNCIONAL
-  // ============================================
-  const renderTabWhatsApp = () => (
-    <Fade in>
-      <Grid container spacing={3}>
-        {/* Lista de conversaciones */}
-        <Grid item xs={12} md={4}>
-          <Paper
-            elevation={0}
-            sx={{
-              height: 650,
-              borderRadius: 3,
-              border: '1px solid',
-              borderColor: 'divider',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <Box
-              sx={{
-                p: 2,
-                background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                color: 'white',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <WhatsAppIcon />
-                <Typography variant="h6" fontWeight={700}>
-                  Conversaciones
-                </Typography>
-              </Box>
-              <Tooltip title="Actualizar">
-                <IconButton
-                  size="small"
-                  onClick={cargarConversaciones}
-                  sx={{ color: 'white' }}
-                >
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-            </Box>
-            <List sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
-              {Array.isArray(conversaciones) && conversaciones.length > 0 ? (
-                conversaciones.map((conv, index) => (
-                  <ListItem
-                    key={conv.telefono_cliente || index}
-                    button
-                    selected={conversacionActiva === conv.telefono_cliente}
-                    onClick={() => cargarMensajes(conv.telefono_cliente)}
-                    sx={{
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      '&.Mui-selected': {
-                        bgcolor: alpha('#25D366', 0.1),
-                        borderLeft: '4px solid #25D366',
-                      },
-                      '&:hover': {
-                        bgcolor: alpha('#25D366', 0.05),
-                      }
-                    }}
-                  >
-                    <ListItemAvatar>
-                      <Badge
-                        badgeContent={conv.mensajes_no_leidos || 0}
-                        color="error"
-                        sx={{
-                          '& .MuiBadge-badge': {
-                            fontSize: 10,
-                            height: 18,
-                            minWidth: 18,
-                          }
-                        }}
-                      >
-                        <Avatar sx={{ bgcolor: alpha('#25D366', 0.2) }}>
-                          <PersonIcon />
-                        </Avatar>
-                      </Badge>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={conv.telefono_cliente}
-                      secondary={conv.ultimo_mensaje?.substring(0, 30) + '...' || 'Sin mensajes'}
-                      primaryTypographyProps={{ fontWeight: 600 }}
-                    />
-                  </ListItem>
-                ))
-              ) : (
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', p: 3 }}>
-                  <Typography variant="body2" color="text.secondary" textAlign="center">
-                    No hay conversaciones disponibles
-                  </Typography>
-                </Box>
-              )}
-            </List>
-          </Paper>
-        </Grid>
-
-        {/* Área de chat */}
-        <Grid item xs={12} md={8}>
-          <Paper
-            elevation={0}
-            sx={{
-              height: 650,
-              borderRadius: 3,
-              border: '1px solid',
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {conversacionActiva ? (
-              <>
-                <Box
-                  sx={{
-                    p: 2,
-                    background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 2,
-                  }}
-                >
-                  <Avatar>
-                    <PersonIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h6" fontWeight={700}>
-                      {conversacionActiva}
-                    </Typography>
-                    <Typography variant="caption">
-                      WhatsApp - Click para enviar mensaje
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3, bgcolor: '#e5ddd5' }}>
-                  {mensajes.map((mensaje, index) => (
-                    <Fade in key={index} timeout={300 + index * 50}>
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          justifyContent: mensaje.direccion === 'saliente' ? 'flex-end' : 'flex-start',
-                          mb: 2,
-                        }}
-                      >
-                        <Paper
-                          elevation={1}
-                          sx={{
-                            p: 2,
-                            maxWidth: '70%',
-                            borderRadius: 2,
-                            bgcolor: mensaje.direccion === 'saliente'
-                              ? '#dcf8c6'
-                              : 'white',
-                            color: 'text.primary',
-                          }}
-                        >
-                          <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-                            {mensaje.mensaje}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              display: 'block',
-                              mt: 1,
-                              opacity: 0.7,
-                              textAlign: 'right',
-                            }}
-                          >
-                            {new Date(mensaje.fecha_creacion).toLocaleTimeString('es-CL', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </Typography>
-                        </Paper>
-                      </Box>
-                    </Fade>
-                  ))}
-                </Box>
-
-                <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'white' }}>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <TextField
-                      fullWidth
-                      multiline
-                      maxRows={3}
-                      placeholder="Escribe un mensaje..."
-                      value={nuevoMensaje}
-                      onChange={(e) => setNuevoMensaje(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleEnviarMensaje();
-                        }
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 3,
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="contained"
-                      onClick={handleEnviarMensaje}
-                      disabled={!nuevoMensaje.trim()}
-                      sx={{
-                        minWidth: 56,
-                        height: 56,
-                        borderRadius: 3,
-                        background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-                        boxShadow: '0 4px 20px rgba(37, 211, 102, 0.4)',
-                      }}
-                    >
-                      <SendIcon />
-                    </Button>
-                  </Box>
-                </Box>
-              </>
-            ) : (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                  flexDirection: 'column',
-                  gap: 2,
-                }}
-              >
-                <WhatsAppIcon sx={{ fontSize: 80, color: '#25D366' }} />
-                <Typography variant="h6" color="text.secondary">
-                  Selecciona una conversación para comenzar
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-    </Fade>
-  );
-
-  // ============================================
-  // RENDER TAB CONFIGURACIÓN (PRECIOS DE TINAJAS)
-  // ============================================
-  const renderTabConfiguracion = () => {
-    const [localPrecios, setLocalPrecios] = useState({});
-
-    useEffect(() => {
-      const precios = {};
-      tinajas.forEach(tinaja => {
-        precios[tinaja.id] = {
-          precio_temporada_alta: tinaja.precio_temporada_alta,
-          precio_temporada_baja: tinaja.precio_temporada_baja
-        };
-      });
-      setLocalPrecios(precios);
-    }, [tinajas]);
-
-    const handlePrecioChange = (tinajaId, temporada, valor) => {
-      setLocalPrecios(prev => ({
-        ...prev,
-        [tinajaId]: {
-          ...prev[tinajaId],
-          [temporada]: parseFloat(valor) || 0
-        }
-      }));
-    };
-
-    const handleGuardarPrecios = (tinajaId) => {
-      const precios = localPrecios[tinajaId];
-      if (precios) {
-        handleActualizarPreciosTinaja(
-          tinajaId,
-          precios.precio_temporada_alta,
-          precios.precio_temporada_baja
-        );
-      }
-    };
-
-    return (
-      <Fade in>
-        <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-            <Box>
-              <Typography variant="h4" fontWeight={700} gutterBottom>
-                Configuración de Precios
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Administra los precios de tinajas para temporada alta y baja
-              </Typography>
-            </Box>
-            <Tooltip title="Actualizar">
-              <IconButton
-                color="primary"
-                onClick={cargarTinajas}
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'primary.main',
-                  borderRadius: 2,
-                }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
-
-          {loadingTinajas ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
-              <CircularProgress size={60} thickness={4} />
-            </Box>
           ) : (
-            <Grid container spacing={3}>
-              {Array.isArray(tinajas) && tinajas.map((tinaja, index) => (
-                <Grid item xs={12} md={6} key={tinaja.id}>
-                  <Grow in timeout={300 + index * 100}>
-                    <Card
-                      elevation={0}
-                      sx={{
-                        borderRadius: 4,
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          boxShadow: '0 12px 40px rgba(0,0,0,0.12)',
-                          transform: 'translateY(-4px)',
-                        }
-                      }}
-                    >
-                      <CardContent sx={{ p: 3 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar
-                              sx={{
-                                bgcolor: alpha('#00bcd4', 0.1),
-                                color: '#00bcd4',
-                                width: 56,
-                                height: 56,
-                              }}
-                            >
-                              <HotTubIcon sx={{ fontSize: 32 }} />
-                            </Avatar>
-                            <Box>
-                              <Typography variant="h5" fontWeight={700}>
-                                {tinaja.nombre}
-                              </Typography>
-                              <Chip
-                                label={`Tinaja ${tinaja.numero}`}
-                                size="small"
-                                color="info"
-                                sx={{ fontWeight: 600, borderRadius: 2, mt: 0.5 }}
-                              />
-                            </Box>
-                          </Box>
-                        </Box>
-
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                          {tinaja.descripcion || 'Sin descripción'}
-                        </Typography>
-
-                        <Divider sx={{ my: 2 }} />
-
-                        <Grid container spacing={2}>
-                          <Grid item xs={12}>
-                            <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <MoneyIcon fontSize="small" color="error" />
-                              Precio Temporada Alta (Dic-Feb)
-                            </Typography>
-                            <TextField
-                              fullWidth
-                              type="number"
-                              value={localPrecios[tinaja.id]?.precio_temporada_alta || tinaja.precio_temporada_alta}
-                              onChange={(e) => handlePrecioChange(tinaja.id, 'precio_temporada_alta', e.target.value)}
-                              InputProps={{
-                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                              }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }}
-                            />
-                          </Grid>
-
-                          <Grid item xs={12}>
-                            <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <MoneyIcon fontSize="small" color="primary" />
-                              Precio Temporada Baja (Mar-Nov)
-                            </Typography>
-                            <TextField
-                              fullWidth
-                              type="number"
-                              value={localPrecios[tinaja.id]?.precio_temporada_baja || tinaja.precio_temporada_baja}
-                              onChange={(e) => handlePrecioChange(tinaja.id, 'precio_temporada_baja', e.target.value)}
-                              InputProps={{
-                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                              }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  borderRadius: 2,
-                                }
-                              }}
-                            />
-                          </Grid>
-                        </Grid>
-                      </CardContent>
-
-                      <CardActions sx={{ px: 3, pb: 3, pt: 0 }}>
-                        <Button
-                          fullWidth
-                          variant="contained"
-                          startIcon={<CheckCircleIcon />}
-                          onClick={() => handleGuardarPrecios(tinaja.id)}
-                          disabled={
-                            !localPrecios[tinaja.id] ||
-                            (localPrecios[tinaja.id]?.precio_temporada_alta === tinaja.precio_temporada_alta &&
-                             localPrecios[tinaja.id]?.precio_temporada_baja === tinaja.precio_temporada_baja)
-                          }
-                          sx={{
-                            borderRadius: 2,
-                            fontWeight: 700,
-                            background: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
-                            '&:hover': {
-                              boxShadow: '0 6px 25px rgba(0, 188, 212, 0.4)',
-                            },
-                            '&:disabled': {
-                              background: 'rgba(0,0,0,0.12)',
-                            }
-                          }}
-                        >
-                          Guardar Cambios
-                        </Button>
-                      </CardActions>
-                    </Card>
-                  </Grow>
-                </Grid>
-              ))}
-            </Grid>
+            <Box sx={{ textAlign: 'center', py: 10 }}>
+              <CottageIcon sx={{ fontSize: 100, color: 'text.disabled', mb: 3 }} />
+              <Typography variant="h5" color="text.secondary" fontWeight={600}>
+                No hay cabanas registradas
+              </Typography>
+            </Box>
           )}
         </Box>
       </Fade>
     );
   };
+
 
   // ============================================
   // RENDER PRINCIPAL
@@ -1909,13 +1600,13 @@ const AdminCabanasPage = () => {
             iconPosition="start"
           />
           <Tab
-            icon={<EventIcon />}
-            label="Reservas & Timeline"
+            icon={<CalendarIcon />}
+            label="Reservas"
             iconPosition="start"
           />
           <Tab
-            icon={<SettingsIcon />}
-            label="Configuración"
+            icon={<EventIcon />}
+            label="Timeline"
             iconPosition="start"
           />
         </Tabs>
@@ -1925,7 +1616,7 @@ const AdminCabanasPage = () => {
       <Box sx={{ mt: 3 }}>
         {tabValue === 0 && renderTabCabanas()}
         {tabValue === 1 && renderTabReservas()}
-        {tabValue === 2 && renderTabConfiguracion()}
+        {tabValue === 2 && renderTabTimeline()}
       </Box>
 
       {/* Input oculto para seleccionar archivos */}

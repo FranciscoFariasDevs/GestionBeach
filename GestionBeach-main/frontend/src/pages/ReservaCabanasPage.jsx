@@ -672,7 +672,7 @@ const ReservaCabanasPage = () => {
     return (
       <Box>
         <Typography variant="h6" sx={{ mb: 3, fontWeight: 700, textAlign: 'center' }}>
-          🛁 Selecciona Tinajas y Fechas
+          Selecciona Tinajas y Fechas
         </Typography>
 
         <Grid container spacing={3}>
@@ -819,7 +819,7 @@ const ReservaCabanasPage = () => {
         {formData.tinajas_seleccionadas.length > 0 && (
           <Paper elevation={3} sx={{ mt: 4, p: 3, bgcolor: '#E8F5E9', borderRadius: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#2E7D32' }}>
-              ✅ Tinajas Seleccionadas ({formData.tinajas_seleccionadas.length})
+              Tinajas Seleccionadas ({formData.tinajas_seleccionadas.length})
             </Typography>
             <Stack spacing={1}>
               {formData.tinajas_seleccionadas.map((ts, idx) => (
@@ -1374,7 +1374,7 @@ const ReservaCabanasPage = () => {
                   <CalendarIcon sx={{ fontSize: 40 }} />
                 </Avatar>
                 <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-                  📅 Fechas de Reserva
+                  Fechas de Reserva
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada (no seleccionable) •
@@ -1427,7 +1427,7 @@ const ReservaCabanasPage = () => {
                   <PeopleIcon sx={{ fontSize: 40 }} />
                 </Avatar>
                 <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-                  👥 ¿Cuántas personas?
+                  ¿Cuántas personas?
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Capacidad de la cabaña: <strong>{capacidad} personas</strong>
@@ -1506,7 +1506,7 @@ const ReservaCabanasPage = () => {
                 <Box sx={{ mt: 3 }}>
                   <Paper elevation={2} sx={{ p: 3, bgcolor: 'white', borderRadius: 2 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
-                      💰 Costo de la Estadía
+                      Costo de la Estadía
                     </Typography>
 
                     {/* Costo base de la cabaña */}
@@ -1553,7 +1553,7 @@ const ReservaCabanasPage = () => {
                   <PersonIcon sx={{ fontSize: 40 }} />
                 </Avatar>
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                  📋 Tus Datos
+                  Tus Datos
                 </Typography>
               </Box>
 
@@ -1696,7 +1696,7 @@ const ReservaCabanasPage = () => {
             {/* Resumen */}
             <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#F5F5F5' }}>
               <Typography variant="h5" sx={{ fontWeight: 900, mb: 3, textAlign: 'center' }}>
-                📋 Resumen de la Reserva
+                Resumen de la Reserva
               </Typography>
 
               <Stack spacing={2}>
@@ -1737,7 +1737,7 @@ const ReservaCabanasPage = () => {
 
                 {/* Desglose detallado de costos */}
                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
-                  💰 Desglose de Costos
+                  Desglose de Costos
                 </Typography>
 
                 {/* Costo de la cabaña */}
@@ -1800,7 +1800,7 @@ const ReservaCabanasPage = () => {
             {/* Opciones de Pago */}
             <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
               <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, textAlign: 'center' }}>
-                💳 Selecciona tu Forma de Pago
+                Selecciona tu Forma de Pago
               </Typography>
 
               <FormControl component="fieldset" fullWidth>
@@ -1850,7 +1850,7 @@ const ReservaCabanasPage = () => {
               <Box sx={{ textAlign: 'center', mb: 2 }}>
                 <WhatsAppIcon sx={{ fontSize: 60, color: '#25D366', mb: 2 }} />
                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                  📱 Enviar Comprobante de Pago
+                  Enviar Comprobante de Pago
                 </Typography>
                 <Typography variant="body1" sx={{ mb: 3 }}>
                   Realiza la transferencia por <strong>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante:
@@ -1916,10 +1916,10 @@ const ReservaCabanasPage = () => {
                   textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
                 }}
               >
-                🏡 Mapa Interactivo de Cabañas
+                Mapa Interactivo de Cabañas
               </Typography>
               <Typography variant="h6" sx={{ color: '#E64A19', fontWeight: 600 }}>
-                Click en una cabaña para ver fotos y crear reservas
+                Selecciona una cabaña para ver detalles y crear tu reserva
               </Typography>
             </Box>
           </Fade>
@@ -1971,7 +1971,7 @@ const ReservaCabanasPage = () => {
         >
           <DialogTitle sx={{ bgcolor: '#FFF3E0', borderBottom: '3px solid #FF8C42' }}>
             <Typography variant="h5" sx={{ fontWeight: 900, color: '#D84315' }}>
-              🏡 Nueva Reserva - {selectedCabana?.nombre}
+              Nueva Reserva - {selectedCabana?.nombre}
             </Typography>
           </DialogTitle>
           <DialogContent dividers sx={{ p: 4 }}>
