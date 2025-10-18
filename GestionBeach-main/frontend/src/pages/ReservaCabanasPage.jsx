@@ -144,6 +144,8 @@ const ReservaCabanasPage = () => {
 
   // Estado para carousel de imágenes
   const [carouselImages, setCarouselImages] = useState([]);
+  // Estado para imágenes del carrusel hero
+  const [heroCarouselImages, setHeroCarouselImages] = useState([]);
 
   // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
@@ -227,9 +229,23 @@ const ReservaCabanasPage = () => {
 
   useEffect(() => {
     cargarDatos();
+    cargarImagenesHero();
     const interval = setInterval(cargarDatos, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Cargar imágenes del carrusel hero
+  const cargarImagenesHero = () => {
+    try {
+      // Importar todas las imágenes de la carpeta carrusel
+      const imageContext = require.context('../images/carrusel', false, /\.(png|jpe?g|svg|webp)$/);
+      const images = imageContext.keys().map(imageContext);
+      setHeroCarouselImages(images);
+      console.log('📸 Imágenes del carrusel hero cargadas:', images.length);
+    } catch (error) {
+      console.error('Error al cargar imágenes del carrusel hero:', error);
+    }
+  };
 
   useEffect(() => {
     if (cabanas.length > 0 && !svgLoaded) {
@@ -445,19 +461,19 @@ const ReservaCabanasPage = () => {
 
         console.log(`✅ ENCONTRADO: "${id}" - Aplicando color: ${color}`);
 
-        // 🔥 FORZAR aplicación de color con máxima prioridad
+        // 🔥 FORZAR aplicación de color con máxima prioridad y contorno negro visible
         elemento.setAttribute('fill', color);
-        elemento.setAttribute('fill-opacity', '0.15');  // Súper transparente
-        elemento.setAttribute('stroke', '#A5D6A7');  // Verde pastel suave para bordes
-        elemento.setAttribute('stroke-width', '1');  // Borde muy delgado
+        elemento.setAttribute('fill-opacity', '0.25');  // Más opacidad para mejor visibilidad
+        elemento.setAttribute('stroke', '#000000');  // Contorno NEGRO para mejor definición
+        elemento.setAttribute('stroke-width', '2.5');  // Borde más grueso para mejor visibilidad
         elemento.style.setProperty('fill', color, 'important');
-        elemento.style.setProperty('fill-opacity', '0.15', 'important');  // Súper transparente
-        elemento.style.setProperty('stroke', '#A5D6A7', 'important');
-        elemento.style.setProperty('stroke-width', '1', 'important');
+        elemento.style.setProperty('fill-opacity', '0.25', 'important');  // Más opacidad
+        elemento.style.setProperty('stroke', '#000000', 'important');  // Negro
+        elemento.style.setProperty('stroke-width', '2.5', 'important');  // Más grueso
         elemento.style.opacity = '1';
         elemento.style.transition = 'all 0.3s ease';
         elemento.style.cursor = 'pointer';
-        elemento.style.filter = 'brightness(1.2)';  // Más claro
+        elemento.style.filter = 'brightness(1.0) contrast(1.1)';  // Mejor contraste
 
         // Verificar que se aplicó
         const computedStyle = window.getComputedStyle(elemento);
@@ -541,19 +557,21 @@ const ReservaCabanasPage = () => {
         });
 
         elemento.addEventListener('mouseenter', () => {
-          elemento.setAttribute('fill-opacity', '0.3');
-          elemento.setAttribute('stroke-width', '2');
-          elemento.style.setProperty('fill-opacity', '0.3', 'important');
-          elemento.style.setProperty('stroke-width', '2', 'important');
-          elemento.style.filter = 'brightness(1.3) drop-shadow(0 0 12px rgba(165, 214, 167, 0.5))';
+          elemento.setAttribute('fill-opacity', '0.45');
+          elemento.setAttribute('stroke-width', '3.5');
+          elemento.style.setProperty('fill-opacity', '0.45', 'important');
+          elemento.style.setProperty('stroke-width', '3.5', 'important');
+          elemento.style.setProperty('stroke', '#000000', 'important');  // Mantener negro
+          elemento.style.filter = 'brightness(1.1) contrast(1.15) drop-shadow(0 0 10px rgba(0, 0, 0, 0.3))';
         });
 
         elemento.addEventListener('mouseleave', () => {
-          elemento.setAttribute('fill-opacity', '0.15');
-          elemento.setAttribute('stroke-width', '1');
-          elemento.style.setProperty('fill-opacity', '0.15', 'important');
-          elemento.style.setProperty('stroke-width', '1', 'important');
-          elemento.style.filter = 'brightness(1.2)';
+          elemento.setAttribute('fill-opacity', '0.25');
+          elemento.setAttribute('stroke-width', '2.5');
+          elemento.style.setProperty('fill-opacity', '0.25', 'important');
+          elemento.style.setProperty('stroke-width', '2.5', 'important');
+          elemento.style.setProperty('stroke', '#000000', 'important');  // Mantener negro
+          elemento.style.filter = 'brightness(1.0) contrast(1.1)';
         });
       } else {
         console.warn(`❌ No se pudo configurar click para: "${id}"`);
@@ -1900,7 +1918,7 @@ const ReservaCabanasPage = () => {
       <Box
         sx={{
           minHeight: '100vh',
-          background: 'linear-gradient(180deg, #B3E5FC 0%, #E1F5FE 12%, #FFF9C4 25%, #FFECB3 40%, #FFE082 55%, #FFCC80 70%, #FFB74D 85%, #FFA726 100%)',
+          background: 'linear-gradient(180deg, #B3E5FC 0%, #81D4FA 10%, #4FC3F7 20%, #E1F5FE 40%, #FFFFFF 70%, #FFFFFF 100%)',
           backgroundAttachment: 'fixed',
           py: 4,
           position: 'relative',
@@ -1911,77 +1929,248 @@ const ReservaCabanasPage = () => {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'radial-gradient(circle at 15% 15%, rgba(255, 255, 255, 0.5) 0%, transparent 40%), radial-gradient(circle at 85% 85%, rgba(255, 248, 225, 0.4) 0%, transparent 50%)',
+            background: 'radial-gradient(circle at 20% 10%, rgba(129, 212, 250, 0.3) 0%, transparent 40%), radial-gradient(circle at 80% 30%, rgba(179, 229, 252, 0.25) 0%, transparent 50%)',
             pointerEvents: 'none',
           }
         }}
       >
         <Container maxWidth="xl">
-          {/* Header */}
-          <Fade in timeout={800}>
-            <Box sx={{ textAlign: 'center', mb: 4, position: 'relative', zIndex: 1 }}>
-              <Typography
-                variant="h3"
+          {/* Hero Section - Presentación Elegante con Carrusel */}
+          <Fade in timeout={1000}>
+            <Box sx={{ textAlign: 'center', mb: 6, position: 'relative', zIndex: 1 }}>
+              <Paper
+                elevation={8}
                 sx={{
-                  fontWeight: 900,
-                  background: 'linear-gradient(135deg, #4DD0E1 0%, #26C6DA 50%, #00ACC1 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                  mb: 2,
-                  textShadow: '0 2px 10px rgba(77, 208, 225, 0.3)',
-                  filter: 'drop-shadow(0 2px 6px rgba(255, 255, 255, 0.9))',
+                  background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+                  borderRadius: 4,
+                  border: '3px solid #2196F3',
+                  boxShadow: '0 12px 40px rgba(33, 150, 243, 0.3)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '6px',
+                    background: 'linear-gradient(90deg, #2196F3 0%, #64B5F6 50%, #2196F3 100%)',
+                  }
                 }}
               >
-                Mapa Interactivo de Cabañas
-              </Typography>
-              <Typography
-                variant="h6"
-                sx={{
-                  color: '#26A69A',
-                  fontWeight: 600,
-                  textShadow: '0 1px 4px rgba(255, 255, 255, 0.9)',
-                }}
-              >
-                Selecciona una cabaña para ver detalles y crear tu reserva
-              </Typography>
+                {/* Carrusel de Imágenes Hero */}
+                {heroCarouselImages.length > 0 ? (
+                  <Box sx={{ position: 'relative', mb: 4 }}>
+                    <Carousel
+                      navButtonsAlwaysVisible
+                      indicators
+                      animation="fade"
+                      duration={700}
+                      interval={5000}
+                      NextIcon={<NavigateNext />}
+                      PrevIcon={<NavigateBefore />}
+                      navButtonsProps={{
+                        style: {
+                          backgroundColor: 'rgba(33, 150, 243, 0.8)',
+                          borderRadius: '50%',
+                          margin: '0 20px',
+                        }
+                      }}
+                      indicatorIconButtonProps={{
+                        style: {
+                          color: 'rgba(255, 255, 255, 0.5)',
+                          margin: '0 5px',
+                        }
+                      }}
+                      activeIndicatorIconButtonProps={{
+                        style: {
+                          color: '#2196F3',
+                        }
+                      }}
+                    >
+                      {heroCarouselImages.map((img, idx) => (
+                        <Box
+                          key={idx}
+                          sx={{
+                            width: '100%',
+                            height: '500px',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            bgcolor: '#000',
+                            position: 'relative',
+                          }}
+                        >
+                          <img
+                            src={img}
+                            alt={`Vista de cabañas ${idx + 1}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                            onError={(e) => {
+                              console.error('Error cargando imagen del carrusel:', img);
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                          {/* Overlay con gradiente para mejor legibilidad */}
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: '50%',
+                              background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%)',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        </Box>
+                      ))}
+                    </Carousel>
+                  </Box>
+                ) : null}
+
+                {/* Contenido Textual */}
+                <Box sx={{ p: 6, pt: heroCarouselImages.length > 0 ? 2 : 6 }}>
+                  <Typography
+                    variant="h2"
+                    sx={{
+                      fontWeight: 900,
+                      background: 'linear-gradient(135deg, #1976D2 0%, #2196F3 50%, #64B5F6 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      mb: 3,
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    Bienvenidos a Cabañas El Mirador
+                  </Typography>
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      color: '#455A64',
+                      fontWeight: 400,
+                      mb: 4,
+                      lineHeight: 1.6,
+                      maxWidth: '900px',
+                      margin: '0 auto',
+                      mb: 4,
+                    }}
+                  >
+                    Experimenta la comodidad y tranquilidad de nuestras cabañas frente al hermoso mar,
+                    con vista privilegiada a la playa en la costa de Dichato. Un refugio perfecto donde el
+                    descanso se encuentra con la belleza natural del océano Pacífico.
+                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={4} justifyContent="center" sx={{ mb: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                        <BedIcon sx={{ fontSize: 28 }} />
+                      </Avatar>
+                      <Box sx={{ textAlign: 'left' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                          Diseño Moderno
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Arquitectura contemporánea
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                        <HotTubIcon sx={{ fontSize: 28 }} />
+                      </Avatar>
+                      <Box sx={{ textAlign: 'left' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                          Comodidades Premium
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Tinajas y amenidades
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                        <PeopleIcon sx={{ fontSize: 28 }} />
+                      </Avatar>
+                      <Box sx={{ textAlign: 'left' }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                          Para Ti y Tu Familia
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Espacios amplios
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Stack>
+                  <Divider sx={{ my: 4, borderColor: '#E3F2FD' }} />
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      color: '#1976D2',
+                      fontWeight: 600,
+                      mb: 1,
+                    }}
+                  >
+                    Selecciona tu Cabaña Ideal
+                  </Typography>
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      color: '#546E7A',
+                      fontWeight: 400,
+                    }}
+                  >
+                    Haz clic en cualquier cabaña del mapa para conocer más detalles y realizar tu reserva
+                  </Typography>
+                </Box>
+              </Paper>
             </Box>
           </Fade>
 
-          {/* Mapa SVG */}
+          {/* Mapa SVG - Reducido y con mejor contraste */}
           <Zoom in timeout={1200}>
             <Paper
-              elevation={4}
+              elevation={10}
               sx={{
-                p: 3,
-                background: 'rgba(255, 255, 255, 0.75)',
-                backdropFilter: 'blur(8px)',
-                borderRadius: 5,
-                minHeight: '600px',
+                p: 2,
+                background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: 4,
+                maxWidth: '900px',
+                margin: '0 auto',
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                border: '2px solid rgba(255, 255, 255, 0.8)',
-                boxShadow: '0 6px 24px rgba(77, 208, 225, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.6)',
+                border: '3px solid #2196F3',
+                boxShadow: '0 12px 40px rgba(33, 150, 243, 0.25)',
                 position: 'relative',
                 zIndex: 1,
               }}
             >
               {loading ? (
-                <Typography variant="h6" color="text.secondary">
-                  Cargando mapa...
-                </Typography>
+                <Box sx={{ p: 6, textAlign: 'center' }}>
+                  <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+                    Cargando mapa interactivo...
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Preparando tu experiencia
+                  </Typography>
+                </Box>
               ) : (
                 <Box
                   ref={svgContainerRef}
                   sx={{
                     width: '100%',
                     height: 'auto',
-                    filter: 'brightness(1.15) contrast(1.05) saturate(1.1)',
+                    filter: 'brightness(0.95) contrast(1.15) saturate(0.9)',
                     '& svg': {
                       width: '100%',
                       height: 'auto',
-                      filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1))',
+                      maxHeight: '500px',
+                      filter: 'drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15))',
                     },
                   }}
                 />
