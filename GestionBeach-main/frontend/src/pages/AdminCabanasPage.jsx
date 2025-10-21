@@ -70,6 +70,7 @@ import {
   Settings as SettingsIcon,
   Upload as UploadIcon,
   Image as ImageIcon,
+  DirectionsCar as DirectionsCarIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
@@ -98,6 +99,33 @@ const normalizarNombre = (nombre) => {
     .replace(/\s+/g, '');
 };
 
+// Función para formatear fechas SIN problemas de zona horaria
+const formatDateForDisplay = (dateString) => {
+  if (!dateString) return '-';
+  try {
+    // Parsear la fecha del servidor (YYYY-MM-DD)
+    const [year, month, day] = dateString.split('T')[0].split('-');
+    // Retornar en formato chileno DD/MM/YYYY
+    return `${day}/${month}/${year}`;
+  } catch (error) {
+    console.error('Error formateando fecha:', error);
+    return dateString;
+  }
+};
+
+// Función para formatear fechas en formato largo (para timeline)
+const formatDateLong = (dateString) => {
+  if (!dateString) return '-';
+  try {
+    const [year, month, day] = dateString.split('T')[0].split('-');
+    const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    return `${day} de ${meses[parseInt(month) - 1]} de ${year}`;
+  } catch (error) {
+    console.error('Error formateando fecha:', error);
+    return dateString;
+  }
+};
+
 const AdminCabanasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   const fileInputRef = useRef(null);
@@ -116,6 +144,14 @@ const AdminCabanasPage = () => {
   const [loadingReservas, setLoadingReservas] = useState(false);
   const [dialogReservaOpen, setDialogReservaOpen] = useState(false);
   const [reservaEdit, setReservaEdit] = useState(null);
+
+  // Estados para filtros
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState(null);
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState(null);
+  const [filtroCabana, setFiltroCabana] = useState('todas'); // 'todas' o id de cabaña
+
+  // Estado para temporada
+  const [temporada, setTemporada] = useState('baja'); // 'baja' o 'alta'
 
   // Estados para confirmación de pago
   const [dialogPagoOpen, setDialogPagoOpen] = useState(false);
@@ -146,12 +182,16 @@ const AdminCabanasPage = () => {
     cliente_telefono: '',
     cliente_email: '',
     cliente_rut: '',
+    procedencia: '',
+    matriculas_auto: '',
     fecha_inicio: '',
     fecha_fin: '',
     cantidad_personas: 2,
     precio_por_noche: 0,
     precio_total: 0,
     estado: 'pendiente',
+    estado_pago: 'pendiente',
+    monto_pagado: 0,
     origen: 'manual',
     notas: ''
   });
@@ -185,6 +225,14 @@ const AdminCabanasPage = () => {
     } finally {
       setLoadingCabanas(false);
     }
+  };
+
+  const cambiarTemporada = (nuevaTemporada) => {
+    setTemporada(nuevaTemporada);
+    enqueueSnackbar(`✅ Vista cambiada a precios de Temporada ${nuevaTemporada === 'baja' ? 'Baja' : 'Alta'}`, {
+      variant: 'info',
+      autoHideDuration: 3000
+    });
   };
 
   const cargarReservas = async () => {
@@ -325,12 +373,16 @@ const AdminCabanasPage = () => {
         cliente_telefono: reserva.cliente_telefono,
         cliente_email: reserva.cliente_email || '',
         cliente_rut: reserva.cliente_rut || '',
+        procedencia: reserva.procedencia || '',
+        matriculas_auto: reserva.matriculas_auto || '',
         fecha_inicio: reserva.fecha_inicio?.split('T')[0] || '',
         fecha_fin: reserva.fecha_fin?.split('T')[0] || '',
         cantidad_personas: reserva.cantidad_personas,
         precio_por_noche: reserva.precio_por_noche,
         precio_total: reserva.precio_total,
         estado: reserva.estado,
+        estado_pago: reserva.estado_pago || 'pendiente',
+        monto_pagado: reserva.monto_pagado || 0,
         origen: reserva.origen || 'manual',
         notas: reserva.notas || ''
       });
@@ -343,12 +395,16 @@ const AdminCabanasPage = () => {
         cliente_telefono: '',
         cliente_email: '',
         cliente_rut: '',
+        procedencia: '',
+        matriculas_auto: '',
         fecha_inicio: '',
         fecha_fin: '',
         cantidad_personas: 2,
         precio_por_noche: 0,
         precio_total: 0,
         estado: 'pendiente',
+        estado_pago: 'pendiente',
+        monto_pagado: 0,
         origen: 'manual',
         notas: ''
       });
@@ -363,9 +419,29 @@ const AdminCabanasPage = () => {
 
   const handleSaveReserva = async () => {
     try {
+      let mensaje = '';
+
       if (reservaEdit) {
+        // Si estamos editando y el precio cambió
+        const precioAnterior = reservaEdit.precio_total;
+        const precioNuevo = parseFloat(formReserva.precio_total);
+        const montoPagado = parseFloat(formReserva.monto_pagado || 0);
+
+        // Si cambió el precio y ya se pagó algo
+        if (precioNuevo !== precioAnterior && montoPagado > 0) {
+          const remanente = precioNuevo - montoPagado;
+
+          if (remanente > 0) {
+            mensaje = `\n💰 Precio actualizado: $${precioNuevo.toLocaleString()}\n💵 Ya pagado: $${montoPagado.toLocaleString()}\n⚠️ Falta por pagar: $${remanente.toLocaleString()}`;
+          } else if (remanente < 0) {
+            mensaje = `\n💰 Precio actualizado: $${precioNuevo.toLocaleString()}\n💵 Ya pagado: $${montoPagado.toLocaleString()}\n✅ Excedente pagado: $${Math.abs(remanente).toLocaleString()}`;
+          } else {
+            mensaje = `\n💰 Precio actualizado: $${precioNuevo.toLocaleString()}\n✅ Pago completo`;
+          }
+        }
+
         await api.put(`/cabanas/reservas/${reservaEdit.id}`, formReserva);
-        enqueueSnackbar('✅ Reserva actualizada exitosamente', { variant: 'success' });
+        enqueueSnackbar('✅ Reserva actualizada exitosamente' + mensaje, { variant: 'success', autoHideDuration: 6000 });
       } else {
         await api.post('/cabanas/reservas', formReserva);
         enqueueSnackbar('✅ Reserva creada exitosamente', { variant: 'success' });
@@ -709,21 +785,49 @@ const AdminCabanasPage = () => {
 
                       <Divider sx={{ my: 2 }} />
 
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Precio Temporada Baja
+                      {/* Mostrar precio según temporada activa */}
+                      <Box
+                        sx={{
+                          mb: 3,
+                          p: 2,
+                          borderRadius: 2,
+                          background: temporada === 'baja'
+                            ? 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%)'
+                            : 'linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%)',
+                          border: '2px solid',
+                          borderColor: temporada === 'baja' ? '#03A9F4' : '#FF9800',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="caption" fontWeight={700} sx={{ color: temporada === 'baja' ? '#0277BD' : '#E65100' }}>
+                            {temporada === 'baja' ? '❄️ TEMPORADA BAJA' : '☀️ TEMPORADA ALTA'}
+                          </Typography>
+                          <Chip
+                            label="ACTIVO"
+                            size="small"
+                            sx={{
+                              bgcolor: temporada === 'baja' ? '#03A9F4' : '#FF9800',
+                              color: 'white',
+                              fontWeight: 700,
+                              fontSize: '0.7rem'
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="h4" fontWeight={900} sx={{ color: temporada === 'baja' ? '#0277BD' : '#E65100' }}>
+                          ${(temporada === 'baja' ? cabana.precio_noche : cabana.precio_fin_semana)?.toLocaleString('es-CL')}
                         </Typography>
-                        <Typography variant="h6" fontWeight={700} color="primary">
-                          ${cabana.precio_noche?.toLocaleString('es-CL')} / noche
+                        <Typography variant="caption" sx={{ color: temporada === 'baja' ? '#0277BD' : '#E65100', opacity: 0.8 }}>
+                          por noche
                         </Typography>
                       </Box>
 
-                      <Box sx={{ mb: 3 }}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Precio Temporada Alta
+                      {/* Precios de referencia colapsados */}
+                      <Box sx={{ mb: 2, opacity: 0.6 }}>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.7rem' }}>
+                          Precio Temporada Baja: ${cabana.precio_noche?.toLocaleString('es-CL')}
                         </Typography>
-                        <Typography variant="h6" fontWeight={700} color="error">
-                          ${cabana.precio_fin_semana?.toLocaleString('es-CL')} / noche
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ fontSize: '0.7rem' }}>
+                          Precio Temporada Alta: ${cabana.precio_fin_semana?.toLocaleString('es-CL')}
                         </Typography>
                       </Box>
                     </CardContent>
@@ -763,11 +867,50 @@ const AdminCabanasPage = () => {
   );
 
   // ============================================
+  // FUNCIONES DE FILTRADO
+  // ============================================
+  const getReservasFiltradas = () => {
+    let reservasFiltradas = [...reservas];
+
+    // Filtro por cabaña
+    if (filtroCabana !== 'todas') {
+      reservasFiltradas = reservasFiltradas.filter(r => r.cabana_id === parseInt(filtroCabana));
+    }
+
+    // Filtro por rango de fechas
+    if (filtroFechaDesde || filtroFechaHasta) {
+      reservasFiltradas = reservasFiltradas.filter(r => {
+        const fechaInicio = new Date(r.fecha_inicio);
+        const fechaFin = new Date(r.fecha_fin);
+
+        // Si hay fecha desde, verificar que la reserva termine después de esa fecha
+        if (filtroFechaDesde) {
+          const desde = new Date(filtroFechaDesde);
+          desde.setHours(0, 0, 0, 0);
+          if (fechaFin < desde) return false;
+        }
+
+        // Si hay fecha hasta, verificar que la reserva empiece antes de esa fecha
+        if (filtroFechaHasta) {
+          const hasta = new Date(filtroFechaHasta);
+          hasta.setHours(23, 59, 59, 999);
+          if (fechaInicio > hasta) return false;
+        }
+
+        return true;
+      });
+    }
+
+    return reservasFiltradas;
+  };
+
+  // ============================================
   // RENDER TAB RESERVAS - CON CANTIDAD DE TINAJAS Y TIMELINE
   // ============================================
   const renderTabReservas = () => {
+    const reservasFiltradas = getReservasFiltradas();
     // Filtrar reservas pendientes (no pagadas)
-    const reservasPendientes = reservas.filter(r => r.estado_pago === 'pendiente');
+    const reservasPendientes = reservasFiltradas.filter(r => r.estado_pago === 'pendiente');
 
     return (
     <Fade in>
@@ -811,6 +954,55 @@ const AdminCabanasPage = () => {
           </Button>
         </Box>
 
+        {/* Filtros */}
+        <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TextField
+            type="date"
+            label="Desde"
+            value={filtroFechaDesde || ''}
+            onChange={(e) => setFiltroFechaDesde(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 180, borderRadius: 2 }}
+            size="small"
+          />
+
+          <TextField
+            type="date"
+            label="Hasta"
+            value={filtroFechaHasta || ''}
+            onChange={(e) => setFiltroFechaHasta(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 180, borderRadius: 2 }}
+            size="small"
+          />
+
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setFiltroFechaDesde(null);
+              setFiltroFechaHasta(null);
+            }}
+            sx={{ borderRadius: 2 }}
+          >
+            Limpiar Fechas
+          </Button>
+
+          <TextField
+            select
+            label="Filtrar por Cabaña"
+            value={filtroCabana}
+            onChange={(e) => setFiltroCabana(e.target.value)}
+            SelectProps={{ native: true }}
+            sx={{ minWidth: 200, borderRadius: 2 }}
+            size="small"
+          >
+            <option value="todas">Todas las Cabañas</option>
+            {cabanas.map(c => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </TextField>
+        </Box>
+
         {loadingReservas ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
             <CircularProgress size={60} thickness={4} />
@@ -832,6 +1024,8 @@ const AdminCabanasPage = () => {
                   <TableCell sx={{ fontWeight: 700 }}>Cabaña</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Cliente</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Teléfono</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Procedencia</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Matrículas</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Fecha Inicio</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Fecha Fin</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Tinajas</TableCell>
@@ -842,7 +1036,7 @@ const AdminCabanasPage = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.isArray(reservas) && reservas.map((reserva) => (
+                {Array.isArray(reservasFiltradas) && reservasFiltradas.map((reserva) => (
                   <TableRow
                     key={reserva.id}
                     sx={{
@@ -865,8 +1059,28 @@ const AdminCabanasPage = () => {
                       </Box>
                     </TableCell>
                     <TableCell>{reserva.cliente_telefono}</TableCell>
-                    <TableCell>{new Date(reserva.fecha_inicio).toLocaleDateString('es-CL')}</TableCell>
-                    <TableCell>{new Date(reserva.fecha_fin).toLocaleDateString('es-CL')}</TableCell>
+                    <TableCell>
+                      {reserva.procedencia || <span style={{ color: '#999', fontStyle: 'italic' }}>Sin info</span>}
+                    </TableCell>
+                    <TableCell>
+                      {reserva.matriculas_auto ? (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {reserva.matriculas_auto.split(',').map((mat, idx) => (
+                            <Chip
+                              key={idx}
+                              label={mat.trim()}
+                              size="small"
+                              icon={<DirectionsCarIcon />}
+                              sx={{ fontSize: '0.75rem' }}
+                            />
+                          ))}
+                        </Box>
+                      ) : (
+                        <span style={{ color: '#999', fontStyle: 'italic' }}>Sin vehículo</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{formatDateForDisplay(reserva.fecha_inicio)}</TableCell>
+                    <TableCell>{formatDateForDisplay(reserva.fecha_fin)}</TableCell>
                     <TableCell>
                       {reserva.tiene_tinaja ? (
                         <Chip
@@ -1087,6 +1301,8 @@ const AdminCabanasPage = () => {
   // RENDER TAB TIMELINE - SUPER MEJORADO
   // ============================================
   const renderTabTimeline = () => {
+    const reservasFiltradas = getReservasFiltradas();
+
     return (
       <Fade in>
         <Box>
@@ -1117,6 +1333,55 @@ const AdminCabanasPage = () => {
             </Box>
           </Paper>
 
+          {/* Filtros */}
+          <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TextField
+              type="date"
+              label="Desde"
+              value={filtroFechaDesde || ''}
+              onChange={(e) => setFiltroFechaDesde(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 180, borderRadius: 2 }}
+              size="small"
+            />
+
+            <TextField
+              type="date"
+              label="Hasta"
+              value={filtroFechaHasta || ''}
+              onChange={(e) => setFiltroFechaHasta(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 180, borderRadius: 2 }}
+              size="small"
+            />
+
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setFiltroFechaDesde(null);
+                setFiltroFechaHasta(null);
+              }}
+              sx={{ borderRadius: 2 }}
+            >
+              Limpiar Fechas
+            </Button>
+
+            <TextField
+              select
+              label="Filtrar por Cabaña"
+              value={filtroCabana}
+              onChange={(e) => setFiltroCabana(e.target.value)}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 200, borderRadius: 2 }}
+              size="small"
+            >
+              <option value="todas">Todas las Cabañas</option>
+              {cabanas.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </TextField>
+          </Box>
+
           {loadingReservas ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
               <CircularProgress size={60} thickness={4} />
@@ -1124,7 +1389,13 @@ const AdminCabanasPage = () => {
           ) : cabanas.length > 0 ? (
             <Grid container spacing={4}>
               {cabanas.map((cabana, idx) => {
-                const reservasCabana = reservas.filter(r => r.cabana_id === cabana.id && r.estado !== 'cancelada');
+                const reservasCabana = reservasFiltradas.filter(r => r.cabana_id === cabana.id && r.estado !== 'cancelada');
+
+                // Si el filtro de cabaña está activo y no es esta cabaña, saltar
+                if (filtroCabana !== 'todas' && cabana.id !== parseInt(filtroCabana)) {
+                  return null;
+                }
+
                 const colorCabana = COLORES_CABANAS[normalizarNombre(cabana.nombre)] || '#667eea';
 
                 return (
@@ -1258,13 +1529,13 @@ const AdminCabanasPage = () => {
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                                           <CalendarIcon fontSize="small" color="action" />
                                           <Typography variant="body1" color="text.secondary" fontWeight={500}>
-                                            Check-in: {new Date(reserva.fecha_inicio).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                            Check-in: {formatDateLong(reserva.fecha_inicio)}
                                           </Typography>
                                         </Box>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                                           <CalendarIcon fontSize="small" color="action" />
                                           <Typography variant="body1" color="text.secondary" fontWeight={500}>
-                                            Check-out: {new Date(reserva.fecha_fin).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                            Check-out: {formatDateLong(reserva.fecha_fin)}
                                           </Typography>
                                         </Box>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
@@ -1557,6 +1828,119 @@ const AdminCabanasPage = () => {
           </Typography>
         </Box>
       </Box>
+
+      {/* Switch de Temporada - GRANDE Y VISUAL */}
+      <Paper
+        elevation={8}
+        sx={{
+          mb: 4,
+          p: 4,
+          borderRadius: 4,
+          background: temporada === 'baja'
+            ? 'linear-gradient(135deg, #4FC3F7 0%, #03A9F4 100%)'
+            : 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+          color: 'white',
+          position: 'relative',
+          overflow: 'hidden',
+          transition: 'all 0.5s ease',
+          boxShadow: temporada === 'baja'
+            ? '0 12px 40px rgba(79, 195, 247, 0.5)'
+            : '0 12px 40px rgba(255, 152, 0, 0.5)',
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <Avatar
+              sx={{
+                width: 80,
+                height: 80,
+                bgcolor: 'rgba(255,255,255,0.25)',
+                fontSize: 40,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
+              }}
+            >
+              {temporada === 'baja' ? '❄️' : '☀️'}
+            </Avatar>
+            <Box>
+              <Typography variant="h3" fontWeight={900} sx={{ textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                {temporada === 'baja' ? 'Temporada Baja' : 'Temporada Alta'}
+              </Typography>
+              <Typography variant="h6" sx={{ opacity: 0.95, mt: 1 }}>
+                Mostrando precios:{' '}
+                <strong>
+                  {temporada === 'baja' ? 'Precio Normal (Temporada Baja)' : 'Precio Fin de Semana (Temporada Alta)'}
+                </strong>
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.5, fontStyle: 'italic' }}>
+                {temporada === 'baja'
+                  ? 'Las nuevas reservas usarán el precio de temporada baja'
+                  : 'Las nuevas reservas usarán el precio de temporada alta (fin de semana)'}
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <Typography variant="body1" fontWeight={700} sx={{ opacity: 0.9 }}>
+              Cambiar Temporada
+            </Typography>
+            <Box
+              onClick={() => cambiarTemporada(temporada === 'baja' ? 'alta' : 'baja')}
+              sx={{
+                width: 180,
+                height: 80,
+                borderRadius: 40,
+                bgcolor: 'rgba(255,255,255,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                position: 'relative',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                border: '4px solid rgba(255,255,255,0.5)',
+                boxShadow: 'inset 0 4px 8px rgba(0,0,0,0.2)',
+                '&:hover': {
+                  transform: 'scale(1.05)',
+                  boxShadow: 'inset 0 4px 8px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.3)',
+                }
+              }}
+            >
+              <Box
+                sx={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: '50%',
+                  bgcolor: 'white',
+                  position: 'absolute',
+                  left: temporada === 'baja' ? 6 : 106,
+                  transition: 'all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 32,
+                }}
+              >
+                {temporada === 'baja' ? '❄️' : '☀️'}
+              </Box>
+            </Box>
+            <Typography variant="caption" sx={{ opacity: 0.85, fontWeight: 600 }}>
+              Click para cambiar
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Decoración de fondo */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -50,
+            right: -50,
+            width: 200,
+            height: 200,
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.1)',
+          }}
+        />
+      </Paper>
 
       {/* Stats Cards */}
       {tabValue === 0 && <StatsCards />}
@@ -1937,6 +2321,25 @@ const AdminCabanasPage = () => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                label="Procedencia"
+                value={formReserva.procedencia || ''}
+                onChange={(e) => setFormReserva({ ...formReserva, procedencia: e.target.value })}
+                placeholder="Ciudad de origen"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Matrículas de Vehículos"
+                value={formReserva.matriculas_auto || ''}
+                onChange={(e) => setFormReserva({ ...formReserva, matriculas_auto: e.target.value })}
+                placeholder="Separadas por comas: AA-BB-12, CD-EF-34"
+                helperText="Ingrese las matrículas separadas por comas. Deje vacío si no tiene vehículo."
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 label="Cantidad Personas"
                 type="number"
                 value={formReserva.cantidad_personas}
@@ -2003,6 +2406,35 @@ const AdminCabanasPage = () => {
                 <option value="cancelada">Cancelada</option>
                 <option value="completada">Completada</option>
               </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Estado de Pago"
+                select
+                value={formReserva.estado_pago || 'pendiente'}
+                onChange={(e) => setFormReserva({ ...formReserva, estado_pago: e.target.value })}
+                SelectProps={{ native: true }}
+              >
+                <option value="pendiente">Pendiente</option>
+                <option value="parcial">Parcial</option>
+                <option value="pagado">Pagado</option>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Monto Pagado"
+                value={formReserva.monto_pagado || 0}
+                onChange={(e) => setFormReserva({ ...formReserva, monto_pagado: parseFloat(e.target.value) })}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+                helperText={formReserva.precio_total && formReserva.monto_pagado
+                  ? `Resta por pagar: $${(formReserva.precio_total - formReserva.monto_pagado).toLocaleString()}`
+                  : ''}
+              />
             </Grid>
             <Grid item xs={12}>
               <TextField

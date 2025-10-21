@@ -10,11 +10,21 @@ dotenv.config();
 const app = express();
 
 // CORS DINÁMICO CORREGIDO: permitir todos los orígenes necesarios
-const allowedOrigins = [
+/*const allowedOrigins = [
   'http://localhost:3000',           // Desarrollo local
   'http://192.168.100.150:3000',     // Frontend en red local
   'http://190.102.248.163:80',       // Frontend público puerto 80
-  'http://190.102.248.163',          // Frontend público (puerto 80 implícito)
+  'http://190.102.248.163',           // Frontend público (puerto 80 implícito)
+  'http://intranet.beach.cl:80',     // Frontend intranet puerto 80
+  'http://intranet.beach.cl'          // Frontend intranet (puerto 80 implícito)
+];*/
+
+const allowedOrigins = [
+  'http://localhost:3000',           
+  'http://192.168.100.150:3000',        
+  'https://intranet.beach.cl',
+  'https://reservas.beach.cl',         
+  'https://api.beach.cl'              // ⬅️ importante: tu nuevo subdominio backend
 ];
 
 const corsOptions = {

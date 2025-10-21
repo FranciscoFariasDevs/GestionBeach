@@ -8,7 +8,7 @@ const getBackendURL = () => {
   
   console.log(`🔍 Frontend ejecutándose en: ${hostname}:${port}`);
   
-  switch (hostname) {
+  /*switch (hostname) {
     case 'localhost':
     case '127.0.0.1':
       console.log('🏠 Modo desarrollo local');
@@ -22,10 +22,37 @@ const getBackendURL = () => {
       console.log('🌐 Acceso desde internet público');
       return 'http://190.102.248.163:5000/api';
       
+      case 'http://intranet.beach.cl':
+      console.log('🌐 Acceso desde internet público');
+      return 'http://intranet.beach.cl:5000/api';
+      
     default:
       console.log(`⚠️ Hostname desconocido: ${hostname}, usando backend local`);
       return 'http://192.168.100.150:5000/api';
-  }
+  }*/
+
+      switch (hostname) {
+  case 'localhost':
+  case '127.0.0.1':
+    console.log('🏠 Modo desarrollo local');
+    return 'http://localhost:5000/api';
+
+  case '192.168.100.150':
+    console.log('🏠 Acceso desde red local');
+    return 'http://192.168.100.150:5000/api';
+
+  case 'intranet.beach.cl':
+    console.log('🌐 Acceso desde intranet.beach.cl');
+    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
+
+      case 'reservas.beach.cl':
+    console.log('🌐 Acceso desde intranet.beach.cl');
+    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
+
+  default:
+    console.log(`⚠️ Hostname desconocido: ${hostname}, usando backend local`);
+    return 'http://192.168.100.150:5000/api';
+}
 };
 
 // URL del backend con detección automática

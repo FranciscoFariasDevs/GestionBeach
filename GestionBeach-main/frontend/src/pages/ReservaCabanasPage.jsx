@@ -19,6 +19,7 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  Checkbox,
   Stepper,
   Step,
   StepLabel,
@@ -55,6 +56,10 @@ import {
   CalendarMonth as CalendarIcon,
   Bed as BedIcon,
   KingBed as KingBedIcon,
+  DirectionsCar as CarIcon,
+  LocationOn as LocationIcon,
+  ContentCopy as CopyIcon,
+  AccountBalance as BankIcon,
 } from '@mui/icons-material';
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
@@ -131,6 +136,9 @@ const ReservaCabanasPage = () => {
     cliente_telefono: '',
     cliente_email: '',
     cliente_rut: '',
+    procedencia: '',
+    tiene_auto: true,
+    matriculas_auto: [''],
     fecha_inicio: null,
     fecha_fin: null,
     quiere_tinajas: false,
@@ -161,14 +169,79 @@ const ReservaCabanasPage = () => {
     'departamentoB'   // ⚠️ MAYÚSCULA B
   ];
 
+  
+
   const steps = [
     'Info de Cabaña',
     'Personas y Fechas',
     'Tinajas (Opcional)',
     'Resumen y Pago'
   ];
+  
+  React.useEffect(() => {
+    document.title = 'Reservas';
+
+    // Restaurar título original al desmontar
+    return () => {
+      document.title = 'Intranet';
+    };
+  }, []);
 
   const WHATSAPP_NUMBER = '+56942652034';
+
+  // ============================================
+  // FUNCIÓN PARA COPIAR AL PORTAPAPELES (Con fallback para HTTP)
+  // ============================================
+
+  const copiarAlPortapapeles = (texto) => {
+    return new Promise((resolve) => {
+      // Método 1: Clipboard API (solo funciona en HTTPS)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto)
+          .then(() => resolve(true))
+          .catch(() => {
+            // Si falla, intentar con el método fallback
+            resolve(copiarConFallback(texto));
+          });
+      } else {
+        // Si no existe clipboard API, usar fallback directamente
+        resolve(copiarConFallback(texto));
+      }
+    });
+  };
+
+  const copiarConFallback = (texto) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = texto;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+
+      // Seleccionar el texto
+      if (navigator.userAgent.match(/ipad|iphone/i)) {
+        // Para iOS
+        const range = document.createRange();
+        range.selectNodeContents(textarea);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        textarea.setSelectionRange(0, 999999);
+      } else {
+        textarea.select();
+      }
+
+      // Copiar
+      const exitoso = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return exitoso;
+    } catch (err) {
+      console.error('Error en fallback:', err);
+      return false;
+    }
+  };
 
   // ============================================
   // FUNCIÓN PARA NORMALIZAR NOMBRES
@@ -199,6 +272,15 @@ const ReservaCabanasPage = () => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  // Función para MOSTRAR fechas (sin problemas de zona horaria)
+  const formatDateForDisplay = (date) => {
+    if (!date) return '-';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
   };
 
   const getTodayDate = () => {
@@ -542,6 +624,9 @@ const ReservaCabanasPage = () => {
             cliente_telefono: '',
             cliente_email: '',
             cliente_rut: '',
+            procedencia: '',
+            tiene_auto: true,
+            matriculas_auto: [''],
             fecha_inicio: null,
             fecha_fin: null,
             quiere_tinajas: false,
@@ -589,8 +674,83 @@ const ReservaCabanasPage = () => {
     let dayColor = null;
     let dayLabel = '';
     let isDisabled = false;
+    let isCheckoutDay = false;
 
-    // Buscar reservas en esta fecha para esta cabaña
+    // ============================================
+    // CALENDARIO DE CHECKOUT - Lógica especial
+    // ============================================
+    if (tipo === 'fin' && formData.fecha_inicio) {
+      const fechaInicioUsuario = new Date(formData.fecha_inicio);
+
+      // Verificar si el usuario seleccionó un día de checkout (naranja) como check-in
+      const reservaCheckoutEnInicio = reservas.find(r => {
+        if (r.cabana_id !== selectedCabana.id) return false;
+        if (r.estado === 'cancelada') return false;
+
+        const fechaFin = parseServerDate(r.fecha_fin);
+        return isSameDay(fechaInicioUsuario, fechaFin);
+      });
+
+      if (reservaCheckoutEnInicio) {
+        // El usuario entró en un día de checkout (naranja)
+        // AUTOMÁTICAMENTE: El día siguiente debe ser celeste (su checkout coincide con check-in existente)
+        const diaSiguiente = new Date(fechaInicioUsuario);
+        diaSiguiente.setDate(diaSiguiente.getDate() + 1);
+
+        // Verificar si hay una reserva que empieza el día siguiente
+        const reservaDiaSiguiente = reservas.find(r => {
+          if (r.cabana_id !== selectedCabana.id) return false;
+          if (r.estado === 'cancelada') return false;
+
+          const fechaInicio = parseServerDate(r.fecha_inicio);
+          return isSameDay(diaSiguiente, fechaInicio);
+        });
+
+        if (reservaDiaSiguiente && isSameDay(date, diaSiguiente)) {
+          // Este día (día siguiente al check-in) es CELESTE
+          dayColor = '#00BCD4'; // Celeste
+          dayLabel = '✅ Checkout a las 12hrs / Check-in del otro reservante a las 14hrs';
+          isDisabled = false;
+
+          return (
+            <Tooltip title={dayLabel} arrow>
+              <span>
+                <PickersDay
+                  {...pickersDayProps}
+                  disabled={isDisabled || pickersDayProps.disabled}
+                  sx={{
+                    backgroundColor: dayColor,
+                    color: '#fff',
+                    fontWeight: 'bold',
+                    '&:hover': {
+                      backgroundColor: dayColor,
+                      filter: 'brightness(1.1)',
+                    },
+                  }}
+                />
+              </span>
+            </Tooltip>
+          );
+        }
+
+        // RESTRINGIR: Bloquear TODOS los checkouts (morados y naranjas) excepto el celeste
+        const esOtroCheckout = reservas.some(r => {
+          if (r.cabana_id !== selectedCabana.id) return false;
+          if (r.estado === 'cancelada') return false;
+
+          const fechaFin = parseServerDate(r.fecha_fin);
+          // Bloquear cualquier checkout que NO sea el día siguiente (celeste)
+          return isSameDay(date, fechaFin) && !isSameDay(date, diaSiguiente);
+        });
+
+        if (esOtroCheckout) {
+          // Deshabilitar todos los checkouts excepto el celeste
+          isDisabled = true;
+        }
+      }
+    }
+
+    // PRIMERO: Buscar reservas activas en este día (días ocupados entre check-in y check-out)
     const reservasEnDia = reservas.filter(r => {
       if (r.cabana_id !== selectedCabana.id) return false;
       if (r.estado === 'cancelada') return false;
@@ -598,13 +758,14 @@ const ReservaCabanasPage = () => {
       const fechaInicio = parseServerDate(r.fecha_inicio);
       const fechaFin = parseServerDate(r.fecha_fin);
 
+      // Un día está ocupado si está ENTRE check-in (inclusive) y check-out (exclusive)
       return isDateInRange(date, fechaInicio, fechaFin);
     });
 
-    // Si hay reservas en esta fecha, deshabilitar y colorear
     if (reservasEnDia.length > 0) {
+      // ⛔ Día OCUPADO (entre check-in y check-out)
       const reserva = reservasEnDia[0];
-      isDisabled = true; // ⚠️ DESHABILITAR FECHA OCUPADA
+      isDisabled = true;
 
       // Validar por estado de pago O por estado de reserva
       if (reserva.estado_pago === 'pagado' || reserva.estado === 'confirmada' || reserva.check_in_realizado) {
@@ -613,7 +774,44 @@ const ReservaCabanasPage = () => {
       } else if (reserva.estado_pago === 'pendiente' || reserva.estado === 'pendiente') {
         dayColor = '#FFC107'; // Amarillo para pendientes
         dayLabel = '⚠️ Pendiente de pago';
-        isDisabled = true; // También deshabilitar las pendientes
+      }
+    } else {
+      // SEGUNDO: Verificar si es día de CHECKOUT (disponible para nuevo check-in)
+      const reservasCheckout = reservas.filter(r => {
+        if (r.cabana_id !== selectedCabana.id) return false;
+        if (r.estado === 'cancelada') return false;
+
+        const fechaFin = parseServerDate(r.fecha_fin);
+        return isSameDay(date, fechaFin);
+      });
+
+      if (reservasCheckout.length > 0) {
+        // Verificar si hay una reserva que empieza el día siguiente (conflicto de mismo día)
+        const diaSiguiente = new Date(date);
+        diaSiguiente.setDate(diaSiguiente.getDate() + 1);
+
+        const reservaDiaSiguiente = reservas.find(r => {
+          if (r.cabana_id !== selectedCabana.id) return false;
+          if (r.estado === 'cancelada') return false;
+
+          const fechaInicio = parseServerDate(r.fecha_inicio);
+          return isSameDay(diaSiguiente, fechaInicio);
+        });
+
+        if (reservaDiaSiguiente) {
+          // ⚠️ DISPONIBLE pero con horarios ajustados: Hay una reserva que empieza al día siguiente
+          // Checkout a las 12hrs, puede ingresar desde las 14hrs
+          isCheckoutDay = true;
+          dayColor = '#FF9800'; // Naranja para indicar checkout con reserva siguiente
+          dayLabel = '✅ Disponible - Checkout 12hrs / Check-in desde 14hrs';
+          isDisabled = false; // ✅ PERMITIR SELECCIONAR
+        } else {
+          // ✅ Es día de CHECKOUT - DISPONIBLE para nueva reserva
+          isCheckoutDay = true;
+          dayColor = '#9C27B0'; // Morado para checkout
+          dayLabel = '✅ Disponible (Checkout)';
+          isDisabled = false; // ✅ PERMITIR SELECCIONAR
+        }
       }
     }
 
@@ -637,6 +835,14 @@ const ReservaCabanasPage = () => {
                   color: 'white',
                   opacity: 0.7,
                 },
+                // Estilo especial para días de checkout (no disabled)
+                ...(isCheckoutDay && {
+                  cursor: 'pointer',
+                  '&:hover': {
+                    backgroundColor: '#7B1FA2',
+                    opacity: 1,
+                  },
+                }),
               }),
             }}
           />
@@ -1067,12 +1273,14 @@ const ReservaCabanasPage = () => {
         }
       }
 
-      // Validar RUT (si está presente)
-      if (formData.cliente_rut && formData.cliente_rut.trim() !== '') {
-        if (!validarRUT(formData.cliente_rut)) {
-          enqueueSnackbar('El RUT no es válido', { variant: 'warning' });
-          return;
-        }
+      // Validar RUT (OBLIGATORIO)
+      if (!formData.cliente_rut || formData.cliente_rut.trim() === '') {
+        enqueueSnackbar('El RUT es requerido', { variant: 'warning' });
+        return;
+      }
+      if (!validarRUT(formData.cliente_rut)) {
+        enqueueSnackbar('El RUT no es válido', { variant: 'warning' });
+        return;
       }
 
       // Validar fechas
@@ -1155,6 +1363,8 @@ const ReservaCabanasPage = () => {
         cliente_telefono: formData.cliente_telefono,
         cliente_email: formData.cliente_email,
         cliente_rut: formData.cliente_rut,
+        procedencia: formData.procedencia,
+        matriculas_auto: formData.matriculas_auto.filter(m => m.trim() !== ''),
         fecha_inicio: formatDateForServer(formData.fecha_inicio),
         fecha_fin: formatDateForServer(formData.fecha_fin),
         cantidad_personas: formData.cantidad_personas,
@@ -1395,9 +1605,10 @@ const ReservaCabanasPage = () => {
                 <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
                   Fechas de Reserva
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada (no seleccionable) •
-                  <strong style={{ color: '#FFC107' }}> Amarillo</strong>: Pendiente (no seleccionable)
+                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.8 }}>
+                  <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada •
+                  <strong style={{ color: '#FFC107' }}> Amarillo</strong>: Pendiente •
+                  <strong style={{ color: '#9C27B0' }}> Morado</strong>: Checkout (Disponible)
                 </Typography>
               </Box>
 
@@ -1635,13 +1846,112 @@ const ReservaCabanasPage = () => {
                     label="RUT"
                     value={formData.cliente_rut}
                     onChange={handleRUTChange}
+                    required
                     placeholder="12.345.678-9"
-                    helperText="Opcional - Se formatea automáticamente"
+                    helperText="Obligatorio - Se formatea automáticamente"
                     InputProps={{
                       startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />,
                     }}
                     variant="outlined"
                   />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Procedencia"
+                    value={formData.procedencia}
+                    onChange={(e) => setFormData({ ...formData, procedencia: e.target.value })}
+                    placeholder="Ciudad de origen"
+                    helperText="Ej: Santiago, Concepción, etc."
+                    InputProps={{
+                      startAdornment: <LocationIcon sx={{ mr: 1, color: 'action.active' }} />,
+                    }}
+                    variant="outlined"
+                  />
+                </Grid>
+
+                {/* Matrículas de Auto */}
+                <Grid item xs={12}>
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CarIcon sx={{ color: '#2196F3' }} />
+                      Información de Vehículo
+                    </Typography>
+
+                    {/* Checkbox: No voy en auto */}
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={!formData.tiene_auto}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              tiene_auto: !e.target.checked,
+                              matriculas_auto: e.target.checked ? [] : ['']
+                            });
+                          }}
+                          sx={{
+                            color: '#2196F3',
+                            '&.Mui-checked': { color: '#2196F3' }
+                          }}
+                        />
+                      }
+                      label="No voy en auto particular / No aplica"
+                      sx={{
+                        mb: 2,
+                        '& .MuiFormControlLabel-label': {
+                          fontWeight: 500,
+                          color: !formData.tiene_auto ? '#2196F3' : 'inherit'
+                        }
+                      }}
+                    />
+
+                    {/* Solo mostrar campos de matrícula si tiene auto */}
+                    {formData.tiene_auto && (
+                      <>
+                        {formData.matriculas_auto.map((matricula, index) => (
+                          <Box key={index} sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+                            <TextField
+                              fullWidth
+                              label={`Matrícula ${index + 1}`}
+                              value={matricula}
+                              onChange={(e) => {
+                                const nuevasMatriculas = [...formData.matriculas_auto];
+                                nuevasMatriculas[index] = e.target.value.toUpperCase();
+                                setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
+                              }}
+                              placeholder="AA-BB-12 o ABCD-12"
+                              InputProps={{
+                                startAdornment: <CarIcon sx={{ mr: 1, color: 'action.active' }} />,
+                              }}
+                              variant="outlined"
+                            />
+                            {formData.matriculas_auto.length > 1 && (
+                              <IconButton
+                                onClick={() => {
+                                  const nuevasMatriculas = formData.matriculas_auto.filter((_, i) => i !== index);
+                                  setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
+                                }}
+                                sx={{ bgcolor: '#FFCDD2', '&:hover': { bgcolor: '#EF5350' } }}
+                              >
+                                <RemoveIcon />
+                              </IconButton>
+                            )}
+                          </Box>
+                        ))}
+                        <Button
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={() => {
+                            setFormData({ ...formData, matriculas_auto: [...formData.matriculas_auto, ''] });
+                          }}
+                          sx={{ mt: 1 }}
+                        >
+                          Agregar otro vehículo
+                        </Button>
+                      </>
+                    )}
+                  </Box>
                 </Grid>
               </Grid>
             </Paper>
@@ -1741,14 +2051,14 @@ const ReservaCabanasPage = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
                   <Typography variant="body1" color="text.secondary">Check-In:</Typography>
                   <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.fecha_inicio ? formatDateForServer(formData.fecha_inicio) : '-'}
+                    {formData.fecha_inicio ? formatDateForDisplay(formData.fecha_inicio) : '-'}
                   </Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
                   <Typography variant="body1" color="text.secondary">Check-Out:</Typography>
                   <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.fecha_fin ? formatDateForServer(formData.fecha_fin) : '-'}
+                    {formData.fecha_fin ? formatDateForDisplay(formData.fecha_fin) : '-'}
                   </Typography>
                 </Box>
 
@@ -1864,6 +2174,114 @@ const ReservaCabanasPage = () => {
               </FormControl>
             </Paper>
 
+            {/* Datos Bancarios */}
+            <Paper elevation={3} sx={{ p: 4, bgcolor: '#E8F5E9', borderRadius: 3, border: '2px solid #4CAF50' }}>
+              <Box sx={{ textAlign: 'center', mb: 3 }}>
+                <BankIcon sx={{ fontSize: 60, color: '#4CAF50', mb: 2 }} />
+                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1, color: '#2E7D32' }}>
+                  Datos Bancarios para Transferencia
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#D32F2F' }}>
+                  Monto a Transferir: ${montoPagar.toLocaleString('es-CL')}
+                </Typography>
+              </Box>
+
+              <Box sx={{ bgcolor: 'white', p: 3, borderRadius: 2, mb: 2 }}>
+                <Stack spacing={2}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">BANCO</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>SANTANDER</Typography>
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">CUENTA CORRIENTE N°</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>67498593</Typography>
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">RAZÓN SOCIAL / NOMBRE</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>BEACH MARKET LTDA.</Typography>
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">RUT</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>76.236.893-5</Typography>
+                  </Box>
+                  <Divider />
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">CORREO ELECTRÓNICO</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>ELMIRADORDICHATO@GMAIL.COM</Typography>
+                  </Box>
+                </Stack>
+              </Box>
+
+              <Stack spacing={2}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  startIcon={<CopyIcon />}
+                  onClick={async () => {
+                    const datosBancarios = `DATOS BANCARIOS CABAÑAS EL MIRADOR
+BANCO: SANTANDER
+CUENTA CORRIENTE N°: 67498593
+RAZÓN SOCIAL / NOMBRE: BEACH MARKET LTDA.
+RUT: 76.236.893-5
+CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
+
+                    try {
+                      const exitoso = await copiarAlPortapapeles(datosBancarios);
+                      if (exitoso) {
+                        enqueueSnackbar('✅ Datos bancarios copiados al portapapeles', { variant: 'success' });
+                      } else {
+                        enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                      }
+                    } catch (err) {
+                      console.error('Error al copiar:', err);
+                      enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                    }
+                  }}
+                  sx={{
+                    bgcolor: '#1976D2',
+                    fontWeight: 700,
+                    py: 1.5,
+                    '&:hover': { bgcolor: '#1565C0' }
+                  }}
+                >
+                  Copiar Datos de Transferencia
+                </Button>
+
+                <Button
+                  variant="outlined"
+                  size="large"
+                  fullWidth
+                  startIcon={<CopyIcon />}
+                  onClick={async () => {
+                    try {
+                      const exitoso = await copiarAlPortapapeles('ELMIRADORDICHATO@GMAIL.COM');
+                      if (exitoso) {
+                        enqueueSnackbar('✅ Correo copiado al portapapeles', { variant: 'success' });
+                      } else {
+                        enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                      }
+                    } catch (err) {
+                      console.error('Error al copiar:', err);
+                      enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                    }
+                  }}
+                  sx={{
+                    borderColor: '#1976D2',
+                    color: '#1976D2',
+                    fontWeight: 700,
+                    py: 1.5,
+                    '&:hover': { borderColor: '#1565C0', bgcolor: '#E3F2FD' }
+                  }}
+                >
+                  Copiar solo Correo
+                </Button>
+              </Stack>
+            </Paper>
+
             {/* WhatsApp */}
             <Paper elevation={3} sx={{ p: 4, bgcolor: '#E3F2FD', borderRadius: 3 }}>
               <Box sx={{ textAlign: 'center', mb: 2 }}>
@@ -1905,6 +2323,31 @@ const ReservaCabanasPage = () => {
               variant="outlined"
               placeholder="¿Alguna solicitud especial?"
             />
+
+            {/* Políticas de Cancelación */}
+            <Paper elevation={1} sx={{ p: 3, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px solid #FFB74D' }}>
+              <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 2, color: '#E65100', fontSize: '0.85rem' }}>
+                POLÍTICAS DE CANCELACIÓN DE TU RESERVA
+              </Typography>
+              <Stack spacing={1}>
+                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                  <strong>1.</strong> Si cancela con <strong>10 días (o más)</strong> se le reembolsa el 100% de su abono.
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                  <strong>2.</strong> Si cancela con <strong>5 días</strong> de anticipación, se le reembolsará el 50% de su abono.
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                  <strong>3.</strong> Si cancela con <strong>1 día</strong> de anticipación, no existe reembolso.
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                  <strong>4.</strong> <strong>Salida Anticipada:</strong> No tendrá derecho a devolución del pago de su estadía.
+                </Typography>
+              </Stack>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', fontSize: '0.7rem', fontStyle: 'italic', color: '#6D4C41' }}>
+                Atte. Cabañas El Mirador de Dichato
+              </Typography>
+            </Paper>
           </Stack>
         );
 
@@ -2165,7 +2608,7 @@ const ReservaCabanasPage = () => {
                   sx={{
                     width: '100%',
                     height: 'auto',
-                    filter: 'brightness(0.95) contrast(1.15) saturate(0.9)',
+                    filter: 'brightness(1.1) contrast(1.0) saturate(1.3)',
                     '& svg': {
                       width: '100%',
                       height: 'auto',

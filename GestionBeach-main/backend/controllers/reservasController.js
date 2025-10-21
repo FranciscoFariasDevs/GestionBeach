@@ -16,6 +16,7 @@ exports.obtenerReservas = async (req, res) => {
       SELECT
         r.id, r.cabana_id, r.cliente_nombre, r.cliente_apellido,
         r.cliente_telefono, r.cliente_email, r.cliente_rut,
+        r.procedencia, r.matriculas_auto,
         r.fecha_inicio, r.fecha_fin, r.cantidad_personas, r.cantidad_noches,
         r.precio_por_noche, r.precio_total, r.descuento, r.precio_final,
         r.estado, r.metodo_pago, r.estado_pago, r.monto_pagado,
@@ -132,6 +133,8 @@ exports.crearReserva = async (req, res) => {
       cliente_telefono,
       cliente_email,
       cliente_rut,
+      procedencia,
+      matriculas_auto,
       fecha_inicio,
       fecha_fin,
       cantidad_personas,
@@ -164,6 +167,8 @@ exports.crearReserva = async (req, res) => {
     const pool = await poolPromise;
 
     // Verificar disponibilidad
+    // IMPORTANTE: El día de checkout (fecha_fin) NO cuenta como ocupado
+    // Una reserva 25-26 significa que el 26 está DISPONIBLE para nueva reserva
     const disponibilidad = await pool.request()
       .input('cabana_id', sql.Int, cabana_id)
       .input('fecha_inicio', sql.Date, fecha_inicio)
@@ -172,7 +177,7 @@ exports.crearReserva = async (req, res) => {
         SELECT COUNT(*) as total_bloqueos
         FROM dbo.bloqueos_cabanas
         WHERE cabana_id = @cabana_id
-          AND (fecha_inicio <= @fecha_fin AND fecha_fin >= @fecha_inicio)
+          AND (fecha_inicio < @fecha_fin AND fecha_fin > @fecha_inicio)
       `);
 
     if (disponibilidad.recordset[0].total_bloqueos > 0) {
@@ -205,6 +210,11 @@ exports.crearReserva = async (req, res) => {
       }
     }
 
+    // Convertir array de matrículas a string separado por comas
+    const matriculasStr = matriculas_auto && Array.isArray(matriculas_auto)
+      ? matriculas_auto.filter(m => m && m.trim() !== '').join(', ')
+      : null;
+
     // Crear reserva (SIN cantidad_noches y precio_final porque son columnas calculadas)
     const resultado = await pool.request()
       .input('cabana_id', sql.Int, cabana_id)
@@ -213,6 +223,8 @@ exports.crearReserva = async (req, res) => {
       .input('cliente_telefono', sql.VarChar, cliente_telefono)
       .input('cliente_email', sql.VarChar, cliente_email || null)
       .input('cliente_rut', sql.VarChar, cliente_rut || null)
+      .input('procedencia', sql.VarChar, procedencia || null)
+      .input('matriculas_auto', sql.VarChar, matriculasStr)
       .input('fecha_inicio', sql.Date, fecha_inicio)
       .input('fecha_fin', sql.Date, fecha_fin)
       .input('cantidad_personas', sql.Int, cantidad_personas)
@@ -232,6 +244,7 @@ exports.crearReserva = async (req, res) => {
       .query(`
         INSERT INTO dbo.reservas_cabanas (
           cabana_id, cliente_nombre, cliente_apellido, cliente_telefono, cliente_email, cliente_rut,
+          procedencia, matriculas_auto,
           fecha_inicio, fecha_fin, cantidad_personas, personas_extra, costo_personas_extra,
           precio_por_noche, precio_total, descuento,
           estado, metodo_pago, estado_pago, monto_pagado,
@@ -240,6 +253,7 @@ exports.crearReserva = async (req, res) => {
         OUTPUT INSERTED.id
         VALUES (
           @cabana_id, @cliente_nombre, @cliente_apellido, @cliente_telefono, @cliente_email, @cliente_rut,
+          @procedencia, @matriculas_auto,
           @fecha_inicio, @fecha_fin, @cantidad_personas, @personas_extra, @costo_personas_extra,
           @precio_por_noche, @precio_total, @descuento,
           @estado, @metodo_pago, @estado_pago, @monto_pagado,
