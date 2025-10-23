@@ -63,6 +63,7 @@ import {
 } from '@mui/icons-material';
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
+import { enviarConfirmacionReservaCabana } from '../services/emailService';
 
 // Colores ÚNICOS para cada cabaña (tonos VIBRANTES y brillantes)
 const COLORES_CABANAS = {
@@ -539,7 +540,7 @@ const ReservaCabanasPage = () => {
       const elemento = svgElement.querySelector(`#${id}`);
 
       if (elemento) {
-        const { color } = obtenerEstadoCabana(id);
+        const { color, nombreCabana } = obtenerEstadoCabana(id);
 
         console.log(`✅ ENCONTRADO: "${id}" - Aplicando color: ${color}`);
 
@@ -557,9 +558,49 @@ const ReservaCabanasPage = () => {
         elemento.style.cursor = 'pointer';
         elemento.style.filter = 'brightness(1.0) contrast(1.1)';  // Mejor contraste
 
+        // 🔢 AGREGAR NÚMERO/LETRA EN EL CENTRO DEL POLÍGONO
+        const bbox = elemento.getBBox();
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+
+        // Extraer número o letra del nombre
+        let label = nombreCabana;
+        if (nombreCabana.includes('Path')) {
+          label = nombreCabana.replace('Path', '').trim();
+        } else if (nombreCabana.includes('Departamento')) {
+          label = nombreCabana.replace('Departamento', '').trim();
+        } else if (nombreCabana.includes('Cabaña')) {
+          label = nombreCabana.replace('Cabaña', '').trim();
+        }
+
+        // Remover texto anterior si existe
+        const existingText = svgElement.querySelector(`#text-${id}`);
+        if (existingText) {
+          existingText.remove();
+        }
+
+        // Crear texto SVG
+        const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        textElement.setAttribute('id', `text-${id}`);
+        textElement.setAttribute('x', centerX);
+        textElement.setAttribute('y', centerY);
+        textElement.setAttribute('text-anchor', 'middle');
+        textElement.setAttribute('dominant-baseline', 'central');
+        textElement.setAttribute('font-size', '24');
+        textElement.setAttribute('font-weight', 'bold');
+        textElement.setAttribute('fill', '#000000');
+        textElement.setAttribute('stroke', '#FFFFFF');
+        textElement.setAttribute('stroke-width', '3');
+        textElement.setAttribute('paint-order', 'stroke');
+        textElement.setAttribute('pointer-events', 'none');
+        textElement.style.fontFamily = 'Arial, sans-serif';
+        textElement.textContent = label;
+
+        svgElement.appendChild(textElement);
+
         // Verificar que se aplicó
         const computedStyle = window.getComputedStyle(elemento);
-        console.log(`   → Fill aplicado: ${computedStyle.fill}, Stroke: ${computedStyle.stroke}`);
+        console.log(`   → Fill aplicado: ${computedStyle.fill}, Stroke: ${computedStyle.stroke}, Label: ${label}`);
       } else {
         console.error(`❌ NO ENCONTRADO: "${id}"`);
       }
@@ -1264,13 +1305,15 @@ const ReservaCabanasPage = () => {
         return;
       }
 
-      // Validar email (si está presente)
-      if (formData.cliente_email && formData.cliente_email.trim() !== '') {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(formData.cliente_email)) {
-          enqueueSnackbar('El email no tiene un formato válido', { variant: 'warning' });
-          return;
-        }
+      // Validar email (OBLIGATORIO)
+      if (!formData.cliente_email || formData.cliente_email.trim() === '') {
+        enqueueSnackbar('El email es requerido para enviar la confirmación', { variant: 'warning' });
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.cliente_email)) {
+        enqueueSnackbar('El email no tiene un formato válido', { variant: 'warning' });
+        return;
       }
 
       // Validar RUT (OBLIGATORIO)
@@ -1393,6 +1436,25 @@ const ReservaCabanasPage = () => {
 
       enqueueSnackbar('✅ Reserva creada exitosamente en estado PENDIENTE', { variant: 'success' });
 
+      // Enviar email de confirmación
+      const emailData = {
+        ...reservaData,
+        cabana_nombre: selectedCabana.nombre,
+        cantidad_noches: cantidadNoches,
+        precio_por_noche: precioNoche,
+        costo_personas_extra: costoPersonasExtra,
+        precio_total: precioTotal,
+        personas_extra: personasExtra,
+      };
+
+      const emailResult = await enviarConfirmacionReservaCabana(emailData);
+      if (emailResult.success) {
+        enqueueSnackbar('📧 Email de confirmación enviado exitosamente', { variant: 'success' });
+      } else {
+        console.error('Error al enviar email:', emailResult.error);
+        enqueueSnackbar('⚠️ Reserva creada pero no se pudo enviar el email de confirmación', { variant: 'warning' });
+      }
+
       const montoPagar = calcularMontoAPagar();
       const mensaje = `¡Reserva confirmada!\n\nEnvía el comprobante de pago por ${montoPagar.toLocaleString('es-CL')} a WhatsApp`;
       enqueueSnackbar(mensaje, { variant: 'info', autoHideDuration: 10000 });
@@ -1423,29 +1485,55 @@ const ReservaCabanasPage = () => {
   const getStepContent = (step) => {
     switch (step) {
       case 0:
-        // PASO 1: Info de Cabaña (carousel de fotos + info)
         return (
           <Box>
             <Paper
-              elevation={0}
+              elevation={2}
               sx={{
-                mb: 3,
-                p: 3,
-                textAlign: 'center',
+                mb: 2,
+                p: 2,
                 background: `linear-gradient(135deg, ${COLORES_CABANAS[normalizarNombre(selectedCabana?.nombre)] || '#FF8C42'} 0%, ${COLORES_CABANAS[normalizarNombre(selectedCabana?.nombre)] || '#FF8C42'}CC 100%)`,
                 color: 'white',
-                borderRadius: 3,
+                borderRadius: 2,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 2
               }}
             >
-              <BedIcon sx={{ fontSize: 60, mb: 1 }} />
-              <Typography variant="h4" sx={{ fontWeight: 900, textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>
-                {selectedCabana?.nombre}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <BedIcon sx={{ fontSize: 36 }} />
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                  {selectedCabana?.nombre}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                <Box sx={{ textAlign: 'center', bgcolor: 'rgba(255,255,255,0.2)', px: 2, py: 1, borderRadius: 1 }}>
+                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
+                    Capacidad
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                    {selectedCabana?.capacidad_personas} personas
+                  </Typography>
+                </Box>
+
+                <Box sx={{ textAlign: 'center', bgcolor: 'rgba(255,255,255,0.2)', px: 2, py: 1, borderRadius: 1 }}>
+                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
+                    Precio por Noche
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                    ${getPrecioActual(selectedCabana).toLocaleString('es-CL')}
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
+                    Temporada {getTemporadaActual() === 'alta' ? 'Alta' : 'Baja'}
+                  </Typography>
+                </Box>
+              </Box>
             </Paper>
 
-            {/* Carousel de imágenes */}
             {carouselImages.length > 0 ? (
-              <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden', mb: 3 }}>
+              <Paper elevation={3} sx={{ borderRadius: 2, overflow: 'hidden', mb: 2 }}>
                 <Carousel
                   navButtonsAlwaysVisible
                   indicators
@@ -1459,7 +1547,7 @@ const ReservaCabanasPage = () => {
                       key={idx}
                       sx={{
                         width: '100%',
-                        height: '450px',
+                        height: '300px',
                         display: 'flex',
                         justifyContent: 'center',
                         alignItems: 'center',
@@ -1487,97 +1575,37 @@ const ReservaCabanasPage = () => {
               <Paper
                 elevation={0}
                 sx={{
-                  p: 6,
+                  p: 3,
                   textAlign: 'center',
                   bgcolor: '#F5F5F5',
-                  borderRadius: 3,
-                  mb: 3,
-                  border: '2px dashed #BDBDBD'
+                  borderRadius: 2,
+                  border: '2px dashed #BDBDBD',
+                  height: '300px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  mb: 2
                 }}
               >
                 <KingBedIcon sx={{ fontSize: 80, color: '#BDBDBD', mb: 2 }} />
                 <Typography variant="h6" color="text.secondary">
-                  No hay imágenes disponibles para esta cabaña
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Carpeta esperada: /images/{ID_TO_FOLDER[normalizarNombre(selectedCabana?.nombre)]}
+                  No hay imágenes disponibles
                 </Typography>
               </Paper>
             )}
 
-            {/* Info de la cabaña */}
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <Paper
-                  elevation={3}
-                  sx={{
-                    p: 3,
-                    bgcolor: '#FFF3E0',
-                    borderRadius: 3,
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <Avatar sx={{ bgcolor: '#FF8C42', width: 64, height: 64, mb: 2 }}>
-                    <PeopleIcon sx={{ fontSize: 32 }} />
-                  </Avatar>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Capacidad Máxima
-                  </Typography>
-                  <Typography variant="h3" sx={{ fontWeight: 900, color: '#FF8C42' }}>
-                    {selectedCabana?.capacidad_personas}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    personas
-                  </Typography>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Paper
-                  elevation={3}
-                  sx={{
-                    p: 3,
-                    bgcolor: '#E8F5E9',
-                    borderRadius: 3,
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <Avatar sx={{ bgcolor: '#4CAF50', width: 64, height: 64, mb: 2 }}>
-                    <MoneyIcon sx={{ fontSize: 32 }} />
-                  </Avatar>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Precio por Noche
-                  </Typography>
-                  <Typography variant="h3" sx={{ fontWeight: 900, color: '#2E7D32' }}>
-                    ${getPrecioActual(selectedCabana).toLocaleString('es-CL')}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Temporada {getTemporadaActual() === 'alta' ? 'Alta' : 'Baja'}
-                  </Typography>
-                </Paper>
-              </Grid>
-              {selectedCabana?.descripcion && (
-                <Grid item xs={12}>
-                  <Paper elevation={3} sx={{ p: 3, bgcolor: '#F5F5F5', borderRadius: 3 }}>
-                    <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.8 }}>
-                      {selectedCabana.descripcion}
-                    </Typography>
-                  </Paper>
-                </Grid>
-              )}
-            </Grid>
+            {selectedCabana?.descripcion && (
+              <Paper elevation={3} sx={{ p: 2, bgcolor: '#F5F5F5', borderRadius: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                  {selectedCabana.descripcion}
+                </Typography>
+              </Paper>
+            )}
           </Box>
         );
 
       case 1:
-        // PASO 2: Fechas, Personas y Datos del Cliente
+        // PASO 2: Fechas, Personas y Datos del Cliente - LAYOUT COMPACTO
         const capacidad = selectedCabana?.capacidad_personas || 0;
         const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
 
@@ -1595,401 +1623,349 @@ const ReservaCabanasPage = () => {
         const costoTotalNoche = (cantidadNoches > 0) ? (precioNocheCabana * cantidadNoches) + costoExtra : 0;
 
         return (
-          <Stack spacing={4}>
-            {/* PRIMERO: Fechas */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#E3F2FD' }}>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Avatar sx={{ bgcolor: '#1976D2', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
-                  <CalendarIcon sx={{ fontSize: 40 }} />
-                </Avatar>
-                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-                  Fechas de Reserva
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.8 }}>
-                  <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada •
-                  <strong style={{ color: '#FFC107' }}> Amarillo</strong>: Pendiente •
-                  <strong style={{ color: '#9C27B0' }}> Morado</strong>: Checkout (Disponible)
-                </Typography>
-              </Box>
-
-              <Grid container spacing={3}>
-                <Grid item xs={12} sm={6}>
-                  <DatePicker
-                    label="Fecha Check-In"
-                    value={formData.fecha_inicio}
-                    onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
-                    minDate={new Date()}
-                    slots={{
-                      day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
-                    }}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        variant: 'outlined',
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <DatePicker
-                    label="Fecha Check-Out"
-                    value={formData.fecha_fin}
-                    onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
-                    minDate={formData.fecha_inicio || new Date()}
-                    slots={{
-                      day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
-                    }}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        variant: 'outlined',
-                      }
-                    }}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
-
-            {/* SEGUNDO: Cantidad de personas con resumen de costos */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#FFF3E0' }}>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Avatar sx={{ bgcolor: '#FF8C42', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
-                  <PeopleIcon sx={{ fontSize: 40 }} />
-                </Avatar>
-                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-                  ¿Cuántas personas?
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Capacidad de la cabaña: <strong>{capacidad} personas</strong>
-                </Typography>
-              </Box>
-
-              {/* Mensaje de ayuda si no hay fechas seleccionadas */}
-              {!formData.fecha_inicio || !formData.fecha_fin ? (
-                <Paper
-                  elevation={0}
-                  sx={{
-                    p: 3,
-                    textAlign: 'center',
-                    bgcolor: '#FFF3E0',
-                    borderRadius: 2,
-                    border: '2px dashed #FFB74D'
-                  }}
-                >
-                  <CalendarIcon sx={{ fontSize: 48, color: '#FFB74D', mb: 1 }} />
-                  <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 600 }}>
-                    Primero selecciona las fechas de tu reserva
-                  </Typography>
-                </Paper>
-              ) : null}
-
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
-                <IconButton
-                  onClick={() => setFormData({ ...formData, cantidad_personas: Math.max(1, formData.cantidad_personas - 1) })}
-                  disabled={!formData.fecha_inicio || !formData.fecha_fin || formData.cantidad_personas <= 1}
-                  sx={{
-                    bgcolor: '#FF8C42',
-                    color: 'white',
-                    width: 56,
-                    height: 56,
-                    '&:hover': { bgcolor: '#FF7722' },
-                    '&:disabled': { bgcolor: '#E0E0E0', color: '#9E9E9E' }
-                  }}
-                >
-                  <RemoveIcon fontSize="large" />
-                </IconButton>
-
-                <Paper
-                  elevation={0}
-                  sx={{
-                    px: 6,
-                    py: 3,
-                    bgcolor: 'white',
-                    borderRadius: 2,
-                    border: `3px solid ${!formData.fecha_inicio || !formData.fecha_fin ? '#E0E0E0' : '#FF8C42'}`,
-                    opacity: !formData.fecha_inicio || !formData.fecha_fin ? 0.5 : 1
-                  }}
-                >
-                  <Typography variant="h2" sx={{ fontWeight: 900, color: !formData.fecha_inicio || !formData.fecha_fin ? '#E0E0E0' : '#FF8C42', minWidth: '80px', textAlign: 'center' }}>
-                    {formData.cantidad_personas}
-                  </Typography>
-                </Paper>
-
-                <IconButton
-                  onClick={() => setFormData({ ...formData, cantidad_personas: formData.cantidad_personas + 1 })}
-                  disabled={!formData.fecha_inicio || !formData.fecha_fin}
-                  sx={{
-                    bgcolor: '#FF8C42',
-                    color: 'white',
-                    width: 56,
-                    height: 56,
-                    '&:hover': { bgcolor: '#FF7722' },
-                    '&:disabled': { bgcolor: '#E0E0E0', color: '#9E9E9E' }
-                  }}
-                >
-                  <AddIcon fontSize="large" />
-                </IconButton>
-              </Box>
-
-              {/* Resumen de costos */}
-              {cantidadNoches > 0 && (
-                <Box sx={{ mt: 3 }}>
-                  <Paper elevation={2} sx={{ p: 3, bgcolor: 'white', borderRadius: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
-                      Costo de la Estadía
-                    </Typography>
-
-                    {/* Costo base de la cabaña */}
-                    <Box sx={{ mb: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 1 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                        Cabaña × Noches:
+          <Box>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={12} md={7}>
+                <Paper elevation={3} sx={{ p: 2, borderRadius: 2, bgcolor: '#E3F2FD' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Avatar sx={{ bgcolor: '#1976D2', width: 40, height: 40 }}>
+                      <CalendarIcon sx={{ fontSize: 24 }} />
+                    </Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        Fechas de Reserva
                       </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                        ${precioNocheCabana.toLocaleString('es-CL')} × {cantidadNoches} noche{cantidadNoches !== 1 ? 's' : ''} = ${(precioNocheCabana * cantidadNoches).toLocaleString('es-CL')}
+                      <Typography variant="caption" color="text.secondary">
+                        <strong style={{ color: '#F44336' }}>Rojo</strong>: Ocupada • <strong style={{ color: '#FFC107' }}>Amarillo</strong>: Pendiente • <strong style={{ color: '#9C27B0' }}>Morado</strong>: Checkout
                       </Typography>
                     </Box>
+                  </Box>
 
-                    {/* Personas extra */}
-                    {personasExtra > 0 && (
-                      <Box sx={{ mb: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 1 }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                          Personas Extra:
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={6}>
+                      <DatePicker
+                        label="Check-In"
+                        value={formData.fecha_inicio}
+                        onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
+                        minDate={new Date()}
+                        slots={{
+                          day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
+                        }}
+                        slotProps={{
+                          textField: {
+                            fullWidth: true,
+                            variant: 'outlined',
+                            size: 'small'
+                          }
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={6}>
+                      <DatePicker
+                        label="Check-Out"
+                        value={formData.fecha_fin}
+                        onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
+                        minDate={formData.fecha_inicio || new Date()}
+                        slots={{
+                          day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
+                        }}
+                        slotProps={{
+                          textField: {
+                            fullWidth: true,
+                            variant: 'outlined',
+                            size: 'small'
+                          }
+                        }}
+                      />
+                    </Grid>
+                  </Grid>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={5}>
+                <Paper elevation={3} sx={{ p: 2, borderRadius: 2, bgcolor: '#FFF3E0', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Avatar sx={{ bgcolor: '#FF8C42', width: 40, height: 40 }}>
+                      <PeopleIcon sx={{ fontSize: 24 }} />
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        ¿Cuántas personas?
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Capacidad: <strong>{capacidad}</strong> {personasExtra > 0 && `(+${personasExtra} extra)`}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {!formData.fecha_inicio || !formData.fecha_fin ? (
+                    <Paper elevation={0} sx={{ p: 1.5, textAlign: 'center', bgcolor: '#FFF3E0', borderRadius: 1, border: '2px dashed #FFB74D' }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                        Selecciona las fechas primero
+                      </Typography>
+                    </Paper>
+                  ) : (
+                    <>
+                      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2 }}>
+                        <IconButton
+                          onClick={() => setFormData({ ...formData, cantidad_personas: Math.max(1, formData.cantidad_personas - 1) })}
+                          disabled={formData.cantidad_personas <= 1}
+                          sx={{
+                            bgcolor: '#FF8C42',
+                            color: 'white',
+                            width: 40,
+                            height: 40,
+                            '&:hover': { bgcolor: '#FF7722' },
+                            '&:disabled': { bgcolor: '#E0E0E0' }
+                          }}
+                        >
+                          <RemoveIcon />
+                        </IconButton>
+
+                        <Paper elevation={0} sx={{ px: 3, py: 1, bgcolor: 'white', borderRadius: 1, border: `3px solid #FF8C42` }}>
+                          <Typography variant="h3" sx={{ fontWeight: 900, color: '#FF8C42', minWidth: '50px', textAlign: 'center' }}>
+                            {formData.cantidad_personas}
+                          </Typography>
+                        </Paper>
+
+                        <IconButton
+                          onClick={() => setFormData({ ...formData, cantidad_personas: formData.cantidad_personas + 1 })}
+                          disabled={personasExtra >= 3}
+                          sx={{
+                            bgcolor: '#FF8C42',
+                            color: 'white',
+                            width: 40,
+                            height: 40,
+                            '&:hover': { bgcolor: '#FF7722' },
+                            '&:disabled': { bgcolor: '#E0E0E0' }
+                          }}
+                        >
+                          <AddIcon />
+                        </IconButton>
+                      </Box>
+                      {personasExtra >= 3 && (
+                        <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1, color: '#F57C00', fontWeight: 600 }}>
+                          ⚠️ Máximo 3 extra
                         </Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 600, color: '#F57C00' }}>
-                          {personasExtra} persona{personasExtra !== 1 ? 's' : ''} × {cantidadNoches} noche{cantidadNoches !== 1 ? 's' : ''} × $20,000 = ${costoExtra.toLocaleString('es-CL')}
+                      )}
+                    </>
+                  )}
+                </Paper>
+              </Grid>
+            </Grid>
+
+            {cantidadNoches > 0 && (
+              <Paper elevation={3} sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 2, mb: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={8}>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                      <Box sx={{ p: 1, bgcolor: 'white', borderRadius: 1, flex: '1 1 auto' }}>
+                        <Typography variant="caption" color="text.secondary">Cabaña × Noches:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          ${precioNocheCabana.toLocaleString('es-CL')} × {cantidadNoches} = ${(precioNocheCabana * cantidadNoches).toLocaleString('es-CL')}
                         </Typography>
                       </Box>
-                    )}
 
-                    {/* Total */}
-                    <Divider sx={{ my: 2 }} />
-                    <Box sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 1 }}>
-                      <Typography variant="h5" sx={{ fontWeight: 900, color: '#2E7D32', textAlign: 'center' }}>
-                        TOTAL: ${costoTotalNoche.toLocaleString('es-CL')}
-                      </Typography>
-                      <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, color: 'text.secondary' }}>
-                        (sin incluir tinajas)
-                      </Typography>
+                      {personasExtra > 0 && (
+                        <Box sx={{ p: 1, bgcolor: 'white', borderRadius: 1, flex: '1 1 auto' }}>
+                          <Typography variant="caption" color="text.secondary">Personas Extra:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, color: '#F57C00' }}>
+                            {personasExtra} × {cantidadNoches} × $20k = ${costoExtra.toLocaleString('es-CL')}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
-                  </Paper>
-                </Box>
-              )}
-            </Paper>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="caption" color="text.secondary">TOTAL</Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 900, color: '#2E7D32' }}>
+                        ${costoTotalNoche.toLocaleString('es-CL')}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">(sin tinajas)</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+            )}
 
-            {/* TERCERO: Datos del cliente */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Avatar sx={{ bgcolor: '#2196F3', width: 72, height: 72, margin: '0 auto', mb: 2 }}>
-                  <PersonIcon sx={{ fontSize: 40 }} />
+            <Paper elevation={3} sx={{ p: 2, borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <Avatar sx={{ bgcolor: '#2196F3', width: 40, height: 40 }}>
+                  <PersonIcon sx={{ fontSize: 24 }} />
                 </Avatar>
-                <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
                   Tus Datos
                 </Typography>
               </Box>
 
-              <Grid container spacing={3}>
+              <Grid container spacing={1.5}>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="Nombre"
                     value={formData.cliente_nombre}
                     onChange={(e) => setFormData({ ...formData, cliente_nombre: e.target.value })}
                     required
-                    InputProps={{
-                      startAdornment: <PersonIcon sx={{ mr: 1, color: 'action.active' }} />,
-                    }}
-                    variant="outlined"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="Apellido"
                     value={formData.cliente_apellido}
                     onChange={(e) => setFormData({ ...formData, cliente_apellido: e.target.value })}
-                    variant="outlined"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="Teléfono"
                     value={formData.cliente_telefono}
                     onChange={handleTelefonoChange}
                     required
                     placeholder="+569XXXXXXXX"
-                    helperText="Se formatea automáticamente"
-                    InputProps={{
-                      startAdornment: <PhoneIcon sx={{ mr: 1, color: 'action.active' }} />,
-                    }}
-                    variant="outlined"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="Email"
                     type="email"
                     value={formData.cliente_email}
                     onChange={(e) => setFormData({ ...formData, cliente_email: e.target.value })}
                     placeholder="ejemplo@correo.com"
-                    helperText="Opcional"
-                    InputProps={{
-                      startAdornment: <EmailIcon sx={{ mr: 1, color: 'action.active' }} />,
-                    }}
-                    variant="outlined"
+                    required
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="RUT"
                     value={formData.cliente_rut}
                     onChange={handleRUTChange}
                     required
                     placeholder="12.345.678-9"
-                    helperText="Obligatorio - Se formatea automáticamente"
-                    InputProps={{
-                      startAdornment: <BadgeIcon sx={{ mr: 1, color: 'action.active' }} />,
-                    }}
-                    variant="outlined"
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
+                    size="small"
                     label="Procedencia"
                     value={formData.procedencia}
                     onChange={(e) => setFormData({ ...formData, procedencia: e.target.value })}
                     placeholder="Ciudad de origen"
-                    helperText="Ej: Santiago, Concepción, etc."
-                    InputProps={{
-                      startAdornment: <LocationIcon sx={{ mr: 1, color: 'action.active' }} />,
-                    }}
-                    variant="outlined"
                   />
-                </Grid>
-
-                {/* Matrículas de Auto */}
-                <Grid item xs={12}>
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CarIcon sx={{ color: '#2196F3' }} />
-                      Información de Vehículo
-                    </Typography>
-
-                    {/* Checkbox: No voy en auto */}
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={!formData.tiene_auto}
-                          onChange={(e) => {
-                            setFormData({
-                              ...formData,
-                              tiene_auto: !e.target.checked,
-                              matriculas_auto: e.target.checked ? [] : ['']
-                            });
-                          }}
-                          sx={{
-                            color: '#2196F3',
-                            '&.Mui-checked': { color: '#2196F3' }
-                          }}
-                        />
-                      }
-                      label="No voy en auto particular / No aplica"
-                      sx={{
-                        mb: 2,
-                        '& .MuiFormControlLabel-label': {
-                          fontWeight: 500,
-                          color: !formData.tiene_auto ? '#2196F3' : 'inherit'
-                        }
-                      }}
-                    />
-
-                    {/* Solo mostrar campos de matrícula si tiene auto */}
-                    {formData.tiene_auto && (
-                      <>
-                        {formData.matriculas_auto.map((matricula, index) => (
-                          <Box key={index} sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
-                            <TextField
-                              fullWidth
-                              label={`Matrícula ${index + 1}`}
-                              value={matricula}
-                              onChange={(e) => {
-                                const nuevasMatriculas = [...formData.matriculas_auto];
-                                nuevasMatriculas[index] = e.target.value.toUpperCase();
-                                setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
-                              }}
-                              placeholder="AA-BB-12 o ABCD-12"
-                              InputProps={{
-                                startAdornment: <CarIcon sx={{ mr: 1, color: 'action.active' }} />,
-                              }}
-                              variant="outlined"
-                            />
-                            {formData.matriculas_auto.length > 1 && (
-                              <IconButton
-                                onClick={() => {
-                                  const nuevasMatriculas = formData.matriculas_auto.filter((_, i) => i !== index);
-                                  setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
-                                }}
-                                sx={{ bgcolor: '#FFCDD2', '&:hover': { bgcolor: '#EF5350' } }}
-                              >
-                                <RemoveIcon />
-                              </IconButton>
-                            )}
-                          </Box>
-                        ))}
-                        <Button
-                          variant="outlined"
-                          startIcon={<AddIcon />}
-                          onClick={() => {
-                            setFormData({ ...formData, matriculas_auto: [...formData.matriculas_auto, ''] });
-                          }}
-                          sx={{ mt: 1 }}
-                        >
-                          Agregar otro vehículo
-                        </Button>
-                      </>
-                    )}
-                  </Box>
                 </Grid>
               </Grid>
             </Paper>
-          </Stack>
+
+            <Paper elevation={3} sx={{ p: 2, borderRadius: 2, mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CarIcon sx={{ fontSize: 20 }} />
+                Información de Vehículo
+              </Typography>
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={!formData.tiene_auto}
+                    onChange={(e) => {
+                      setFormData({
+                        ...formData,
+                        tiene_auto: !e.target.checked,
+                        matriculas_auto: e.target.checked ? [] : ['']
+                      });
+                    }}
+                  />
+                }
+                label={<Typography variant="body2">No voy en auto particular</Typography>}
+              />
+
+              {formData.tiene_auto && (
+                <Box sx={{ mt: 1 }}>
+                  {formData.matriculas_auto.map((matricula, index) => (
+                    <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={`Matrícula ${index + 1}`}
+                        value={matricula}
+                        onChange={(e) => {
+                          const nuevasMatriculas = [...formData.matriculas_auto];
+                          nuevasMatriculas[index] = e.target.value.toUpperCase();
+                          setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
+                        }}
+                        placeholder="AA-BB-12"
+                      />
+                      {formData.matriculas_auto.length > 1 && (
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            const nuevasMatriculas = formData.matriculas_auto.filter((_, i) => i !== index);
+                            setFormData({ ...formData, matriculas_auto: nuevasMatriculas });
+                          }}
+                        >
+                          <RemoveIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Box>
+                  ))}
+                  <Button
+                    size="small"
+                    variant="text"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setFormData({ ...formData, matriculas_auto: [...formData.matriculas_auto, ''] });
+                    }}
+                  >
+                    Agregar vehículo
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Box>
         );
 
       case 2:
-        // PASO 3: Tinajas
+        // PASO 3: Tinajas - COMPACTO
         return (
           <Box>
-            <Paper elevation={3} sx={{ p: 4, mb: 4, textAlign: 'center', borderRadius: 3, bgcolor: '#F3E5F5' }}>
-              <Avatar sx={{ bgcolor: '#9C27B0', width: 80, height: 80, margin: '0 auto', mb: 2 }}>
-                <HotTubIcon sx={{ fontSize: 48 }} />
-              </Avatar>
-              <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
-                ¿Deseas agregar tinajas a tu reserva?
-              </Typography>
-              <ButtonGroup size="large" variant="contained" sx={{ mt: 2 }}>
+            <Paper elevation={3} sx={{ p: 2, mb: 2, textAlign: 'center', borderRadius: 2, bgcolor: '#F3E5F5' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1.5 }}>
+                <Avatar sx={{ bgcolor: '#9C27B0', width: 50, height: 50 }}>
+                  <HotTubIcon sx={{ fontSize: 32 }} />
+                </Avatar>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  ¿Deseas agregar tinajas?
+                </Typography>
+              </Box>
+              <ButtonGroup size="medium" variant="contained">
                 <Button
                   onClick={() => setFormData({ ...formData, quiere_tinajas: true })}
                   variant={formData.quiere_tinajas ? 'contained' : 'outlined'}
                   sx={{
-                    px: 4,
-                    py: 2,
-                    fontSize: '1.1rem',
+                    px: 3,
+                    py: 1,
                     bgcolor: formData.quiere_tinajas ? '#9C27B0' : 'transparent',
                     '&:hover': { bgcolor: formData.quiere_tinajas ? '#7B1FA2' : 'rgba(156, 39, 176, 0.1)' }
                   }}
                 >
-                  Sí, quiero tinajas
+                  Sí, quiero
                 </Button>
                 <Button
                   onClick={() => setFormData({ ...formData, quiere_tinajas: false, tinajas_seleccionadas: [] })}
                   variant={!formData.quiere_tinajas ? 'contained' : 'outlined'}
                   sx={{
-                    px: 4,
-                    py: 2,
-                    fontSize: '1.1rem',
+                    px: 3,
+                    py: 1,
                     bgcolor: !formData.quiere_tinajas ? '#9C27B0' : 'transparent',
                     '&:hover': { bgcolor: !formData.quiere_tinajas ? '#7B1FA2' : 'rgba(156, 39, 176, 0.1)' }
                   }}
@@ -2021,240 +1997,222 @@ const ReservaCabanasPage = () => {
         const costoTinajas = formData.tinajas_seleccionadas.reduce((sum, t) => sum + parseFloat(t.precio_dia || 0), 0);
 
         return (
-          <Stack spacing={3}>
-            {/* Resumen */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3, bgcolor: '#F5F5F5' }}>
-              <Typography variant="h5" sx={{ fontWeight: 900, mb: 3, textAlign: 'center' }}>
-                Resumen de la Reserva
-              </Typography>
-
-              <Stack spacing={2}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                  <Typography variant="body1" color="text.secondary">Cabaña:</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 700 }}>{selectedCabana?.nombre}</Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                  <Typography variant="body1" color="text.secondary">Cliente:</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.cliente_nombre} {formData.cliente_apellido}
+          <Box>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Paper elevation={3} sx={{ p: 2, borderRadius: 2, bgcolor: '#F5F5F5', height: '100%' }}>
+                  <Typography variant="h6" sx={{ fontWeight: 900, mb: 1.5, textAlign: 'center' }}>
+                    Resumen de la Reserva
                   </Typography>
-                </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                  <Typography variant="body1" color="text.secondary">Personas:</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.cantidad_personas}
+                  <Stack spacing={1}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary">Cabaña:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{selectedCabana?.nombre}</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary">Cliente:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formData.cliente_nombre} {formData.cliente_apellido}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary">Personas:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{formData.cantidad_personas}</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary">Check-In:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formData.fecha_inicio ? formatDateForDisplay(formData.fecha_inicio) : '-'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary">Check-Out:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formData.fecha_fin ? formatDateForDisplay(formData.fecha_fin) : '-'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Paper elevation={3} sx={{ p: 2, borderRadius: 2, bgcolor: '#E8F5E9', height: '100%' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, color: '#2E7D32', textAlign: 'center' }}>
+                    Desglose de Costos
                   </Typography>
-                </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                  <Typography variant="body1" color="text.secondary">Check-In:</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.fecha_inicio ? formatDateForDisplay(formData.fecha_inicio) : '-'}
-                  </Typography>
-                </Box>
+                  <Stack spacing={1}>
+                    <Box sx={{ p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                      <Typography variant="caption" color="text.secondary">Cabaña {selectedCabana?.nombre}:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        ${precioNoche.toLocaleString('es-CL')} × {nochesReserva} = ${subtotalCabana.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, bgcolor: 'white', borderRadius: 2 }}>
-                  <Typography variant="body1" color="text.secondary">Check-Out:</Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                    {formData.fecha_fin ? formatDateForDisplay(formData.fecha_fin) : '-'}
-                  </Typography>
-                </Box>
-
-                <Divider sx={{ my: 2 }} />
-
-                {/* Desglose detallado de costos */}
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center', color: '#1976D2' }}>
-                  Desglose de Costos
-                </Typography>
-
-                {/* Costo de la cabaña */}
-                <Box sx={{ p: 2, bgcolor: '#E3F2FD', borderRadius: 2 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    Cabaña {selectedCabana?.nombre}:
-                  </Typography>
-                  <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    ${precioNoche.toLocaleString('es-CL')} × {nochesReserva} noche{nochesReserva !== 1 ? 's' : ''}
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                    = ${subtotalCabana.toLocaleString('es-CL')}
-                  </Typography>
-                </Box>
-
-                {/* Personas extra */}
-                {personasExtraResumen > 0 && (
-                  <Box sx={{ p: 2, bgcolor: '#FFF8E1', borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                      Personas Extra:
-                    </Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {personasExtraResumen} persona{personasExtraResumen !== 1 ? 's' : ''} × {nochesReserva} noche{nochesReserva !== 1 ? 's' : ''} × $20,000
-                    </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F57C00' }}>
-                      = ${costoPersonasExtra.toLocaleString('es-CL')}
-                    </Typography>
-                  </Box>
-                )}
-
-                {/* Tinajas */}
-                {formData.tinajas_seleccionadas.length > 0 && (
-                  <Box sx={{ p: 2, bgcolor: '#F3E5F5', borderRadius: 2 }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      Tinajas:
-                    </Typography>
-                    <Stack spacing={0.5}>
-                      {formData.tinajas_seleccionadas.map((ts, idx) => (
-                        <Typography key={idx} variant="body2" sx={{ fontWeight: 500, pl: 1 }}>
-                          • {ts.tinaja_nombre} ({formatDateForServer(ts.fecha_uso)}): ${ts.precio_dia?.toLocaleString('es-CL')}
+                    {personasExtraResumen > 0 && (
+                      <Box sx={{ p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                        <Typography variant="caption" color="text.secondary">Personas Extra:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#F57C00' }}>
+                          {personasExtraResumen} × {nochesReserva} × $20k = ${costoPersonasExtra.toLocaleString('es-CL')}
                         </Typography>
-                      ))}
-                    </Stack>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#9C27B0', mt: 1 }}>
-                      = ${costoTinajas.toLocaleString('es-CL')}
+                      </Box>
+                    )}
+
+                    {formData.tinajas_seleccionadas.length > 0 && (
+                      <Box sx={{ p: 1, bgcolor: 'white', borderRadius: 1 }}>
+                        <Typography variant="caption" color="text.secondary">Tinajas:</Typography>
+                        {formData.tinajas_seleccionadas.map((ts, idx) => (
+                          <Typography key={idx} variant="caption" sx={{ display: 'block', pl: 1 }}>
+                            • {ts.tinaja_nombre}: ${ts.precio_dia?.toLocaleString('es-CL')}
+                          </Typography>
+                        ))}
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#9C27B0', mt: 0.5 }}>
+                          = ${costoTinajas.toLocaleString('es-CL')}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    <Divider />
+
+                    <Box sx={{ p: 1.5, bgcolor: 'white', borderRadius: 1, textAlign: 'center' }}>
+                      <Typography variant="h6" sx={{ fontWeight: 900, color: '#2E7D32' }}>
+                        TOTAL: ${total.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+
+                    <Paper elevation={0} sx={{ p: 1.5, mt: 1, bgcolor: formData.tipo_pago === 'completo' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 152, 0, 0.1)', border: `2px solid ${formData.tipo_pago === 'completo' ? '#4CAF50' : '#FF9800'}`, borderRadius: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, textAlign: 'center' }}>
+                    Forma de Pago
+                  </Typography>
+
+                  <FormControl component="fieldset" fullWidth>
+                    <RadioGroup
+                      value={formData.tipo_pago}
+                      onChange={(e) => setFormData({ ...formData, tipo_pago: e.target.value })}
+                    >
+                      <Paper elevation={0} sx={{ p: 1.5, mb: 1, bgcolor: formData.tipo_pago === 'completo' ? '#E8F5E9' : '#F5F5F5', border: formData.tipo_pago === 'completo' ? '2px solid #4CAF50' : '1px solid #E0E0E0', borderRadius: 1 }}>
+                        <FormControlLabel
+                          value="completo"
+                          control={<Radio size="small" />}
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                Completo: ${total.toLocaleString('es-CL')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Pago total
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </Paper>
+
+                      <Paper elevation={0} sx={{ p: 1.5, bgcolor: formData.tipo_pago === 'mitad' ? '#E8F5E9' : '#F5F5F5', border: formData.tipo_pago === 'mitad' ? '2px solid #4CAF50' : '1px solid #E0E0E0', borderRadius: 1 }}>
+                        <FormControlLabel
+                          value="mitad"
+                          control={<Radio size="small" />}
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                Mitad: ${(total / 2).toLocaleString('es-CL')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                50% ahora, 50% al check-in
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </Paper>
+                    </RadioGroup>
+                  </FormControl>
+                    </Paper>
+                  </Stack>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Paper elevation={3} sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: '2px solid #4CAF50', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
+                    <BankIcon sx={{ fontSize: 40, color: '#4CAF50' }} />
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>
+                      Datos Bancarios
                     </Typography>
                   </Box>
-                )}
-
-                <Divider sx={{ my: 2 }} />
-
-                <Box sx={{ p: 3, bgcolor: '#E8F5E9', borderRadius: 2 }}>
-                  <Typography variant="h4" sx={{ fontWeight: 900, color: '#2E7D32', textAlign: 'center' }}>
-                    TOTAL: ${total.toLocaleString('es-CL')}
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#D32F2F' }}>
+                    Transferir: ${montoPagar.toLocaleString('es-CL')}
                   </Typography>
                 </Box>
-              </Stack>
-            </Paper>
 
-            {/* Opciones de Pago */}
-            <Paper elevation={3} sx={{ p: 4, borderRadius: 3 }}>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, textAlign: 'center' }}>
-                Selecciona tu Forma de Pago
-              </Typography>
+                <Box sx={{ bgcolor: 'white', p: 2, borderRadius: 1, mb: 2, flex: 1 }}>
+                  <Stack spacing={1}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">BANCO</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>SANTANDER</Typography>
+                    </Box>
+                    <Divider />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">CUENTA CORRIENTE N°</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>67498593</Typography>
+                    </Box>
+                    <Divider />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">RAZÓN SOCIAL</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>BEACH MARKET LTDA.</Typography>
+                    </Box>
+                    <Divider />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">RUT</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>76.236.893-5</Typography>
+                    </Box>
+                    <Divider />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">EMAIL</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>ELMIRADORDICHATO@GMAIL.COM</Typography>
+                    </Box>
+                  </Stack>
+                </Box>
 
-              <FormControl component="fieldset" fullWidth>
-                <RadioGroup
-                  value={formData.tipo_pago}
-                  onChange={(e) => setFormData({ ...formData, tipo_pago: e.target.value })}
-                >
-                  <Paper elevation={0} sx={{ p: 3, mb: 2, bgcolor: formData.tipo_pago === 'completo' ? '#E8F5E9' : '#F5F5F5', border: formData.tipo_pago === 'completo' ? '3px solid #4CAF50' : '1px solid #E0E0E0', borderRadius: 2 }}>
-                    <FormControlLabel
-                      value="completo"
-                      control={<Radio />}
-                      label={
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                            Pagar completo: ${total.toLocaleString('es-CL')}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Pago total de la reserva
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </Paper>
-
-                  <Paper elevation={0} sx={{ p: 3, bgcolor: formData.tipo_pago === 'mitad' ? '#E8F5E9' : '#F5F5F5', border: formData.tipo_pago === 'mitad' ? '3px solid #4CAF50' : '1px solid #E0E0E0', borderRadius: 2 }}>
-                    <FormControlLabel
-                      value="mitad"
-                      control={<Radio />}
-                      label={
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                            Pagar la mitad: ${(total / 2).toLocaleString('es-CL')}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            50% ahora, 50% al check-in
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </Paper>
-                </RadioGroup>
-              </FormControl>
-            </Paper>
-
-            {/* Datos Bancarios */}
-            <Paper elevation={3} sx={{ p: 4, bgcolor: '#E8F5E9', borderRadius: 3, border: '2px solid #4CAF50' }}>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <BankIcon sx={{ fontSize: 60, color: '#4CAF50', mb: 2 }} />
-                <Typography variant="h5" sx={{ fontWeight: 700, mb: 1, color: '#2E7D32' }}>
-                  Datos Bancarios para Transferencia
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: '#D32F2F' }}>
-                  Monto a Transferir: ${montoPagar.toLocaleString('es-CL')}
-                </Typography>
-              </Box>
-
-              <Box sx={{ bgcolor: 'white', p: 3, borderRadius: 2, mb: 2 }}>
-                <Stack spacing={2}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">BANCO</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>SANTANDER</Typography>
-                  </Box>
-                  <Divider />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">CUENTA CORRIENTE N°</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>67498593</Typography>
-                  </Box>
-                  <Divider />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">RAZÓN SOCIAL / NOMBRE</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>BEACH MARKET LTDA.</Typography>
-                  </Box>
-                  <Divider />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">RUT</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>76.236.893-5</Typography>
-                  </Box>
-                  <Divider />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">CORREO ELECTRÓNICO</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>ELMIRADORDICHATO@GMAIL.COM</Typography>
-                  </Box>
-                </Stack>
-              </Box>
-
-              <Stack spacing={2}>
-                <Button
-                  variant="contained"
-                  size="large"
-                  fullWidth
-                  startIcon={<CopyIcon />}
-                  onClick={async () => {
-                    const datosBancarios = `DATOS BANCARIOS CABAÑAS EL MIRADOR
+                <Stack spacing={1}>
+                  <Button
+                    variant="contained"
+                    size="medium"
+                    fullWidth
+                    startIcon={<CopyIcon />}
+                    onClick={async () => {
+                      const datosBancarios = `DATOS BANCARIOS CABAÑAS EL MIRADOR
 BANCO: SANTANDER
 CUENTA CORRIENTE N°: 67498593
 RAZÓN SOCIAL / NOMBRE: BEACH MARKET LTDA.
 RUT: 76.236.893-5
 CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
 
-                    try {
-                      const exitoso = await copiarAlPortapapeles(datosBancarios);
-                      if (exitoso) {
-                        enqueueSnackbar('✅ Datos bancarios copiados al portapapeles', { variant: 'success' });
-                      } else {
-                        enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                      try {
+                        const exitoso = await copiarAlPortapapeles(datosBancarios);
+                        if (exitoso) {
+                          enqueueSnackbar('✅ Datos copiados', { variant: 'success' });
+                        } else {
+                          enqueueSnackbar('❌ Error al copiar', { variant: 'error' });
+                        }
+                      } catch (err) {
+                        console.error('Error al copiar:', err);
+                        enqueueSnackbar('❌ Error al copiar', { variant: 'error' });
                       }
-                    } catch (err) {
-                      console.error('Error al copiar:', err);
-                      enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
-                    }
-                  }}
-                  sx={{
-                    bgcolor: '#1976D2',
-                    fontWeight: 700,
-                    py: 1.5,
-                    '&:hover': { bgcolor: '#1565C0' }
-                  }}
-                >
-                  Copiar Datos de Transferencia
-                </Button>
+                    }}
+                    sx={{
+                      bgcolor: '#1976D2',
+                      fontWeight: 700,
+                      '&:hover': { bgcolor: '#1565C0' }
+                    }}
+                  >
+                    Copiar Datos
+                  </Button>
 
-                <Button
-                  variant="outlined"
-                  size="large"
-                  fullWidth
+                  <Button
+                    variant="outlined"
+                    size="medium"
+                    fullWidth
                   startIcon={<CopyIcon />}
                   onClick={async () => {
                     try {
@@ -2281,74 +2239,76 @@ CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
                 </Button>
               </Stack>
             </Paper>
+              </Grid>
+            </Grid>
 
-            {/* WhatsApp */}
-            <Paper elevation={3} sx={{ p: 4, bgcolor: '#E3F2FD', borderRadius: 3 }}>
-              <Box sx={{ textAlign: 'center', mb: 2 }}>
-                <WhatsAppIcon sx={{ fontSize: 60, color: '#25D366', mb: 2 }} />
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                  Enviar Comprobante de Pago
-                </Typography>
-                <Typography variant="body1" sx={{ mb: 3 }}>
-                  Realiza la transferencia por <strong>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante:
-                </Typography>
-              </Box>
-              <Button
-                variant="contained"
-                size="large"
+            <Stack spacing={2} sx={{ mt: 2 }}>
+              <Paper elevation={3} sx={{ p: 2, bgcolor: '#E3F2FD', borderRadius: 2 }}>
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
+                    <WhatsAppIcon sx={{ fontSize: 40, color: '#25D366' }} />
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                      Enviar Comprobante
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" sx={{ mb: 2 }}>
+                    Transfiere <strong>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante:
+                  </Typography>
+                </Box>
+                <Button
+                  variant="contained"
+                  size="medium"
+                  fullWidth
+                  startIcon={<WhatsAppIcon />}
+                  onClick={abrirWhatsApp}
+                  sx={{
+                    bgcolor: '#25D366',
+                    color: 'white',
+                    fontWeight: 700,
+                    '&:hover': { bgcolor: '#20BA5A' }
+                  }}
+                >
+                  Enviar al {WHATSAPP_NUMBER}
+                </Button>
+              </Paper>
+
+              <TextField
                 fullWidth
-                startIcon={<WhatsAppIcon />}
-                onClick={abrirWhatsApp}
-                sx={{
-                  bgcolor: '#25D366',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontSize: '1.1rem',
-                  py: 2,
-                  '&:hover': { bgcolor: '#20BA5A' }
-                }}
-              >
-                Enviar al {WHATSAPP_NUMBER}
-              </Button>
-            </Paper>
+                size="small"
+                label="Notas adicionales (opcional)"
+                multiline
+                rows={3}
+                value={formData.notas}
+                onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
+                variant="outlined"
+                placeholder="¿Alguna solicitud especial?"
+              />
 
-            {/* Notas */}
-            <TextField
-              fullWidth
-              label="Notas adicionales (opcional)"
-              multiline
-              rows={4}
-              value={formData.notas}
-              onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
-              variant="outlined"
-              placeholder="¿Alguna solicitud especial?"
-            />
-
-            {/* Políticas de Cancelación */}
-            <Paper elevation={1} sx={{ p: 3, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px solid #FFB74D' }}>
-              <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 2, color: '#E65100', fontSize: '0.85rem' }}>
-                POLÍTICAS DE CANCELACIÓN DE TU RESERVA
-              </Typography>
-              <Stack spacing={1}>
-                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                  <strong>1.</strong> Si cancela con <strong>10 días (o más)</strong> se le reembolsa el 100% de su abono.
+              <Paper elevation={1} sx={{ p: 2, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px solid #FFB74D' }}>
+                <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 1, color: '#E65100' }}>
+                  POLÍTICAS DE CANCELACIÓN
                 </Typography>
-                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                  <strong>2.</strong> Si cancela con <strong>5 días</strong> de anticipación, se le reembolsará el 50% de su abono.
+                <Stack spacing={0.5}>
+                  <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.4 }}>
+                    <strong>1.</strong> Cancelación con <strong>10+ días</strong>: reembolso 100%
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.4 }}>
+                    <strong>2.</strong> Cancelación con <strong>5 días</strong>: reembolso 50%
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.4 }}>
+                    <strong>3.</strong> Cancelación con <strong>1 día</strong>: sin reembolso
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', lineHeight: 1.4 }}>
+                    <strong>4.</strong> Salida anticipada: sin devolución
+                  </Typography>
+                </Stack>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', fontSize: '0.65rem', fontStyle: 'italic', color: '#6D4C41' }}>
+                  Atte. Cabañas El Mirador de Dichato
                 </Typography>
-                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                  <strong>3.</strong> Si cancela con <strong>1 día</strong> de anticipación, no existe reembolso.
-                </Typography>
-                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                  <strong>4.</strong> <strong>Salida Anticipada:</strong> No tendrá derecho a devolución del pago de su estadía.
-                </Typography>
-              </Stack>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', fontSize: '0.7rem', fontStyle: 'italic', color: '#6D4C41' }}>
-                Atte. Cabañas El Mirador de Dichato
-              </Typography>
-            </Paper>
-          </Stack>
+              </Paper>
+            </Stack>
+          </Box>
         );
 
       default:
@@ -2626,10 +2586,14 @@ CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
         <Dialog
           open={openReservaDialog}
           onClose={() => setOpenReservaDialog(false)}
-          maxWidth="md"
+          maxWidth="xl"
           fullWidth
           PaperProps={{
-            sx: { borderRadius: 3 }
+            sx: {
+              borderRadius: 3,
+              width: '95vw',
+              maxWidth: '1400px'
+            }
           }}
         >
           <DialogTitle sx={{ bgcolor: '#FFF3E0', borderBottom: '3px solid #FF8C42' }}>
@@ -2637,8 +2601,15 @@ CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
               Nueva Reserva - {selectedCabana?.nombre}
             </Typography>
           </DialogTitle>
-          <DialogContent dividers sx={{ p: 4 }}>
-            <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+          <DialogContent
+            dividers
+            sx={{
+              p: 2,
+              maxHeight: '75vh',
+              overflowY: 'auto'
+            }}
+          >
+            <Stepper activeStep={activeStep} sx={{ mb: 2 }}>
               {steps.map((label) => (
                 <Step key={label}>
                   <StepLabel>{label}</StepLabel>
@@ -2646,7 +2617,7 @@ CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
               ))}
             </Stepper>
 
-            <Box sx={{ mt: 2 }}>
+            <Box>
               {getStepContent(activeStep)}
             </Box>
           </DialogContent>
