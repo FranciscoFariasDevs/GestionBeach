@@ -333,10 +333,87 @@ export const limpiarCache = () => {
   console.log('🗑️ Cache de monitoreo limpiado');
 };
 
+/**
+ * 🏖️ Enviar confirmación de reserva de cabaña por email
+ */
+export const enviarConfirmacionReservaCabana = async (reservaData) => {
+  try {
+    console.log('📧 Enviando confirmación de reserva de cabaña...');
+
+    const fechaHora = new Date().toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const templateParams = {
+      // Datos del cliente
+      cliente_nombre: `${reservaData.cliente_nombre} ${reservaData.cliente_apellido || ''}`.trim(),
+      cliente_email: reservaData.cliente_email || EMAIL_DESTINO,
+      cliente_telefono: reservaData.cliente_telefono,
+      cliente_rut: reservaData.cliente_rut || 'No especificado',
+
+      // Datos de la cabaña
+      cabana_nombre: reservaData.cabana_nombre,
+      fecha_inicio: reservaData.fecha_inicio,
+      fecha_fin: reservaData.fecha_fin,
+      cantidad_noches: reservaData.cantidad_noches,
+      cantidad_personas: reservaData.cantidad_personas,
+
+      // Costos
+      precio_por_noche: `$${reservaData.precio_por_noche?.toLocaleString('es-CL')}`,
+      personas_extra: reservaData.personas_extra || 0,
+      costo_personas_extra: `$${reservaData.costo_personas_extra?.toLocaleString('es-CL')}`,
+      precio_total: `$${reservaData.precio_total?.toLocaleString('es-CL')}`,
+
+      // Tinajas (si las hay)
+      tinajas_info: reservaData.tinajas && reservaData.tinajas.length > 0 ?
+        reservaData.tinajas.map(t => `Tinaja (${t.fecha_uso}): $${t.precio_dia?.toLocaleString('es-CL')}`).join(', ') :
+        'Sin tinajas',
+
+      // Vehículos
+      vehiculos_info: reservaData.matriculas_auto && reservaData.matriculas_auto.length > 0 ?
+        reservaData.matriculas_auto.join(', ') :
+        'Sin vehículos registrados',
+
+      // Otros
+      procedencia: reservaData.procedencia || 'No especificada',
+      fecha_hora: fechaHora,
+
+      // Email settings
+      from_name: 'Cabañas El Mirador',
+      subject: `Confirmación de Reserva - ${reservaData.cabana_nombre}`,
+      reply_to: EMAIL_DESTINO
+    };
+
+    console.log('📤 Enviando confirmación de reserva con parámetros:', templateParams);
+
+    const result = await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams);
+
+    console.log('✅ Confirmación de reserva enviada exitosamente:', result);
+    return {
+      success: true,
+      result,
+      message: 'Confirmación de reserva enviada correctamente'
+    };
+
+  } catch (error) {
+    console.error('❌ Error enviando confirmación de reserva:', error);
+    return {
+      success: false,
+      error: error.text || error.message || 'Error desconocido'
+    };
+  }
+};
+
 export default {
   verificarSucursalesCriticas,
   enviarEmailPrueba,
   verificarConfiguracion,
   obtenerEstadisticasMonitoreo,
-  limpiarCache
+  limpiarCache,
+  enviarConfirmacionReservaCabana
 };
