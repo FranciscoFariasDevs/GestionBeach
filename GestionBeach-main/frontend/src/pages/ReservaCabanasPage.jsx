@@ -1594,13 +1594,92 @@ const ReservaCabanasPage = () => {
               </Paper>
             )}
 
-            {selectedCabana?.descripcion && (
-              <Paper elevation={3} sx={{ p: 2, bgcolor: '#F5F5F5', borderRadius: 2 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                  {selectedCabana.descripcion}
-                </Typography>
-              </Paper>
-            )}
+            {/* Información detallada con iconos y colores */}
+            <Grid container spacing={2}>
+              {/* Detalles rápidos con iconos */}
+              <Grid item xs={12} sm={4}>
+                <Paper elevation={2} sx={{ p: 1.5, bgcolor: '#E3F2FD', borderRadius: 2, textAlign: 'center' }}>
+                  <BedIcon sx={{ fontSize: 32, color: '#1976D2', mb: 0.5 }} />
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Habitaciones
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 900, color: '#1976D2' }}>
+                    {selectedCabana?.numero_habitaciones || 0}
+                  </Typography>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} sm={4}>
+                <Paper elevation={2} sx={{ p: 1.5, bgcolor: '#F3E5F5', borderRadius: 2, textAlign: 'center' }}>
+                  <Box sx={{ fontSize: 32, mb: 0.5 }}>🚿</Box>
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Baños
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 900, color: '#7B1FA2' }}>
+                    {selectedCabana?.numero_banos || 0}
+                  </Typography>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} sm={4}>
+                <Paper elevation={2} sx={{ p: 1.5, bgcolor: '#FFF3E0', borderRadius: 2, textAlign: 'center' }}>
+                  <LocationIcon sx={{ fontSize: 32, color: '#F57C00', mb: 0.5 }} />
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Ubicación
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#F57C00', fontSize: '0.75rem' }}>
+                    {selectedCabana?.ubicacion || 'N/A'}
+                  </Typography>
+                </Paper>
+              </Grid>
+
+              {/* Amenidades con chips coloridos */}
+              {selectedCabana?.amenidades && (
+                <Grid item xs={12}>
+                  <Paper elevation={3} sx={{ p: 2, bgcolor: '#FAFAFA', borderRadius: 2 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, color: '#424242', display: 'flex', alignItems: 'center', gap: 1 }}>
+                      ✨ Amenidades e Incluye
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {(() => {
+                        try {
+                          const amenidadesArray = typeof selectedCabana.amenidades === 'string'
+                            ? JSON.parse(selectedCabana.amenidades)
+                            : selectedCabana.amenidades;
+
+                          const coloresAmenidades = [
+                            '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
+                            '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
+                            '#F8B739', '#52B788', '#E63946', '#A8DADC'
+                          ];
+
+                          return amenidadesArray.map((amenidad, index) => (
+                            <Chip
+                              key={index}
+                              label={amenidad}
+                              size="small"
+                              sx={{
+                                bgcolor: coloresAmenidades[index % coloresAmenidades.length],
+                                color: 'white',
+                                fontWeight: 700,
+                                fontSize: '0.75rem',
+                                '& .MuiChip-label': {
+                                  px: 1.5
+                                },
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                              }}
+                            />
+                          ));
+                        } catch (e) {
+                          console.error('Error parsing amenidades:', e);
+                          return null;
+                        }
+                      })()}
+                    </Box>
+                  </Paper>
+                </Grid>
+              )}
+            </Grid>
           </Box>
         );
 

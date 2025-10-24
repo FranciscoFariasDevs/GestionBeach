@@ -409,11 +409,121 @@ export const enviarConfirmacionReservaCabana = async (reservaData) => {
   }
 };
 
+/**
+ * 📨 Enviar mensaje de contacto a comunicate@beach.cl
+ */
+export const enviarMensajeContacto = async (contactoData) => {
+  try {
+    console.log('📧 Enviando mensaje de contacto...');
+
+    const fechaHora = new Date().toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const templateParams = {
+      // Datos del contacto
+      tipo_mensaje: '📧 NUEVO MENSAJE DE CONTACTO',
+      nombre_completo: contactoData.nombre,
+      email_remitente: contactoData.email,
+      telefono: contactoData.telefono,
+      asunto: contactoData.asunto,
+      mensaje: contactoData.mensaje,
+      fecha_hora: fechaHora,
+
+      // Email settings
+      from_name: 'Website Beach Market',
+      subject: `Contacto: ${contactoData.asunto}`,
+      to_email: 'comunicate@beach.cl',
+      reply_to: contactoData.email
+    };
+
+    console.log('📤 Enviando mensaje de contacto con parámetros:', templateParams);
+
+    const result = await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams);
+
+    console.log('✅ Mensaje de contacto enviado exitosamente:', result);
+    return {
+      success: true,
+      result,
+      message: 'Mensaje enviado correctamente a comunicate@beach.cl'
+    };
+
+  } catch (error) {
+    console.error('❌ Error enviando mensaje de contacto:', error);
+    return {
+      success: false,
+      error: error.text || error.message || 'Error desconocido'
+    };
+  }
+};
+
+/**
+ * 💼 Enviar postulación laboral a unete@beach.cl
+ */
+export const enviarPostulacion = async (postulacionData) => {
+  try {
+    console.log('📧 Enviando postulación laboral...');
+
+    const fechaHora = new Date().toLocaleString('es-CL', {
+      timeZone: 'America/Santiago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const templateParams = {
+      // Datos de la postulación
+      tipo_mensaje: '💼 NUEVA POSTULACIÓN LABORAL',
+      nombre_completo: postulacionData.nombre,
+      email_remitente: postulacionData.email,
+      telefono: postulacionData.telefono,
+      mensaje: postulacionData.mensaje || 'Sin mensaje adicional',
+      curriculum_nombre: postulacionData.curriculum?.name || 'CV adjunto',
+      fecha_hora: fechaHora,
+
+      // Email settings
+      from_name: 'Postulaciones Beach Market',
+      subject: `Nueva Postulación: ${postulacionData.nombre}`,
+      to_email: 'unete@beach.cl',
+      reply_to: postulacionData.email
+    };
+
+    console.log('📤 Enviando postulación con parámetros:', templateParams);
+
+    // Nota: EmailJS tiene limitaciones con archivos adjuntos grandes
+    // Para PDFs, considera usar un servicio de almacenamiento y enviar el link
+    const result = await emailjs.send(SERVICE_ID, TEMPLATE_ID, templateParams);
+
+    console.log('✅ Postulación enviada exitosamente:', result);
+    return {
+      success: true,
+      result,
+      message: 'Postulación enviada correctamente a unete@beach.cl. Por favor, envía tu CV directamente al email unete@beach.cl'
+    };
+
+  } catch (error) {
+    console.error('❌ Error enviando postulación:', error);
+    return {
+      success: false,
+      error: error.text || error.message || 'Error desconocido'
+    };
+  }
+};
+
 export default {
   verificarSucursalesCriticas,
   enviarEmailPrueba,
   verificarConfiguracion,
   obtenerEstadisticasMonitoreo,
   limpiarCache,
-  enviarConfirmacionReservaCabana
+  enviarConfirmacionReservaCabana,
+  enviarMensajeContacto,
+  enviarPostulacion
 };
