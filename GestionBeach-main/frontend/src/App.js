@@ -19,6 +19,7 @@ import DashboardLayout from './layouts/DashboardLayout';
 // ========================================
 // PAGES - PÚBLICAS
 // ========================================
+import HomePage from './pages/HomePage'; // 🏠 LANDING PAGE PRINCIPAL
 import LoginPage from './pages/LoginPage';
 import ConsultorPage from './pages/ConsultorPage';
 import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
@@ -66,13 +67,16 @@ function App() {
                 {/* ========================================== */}
                 {/* RUTAS PÚBLICAS (Sin autenticación)         */}
                 {/* ========================================== */}
-                
+
+                {/* 🏠 LANDING PAGE PRINCIPAL */}
+                <Route path="/" element={<HomePage />} />
+
                 {/* Login */}
                 <Route path="/login" element={<LoginPage />} />
-                
+
                 {/* Consultor Público */}
                 <Route path="/consultor" element={<ConsultorPage />} />
-                
+
                 {/* 🆕 CONCURSO DE PISCINAS - RUTA PÚBLICA */}
                 <Route path="/concurso-piscinas" element={<ConcursoPiscinasPage />} />
 
@@ -83,28 +87,16 @@ function App() {
                 {/* RUTAS PRIVADAS (Con autenticación)         */}
                 {/* Todas dentro del DashboardLayout           */}
                 {/* ========================================== */}
-                <Route 
-                  path="/" 
+                <Route
+                  path="/dashboard"
                   element={
                     <ProtectedRoute>
                       <DashboardLayout />
                     </ProtectedRoute>
                   }
                 >
-                  {/* Redirect inicial */}
-                  <Route index element={<Navigate to="/dashboard" replace />} />
-                  
-                  {/* ========================================== */}
-                  {/* DASHBOARD PRINCIPAL                        */}
-                  {/* ========================================== */}
-                  <Route 
-                    path="dashboard" 
-                    element={
-                      <ProtectedRoute requiredRoute="/dashboard">
-                        <DashboardPage />
-                      </ProtectedRoute>
-                    } 
-                  />
+                  {/* Dashboard principal */}
+                  <Route index element={<DashboardPage />} />
                   
                   {/* ========================================== */}
                   {/* MÓDULO FINANCIERO                          */}

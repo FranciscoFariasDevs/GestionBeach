@@ -53,14 +53,14 @@ import {
 } from '@mui/icons-material';
 
 // Import local images
-import logoEneroNitido from '../images/web/logo entero nitido.png';
-import azulImg from '../images/web/azul.png';
-import naranjaImg from '../images/web/naranja.png';
-import moradoImg from '../images/web/morado.png';
-import rojoImg from '../images/web/rojo.png';
-import cabanaImg from '../images/web/cabaña.jpeg';
-import ferreImg from '../images/web/Ferre.jpg';
-import multitiendaImg from '../images/web/multitienda.jpeg';
+import logoEneroNitido from '../images/WEB/logo entero nitido.png';
+import azulImg from '../images/WEB/azul.png';
+import naranjaImg from '../images/WEB/naranja.png';
+import moradoImg from '../images/WEB/morado.png';
+import rojoImg from '../images/WEB/rojo.png';
+import cabanaImg from '../images/WEB/cabaña.jpeg';
+import ferreImg from '../images/WEB/Ferre.jpg';
+import multitiendaImg from '../images/WEB/multitienda.jpeg';
 
 export default function HomePage() {
   const theme = useTheme();

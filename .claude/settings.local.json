@@ -1,28 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir:*)",
-      "Bash(node:*)",
-      "Bash(npx svgo:*)",
-      "Bash(head:*)",
-      "Bash(ls:*)",
-      "Bash(wc:*)",
-      "Bash(npm install:*)",
-      "Bash(npm start)",
-      "Bash(for dir in */)",
-      "Bash(do echo \"\"\"$dir%/\"\": [\")",
-      "Bash(done)",
-      "Bash(git push:*)",
-      "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nRemover credenciales hardcodeadas de Twilio\n\n- Eliminadas credenciales de Twilio hardcodeadas en controllers\n- Ahora usa solo variables de entorno\n- Seguridad mejorada\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git commit -m \"$(cat <<''EOF''\nMejoras visuales e interactivas en admin de cabañas\n\n- Timeline super visual con cards coloridas por cabaña\n- Botones de estado grandes con gradientes y animaciones\n- Validación temprana de cabañas ocupadas en reserva\n- Efectos hover con escalado y rotación en botones\n- Iconos más grandes y tooltips informativos\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(npm run build)",
-      "Bash(git checkout 20f184ed -- GestionBeach-main/frontend/src/pages/ReservaCabanasPage.jsx)",
-      "Bash(git checkout 20f184ed -- frontend/src/pages/ReservaCabanasPage.jsx)",
-      "Bash(git log --all --oneline --grep=\"email\" -i)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nDiseño compacto y responsivo para reservas de cabañas\n\n- Paso 2: Grid horizontal en PC (fechas 7 cols + personas 5 cols), vertical en mobile\n- Fechas: xs=12 sm=6 md=6 para stack vertical en mobile\n- Paso 4: 3 columnas (Resumen | Desglose | Datos Bancarios) en PC, stack vertical en mobile\n- Campos cliente: xs=12 sm=6 para responsividad\n- Labels con números/letras en polígonos SVG del mapa\n- Máximo 3 personas extra permitidas\n- Carousel reducido a 300px altura en Paso 0\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(cat package.json)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nAgregar confirmación de reserva por EmailJS\n\n- Nueva función enviarConfirmacionReservaCabana() en emailService.js\n- Envía email automático al cliente con detalles de la reserva\n- Incluye: cabaña, fechas, personas, precios, tinajas, vehículos\n- Usa el mismo SERVICE_ID y TEMPLATE_ID configurado\n- Manejo de errores con console.log para debugging\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nLanding page profesional con diseño moderno\n\n- Logo \"logo entero nitido.png\" en navbar\n- Iconos de colores: Cabañas (azul), Ferretería (naranja), Supermercado (morado), Multitienda (rojo)\n- Botón \"Cabañas\" destacado con animaciones (redirige a /reserva-cabanas)\n- Botón \"Ingresa\" destacado con animaciones (redirige a /login)\n- Sección Misión-Visión eliminada\n- Imágenes locales: ferre.jpg, morado.png, cabaña.jpeg, multitienda.jpeg\n- Hero section con gradiente y CTAs\n- Secciones con avatares de colores temáticos\n- Cards con hover effects y sombras\n- Footer completo con enlaces y contacto\n- Diseño responsive para mobile y desktop\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
