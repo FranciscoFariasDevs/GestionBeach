@@ -1,4 +1,4 @@
-// frontend/src/App.js - VERSIÓN CORREGIDA CON HOMEPAGE
+// frontend/src/App.js - COMPLETO Y CORREGIDO CON CONCURSO DE PISCINAS
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
@@ -19,7 +19,6 @@ import DashboardLayout from './layouts/DashboardLayout';
 // ========================================
 // PAGES - PÚBLICAS
 // ========================================
-import HomePage from './pages/HomePage'; // 🏠 LANDING PAGE PRINCIPAL
 import LoginPage from './pages/LoginPage';
 import ConsultorPage from './pages/ConsultorPage';
 import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
@@ -67,16 +66,13 @@ function App() {
                 {/* ========================================== */}
                 {/* RUTAS PÚBLICAS (Sin autenticación)         */}
                 {/* ========================================== */}
-
-                {/* 🏠 LANDING PAGE PRINCIPAL */}
-                <Route path="/" element={<HomePage />} />
-
+                
                 {/* Login */}
                 <Route path="/login" element={<LoginPage />} />
-
+                
                 {/* Consultor Público */}
                 <Route path="/consultor" element={<ConsultorPage />} />
-
+                
                 {/* 🆕 CONCURSO DE PISCINAS - RUTA PÚBLICA */}
                 <Route path="/concurso-piscinas" element={<ConcursoPiscinasPage />} />
 
@@ -84,203 +80,202 @@ function App() {
                 <Route path="/reserva-cabanas" element={<ReservaCabanasPage />} />
 
                 {/* ========================================== */}
-                {/* RUTAS PRIVADAS - INTRANET                  */}
-                {/* Las URLs serán /dashboard, /empleados, etc */}
+                {/* RUTAS PRIVADAS (Con autenticación)         */}
+                {/* Todas dentro del DashboardLayout           */}
                 {/* ========================================== */}
-
-                {/* Redirect de /intranet a /dashboard */}
-                <Route path="/intranet" element={<Navigate to="/dashboard" replace />} />
-
-                <Route
+                <Route 
+                  path="/" 
                   element={
                     <ProtectedRoute>
                       <DashboardLayout />
                     </ProtectedRoute>
                   }
                 >
-
+                  {/* Redirect inicial */}
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  
                   {/* ========================================== */}
                   {/* DASHBOARD PRINCIPAL                        */}
                   {/* ========================================== */}
-                  <Route
-                    path="/dashboard"
+                  <Route 
+                    path="dashboard" 
                     element={
                       <ProtectedRoute requiredRoute="/dashboard">
                         <DashboardPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO FINANCIERO                          */}
                   {/* ========================================== */}
-
+                  
                   {/* Estado de Resultados */}
-                  <Route
-                    path="/estado-resultado"
+                  <Route 
+                    path="estado-resultado" 
                     element={
                       <ProtectedRoute requiredRoute="/estado-resultado">
                         <EstadoResultadosPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE MONITOREO                        */}
                   {/* ========================================== */}
-                  <Route
-                    path="/monitoreo"
+                  <Route 
+                    path="monitoreo" 
                     element={
                       <ProtectedRoute requiredRoute="/monitoreo">
                         <MonitoreoPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE REMUNERACIONES                   */}
                   {/* ========================================== */}
-                  <Route
-                    path="/remuneraciones"
+                  <Route 
+                    path="remuneraciones" 
                     element={
                       <ProtectedRoute requiredRoute="/remuneraciones">
                         <RemuneracionesPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE INVENTARIO                       */}
                   {/* ========================================== */}
-                  <Route
-                    path="/inventario"
+                  <Route 
+                    path="inventario" 
                     element={
                       <ProtectedRoute requiredRoute="/inventario">
                         <InventarioPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE VENTAS                           */}
                   {/* ========================================== */}
-                  <Route
-                    path="/ventas"
+                  <Route 
+                    path="ventas" 
                     element={
                       <ProtectedRoute requiredRoute="/ventas">
                         <VentasPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE PRODUCTOS                        */}
                   {/* ========================================== */}
-                  <Route
-                    path="/productos/supermercados"
+                  <Route 
+                    path="productos/supermercados" 
                     element={
                       <ProtectedRoute requiredRoute="/productos/supermercados">
                         <SupermercadosPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE COMPRAS                          */}
                   {/* ========================================== */}
-
+                  
                   {/* Centros de Costos */}
-                  <Route
-                    path="/compras/centros-costos"
+                  <Route 
+                    path="compras/centros-costos" 
                     element={
                       <ProtectedRoute requiredRoute="/compras/centros-costos">
                         <CentrosCostosPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Facturas XML */}
-                  <Route
-                    path="/compras/facturas-xml"
+                  <Route 
+                    path="compras/facturas-xml" 
                     element={
                       <ProtectedRoute requiredRoute="/compras/facturas-xml">
                         <FacturasXMLPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Registro de Compras */}
-                  <Route
-                    path="/compras/registro-compras"
+                  <Route 
+                    path="compras/registro-compras" 
                     element={
                       <ProtectedRoute requiredRoute="/compras/registro-compras">
                         <RegistroComprasPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE RECURSOS HUMANOS                 */}
                   {/* ========================================== */}
-
+                  
                   {/* Empleados */}
-                  <Route
-                    path="/empleados"
+                  <Route 
+                    path="empleados" 
                     element={
                       <ProtectedRoute requiredRoute="/empleados">
                         <EmpleadosPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Tarjeta de Empleado */}
-                  <Route
-                    path="/tarjeta-empleado"
+                  <Route 
+                    path="tarjeta-empleado" 
                     element={
                       <ProtectedRoute requiredRoute="/tarjeta-empleado">
                         <TarjetaEmpleadoPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* ========================================== */}
                   {/* MÓDULO DE ADMINISTRACIÓN DEL SISTEMA       */}
                   {/* Solo Admin y Super Admin                   */}
                   {/* ========================================== */}
-
+                  
                   {/* Gestión de Usuarios */}
-                  <Route
-                    path="/usuarios"
+                  <Route 
+                    path="usuarios" 
                     element={
                       <ProtectedRoute requiredRoute="/usuarios">
                         <UsuarioPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Gestión de Perfiles */}
-                  <Route
-                    path="/perfiles"
+                  <Route 
+                    path="perfiles" 
                     element={
                       <ProtectedRoute requiredRoute="/perfiles">
                         <PerfilPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Gestión de Módulos */}
-                  <Route
-                    path="/modulos"
+                  <Route 
+                    path="modulos" 
                     element={
                       <ProtectedRoute requiredRoute="/modulos">
                         <ModuloPage />
                       </ProtectedRoute>
-                    }
+                    } 
                   />
-
+                  
                   {/* Configuración del Sistema */}
                   <Route
-                    path="/configuracion"
+                    path="configuracion"
                     element={
                       <ProtectedRoute requiredRoute="/configuracion">
                         <div style={{ padding: '20px' }}>
@@ -296,7 +291,7 @@ function App() {
                   {/* ✅ ACCESIBLE PARA TODOS LOS PERFILES       */}
                   {/* ========================================== */}
                   <Route
-                    path="/admin/cabanas"
+                    path="admin/cabanas"
                     element={
                       <ProtectedRoute requiredRoute="/admin/cabanas">
                         <AdminCabanasPage />
@@ -319,3 +314,4 @@ function App() {
 }
 
 export default App;
+

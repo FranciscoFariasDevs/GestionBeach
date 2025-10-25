@@ -160,9 +160,33 @@ export function defineAbilitiesFor(user) {
 
 // Función auxiliar para verificar si un usuario puede acceder a una ruta
 export function canAccessRoute(ability, route) {
-  // Mapear rutas a módulos
+  // Mapear rutas a módulos (CON Y SIN /dashboard/)
   const routeToModule = {
+    // Rutas principales
+    '/': MODULES.DASHBOARD,
     '/dashboard': MODULES.DASHBOARD,
+
+    // Rutas con prefijo /dashboard/
+    '/dashboard/estado-resultado': MODULES.ESTADO_RESULTADO,
+    '/dashboard/monitoreo': MODULES.MONITOREO,
+    '/dashboard/remuneraciones': MODULES.REMUNERACIONES,
+    '/dashboard/inventario': MODULES.INVENTARIO,
+    '/dashboard/ventas': MODULES.VENTAS,
+    '/dashboard/productos/supermercados': MODULES.PRODUCTOS,
+    '/dashboard/productos/ferreterias': MODULES.PRODUCTOS,
+    '/dashboard/productos/multitiendas': MODULES.PRODUCTOS,
+    '/dashboard/compras/centros-costos': MODULES.COMPRAS,
+    '/dashboard/compras/facturas-xml': MODULES.COMPRAS,
+    '/dashboard/compras/registro-compras': MODULES.COMPRAS,
+    '/dashboard/tarjeta-empleado': MODULES.TARJETA_EMPLEADO,
+    '/dashboard/empleados': MODULES.EMPLEADOS,
+    '/dashboard/admin/cabanas': MODULES.CABANAS,
+    '/dashboard/usuarios': MODULES.USUARIOS,
+    '/dashboard/perfiles': MODULES.PERFILES,
+    '/dashboard/modulos': MODULES.MODULOS,
+    '/dashboard/configuracion': MODULES.CONFIGURACION,
+
+    // Rutas sin prefijo /dashboard/ (para compatibilidad)
     '/estado-resultado': MODULES.ESTADO_RESULTADO,
     '/monitoreo': MODULES.MONITOREO,
     '/remuneraciones': MODULES.REMUNERACIONES,
@@ -173,9 +197,10 @@ export function canAccessRoute(ability, route) {
     '/productos/multitiendas': MODULES.PRODUCTOS,
     '/compras/centros-costos': MODULES.COMPRAS,
     '/compras/facturas-xml': MODULES.COMPRAS,
+    '/compras/registro-compras': MODULES.COMPRAS,
     '/tarjeta-empleado': MODULES.TARJETA_EMPLEADO,
     '/empleados': MODULES.EMPLEADOS,
-    '/admin/cabanas': MODULES.CABANAS, // 🏡 Ruta de Cabañas
+    '/admin/cabanas': MODULES.CABANAS,
     '/usuarios': MODULES.USUARIOS,
     '/perfiles': MODULES.PERFILES,
     '/modulos': MODULES.MODULOS,
