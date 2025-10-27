@@ -1,0 +1,610 @@
+================================================================================
+                    AUDITORÍA SISTEMA DE CABAÑAS - PRODUCCIÓN
+                          Empresas Beach - El Mirador
+                              Fecha: Octubre 2025
+================================================================================
+
+================================================================================
+RESUMEN EJECUTIVO
+================================================================================
+
+El sistema de reservas de cabañas está FUNCIONAL pero requiere mejoras
+críticas antes de producción. Este documento detalla:
+- 5 mejoras CRÍTICAS (deben hacerse YA)
+- 5 mejoras IMPORTANTES (hacer esta semana)
+- 5 mejoras OPCIONALES (pueden esperar)
+
+================================================================================
+✅ LO QUE ESTÁ BIEN IMPLEMENTADO
+================================================================================
+
+Backend Completo:
+  ✓ CRUD de cabañas y reservas
+  ✓ Validación de disponibilidad de fechas
+  ✓ Check-in / Check-out
+  ✓ Cancelación de reservas
+  ✓ Estadísticas básicas
+  ✓ Integración WhatsApp con Twilio
+
+Frontend Funcional:
+  ✓ Mapa interactivo SVG de cabañas
+  ✓ Formulario multi-paso (Stepper) intuitivo
+  ✓ Confirmación por email con EmailJS
+  ✓ Panel administrativo completo
+  ✓ Gestión de tinajas adicionales
+  ✓ Calendario de disponibilidad visual
+
+================================================================================
+🔴 CRÍTICO - DEBE AGREGARSE ANTES DE PRODUCCIÓN
+================================================================================
+
+1. SISTEMA DE PAGOS Y COMPROBANTES
+   ---------------------------------------------------------------------------
+   Problema:
+   No hay forma de que el cliente suba comprobantes ni de que el admin
+   verifique pagos realizados.
+
+   Impacto:
+   ALTO - Sin esto no se puede confirmar ninguna reserva pagada.
+
+   Solución necesaria:
+   - Agregar campos a la tabla 'reservas':
+     * comprobante_pago VARCHAR(500) -- ruta del archivo
+     * estado_pago VARCHAR(20) DEFAULT 'pendiente'
+       Valores: 'pendiente', 'comprobante_subido', 'verificado', 'rechazado'
+     * fecha_pago DATETIME
+     * monto_pagado_real DECIMAL(10,2)
+     * metodo_pago_real VARCHAR(50)
+     * notas_pago TEXT
+
+   - Implementar en Frontend (ReservaCabanasPage):
+     * Botón "Subir comprobante" después de confirmar reserva
+     * Upload de imagen/PDF con multer en backend
+     * Guardar en carpeta /uploads/comprobantes/
+     * Mostrar mensaje: "Comprobante enviado, espera confirmación"
+
+   - Implementar en Admin (AdminCabanasPage):
+     * Columna nueva "Estado Pago" con chip de colores
+     * Botón "Ver comprobante" que abre modal con imagen
+     * Botones: "Aprobar pago" / "Rechazar pago"
+     * Al aprobar: cambiar estado_pago a 'verificado' y
+       estado_reserva a 'confirmada'
+     * Enviar WhatsApp/Email de confirmación al cliente
+
+   Archivos a modificar:
+   - backend/database/schema.sql (ALTER TABLE reservas ADD...)
+   - backend/controllers/reservasController.js (nuevas funciones)
+   - backend/routes/cabanasRoutes.js (nueva ruta upload)
+   - frontend/src/pages/ReservaCabanasPage.jsx
+   - frontend/src/pages/AdminCabanasPage.jsx
+
+   Tiempo estimado: 4-6 horas
+
+
+2. VALIDACIÓN DE RUT CHILENO
+   ---------------------------------------------------------------------------
+   Problema:
+   El campo RUT no valida el formato ni dígito verificador chileno.
+   Pueden ingresar RUTs inválidos.
+
+   Impacto:
+   MEDIO - Datos erróneos en base de datos, problemas legales.
+
+   Solución:
+   - Crear función validarRUT() en frontend
+   - Formato automático: 12.345.678-9
+   - Validación dígito verificador con algoritmo módulo 11
+   - Mostrar error en tiempo real si RUT es inválido
+   - Agregar validación en backend también
+
+   Código JavaScript ejemplo:
+   ```javascript
+   const validarRUT = (rut) => {
+     // Limpiar formato
+     const rutLimpio = rut.replace(/\./g, '').replace(/-/g, '');
+     if (rutLimpio.length < 2) return false;
+
+     const cuerpo = rutLimpio.slice(0, -1);
+     const dv = rutLimpio.slice(-1).toUpperCase();
+
+     // Validar que cuerpo sea numérico
+     if (!/^\d+$/.test(cuerpo)) return false;
+
+     // Calcular dígito verificador
+     let suma = 0;
+     let multiplo = 2;
+
+     for (let i = cuerpo.length - 1; i >= 0; i--) {
+       suma += parseInt(cuerpo[i]) * multiplo;
+       multiplo = multiplo === 7 ? 2 : multiplo + 1;
+     }
+
+     const resto = suma % 11;
+     const dvEsperado = resto === 0 ? '0' : resto === 1 ? 'K' : String(11 - resto);
+
+     return dv === dvEsperado;
+   };
+
+   const formatearRUT = (rut) => {
+     const limpio = rut.replace(/[^0-9kK]/g, '');
+     if (limpio.length <= 1) return limpio;
+
+     const cuerpo = limpio.slice(0, -1);
+     const dv = limpio.slice(-1);
+
+     // Agregar puntos cada 3 dígitos
+     const cuerpoFormateado = cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+     return `${cuerpoFormateado}-${dv}`;
+   };
+   ```
+
+   Archivos a modificar:
+   - frontend/src/utils/validaciones.js (nuevo archivo)
+   - frontend/src/pages/ReservaCabanasPage.jsx
+   - backend/controllers/reservasController.js (validación)
+
+   Tiempo estimado: 2 horas
+
+
+3. POLÍTICAS Y TÉRMINOS Y CONDICIONES
+   ---------------------------------------------------------------------------
+   Problema:
+   No existen términos y condiciones visibles. No hay políticas claras de:
+   - Cancelación
+   - Reembolsos
+   - Horarios check-in/out
+   - Reglas de la cabaña
+
+   Impacto:
+   ALTO - Problemas legales, disputas con clientes.
+
+   Solución:
+   - Crear documento de Términos y Condiciones
+   - Políticas de cancelación claras:
+     * Cancelación 30+ días: Reembolso 100%
+     * Cancelación 15-29 días: Reembolso 50%
+     * Cancelación -14 días: Sin reembolso
+     * No-show: Sin reembolso
+
+   - Reglas de la cabaña:
+     * Check-in: 14:00 hrs
+     * Check-out: 12:00 hrs
+     * No fumar dentro de cabañas
+     * Mascotas: Solo con previo aviso (recargo $10.000)
+     * Capacidad máxima estricta
+     * Responsabilidad por daños
+
+   - Implementar en Frontend:
+     * Checkbox obligatorio "Acepto términos y condiciones"
+     * Link a modal con términos completos
+     * Botón "Política de cancelación" visible
+     * No permitir continuar sin aceptar
+
+   - Guardar en BD que el cliente aceptó términos:
+     * Campo: terminos_aceptados BOOLEAN DEFAULT 0
+     * Campo: fecha_aceptacion_terminos DATETIME
+
+   Archivos a crear:
+   - frontend/src/components/TerminosCondiciones.jsx (modal)
+   - frontend/src/components/PoliticaCancelacion.jsx
+   - TERMINOS_Y_CONDICIONES.pdf (documento legal)
+
+   Archivos a modificar:
+   - frontend/src/pages/ReservaCabanasPage.jsx
+   - backend/database/schema.sql
+
+   Tiempo estimado: 3-4 horas (+ tiempo legal)
+
+
+4. MANEJO DE ERRORES Y RESPALDOS
+   ---------------------------------------------------------------------------
+   Problema:
+   Si EmailJS falla, la reserva se crea pero el cliente no recibe confirmación.
+   No hay backup automático de reservas.
+
+   Impacto:
+   CRÍTICO - Pérdida de datos, clientes sin confirmación.
+
+   Solución:
+
+   A) Manejo de errores en EmailJS:
+   ```javascript
+   // En crearReserva (frontend):
+   try {
+     await emailjs.send(...);
+     enqueueSnackbar('Confirmación enviada por email', { variant: 'success' });
+   } catch (error) {
+     console.error('Error EmailJS:', error);
+     // NO fallar la reserva, solo alertar
+     enqueueSnackbar(
+       'Reserva creada pero email falló. Contacta por WhatsApp',
+       { variant: 'warning', autoHideDuration: 8000 }
+     );
+
+     // Mostrar datos de contacto emergencia
+     setMostrarContactoEmergencia(true);
+   }
+   ```
+
+   B) Cola de emails pendientes:
+   - Tabla: emails_pendientes
+   - Si falla EmailJS, guardar en cola
+   - Cron job intenta reenviar cada hora
+   - Límite 3 intentos
+
+   C) Backup automático:
+   - Script SQL diario de backup de tabla 'reservas'
+   - Guardar en /backups/reservas_YYYY-MM-DD.sql
+   - Retener últimos 30 días
+   - Script cron en servidor:
+     ```bash
+     0 2 * * * /usr/bin/mysqldump -u user -p password GestionBeach reservas > /backups/reservas_$(date +\%Y-\%m-\%d).sql
+     ```
+
+   D) Alertas críticas:
+   - Si crearReserva falla 3+ veces: enviar email a admin
+   - Si BD no responde: alerta inmediata
+   - Log de errores en archivo: /logs/errores.log
+
+   Archivos a crear:
+   - backend/database/schema_emails_pendientes.sql
+   - backend/cron/reenviar_emails.js
+   - backend/cron/backup_diario.sh
+
+   Archivos a modificar:
+   - backend/controllers/reservasController.js
+   - frontend/src/pages/ReservaCabanasPage.jsx
+
+   Tiempo estimado: 4-5 horas
+
+
+5. VALIDACIÓN DE TELÉFONO CHILENO
+   ---------------------------------------------------------------------------
+   Problema:
+   No se valida formato de teléfono chileno. Pueden ingresar números inválidos.
+
+   Impacto:
+   MEDIO - No se puede contactar al cliente por WhatsApp.
+
+   Solución:
+   - Validar formato: +56 9 XXXX XXXX
+   - Auto-agregar +56 si no lo tiene
+   - Validar que celular empiece con 9
+   - Validar 11 dígitos totales (+569 + 8 dígitos)
+
+   ```javascript
+   const validarTelefonoChileno = (telefono) => {
+     // Limpiar
+     const limpio = telefono.replace(/\s/g, '').replace(/\+/g, '');
+
+     // Debe tener exactamente 11 dígitos (56 9 XXXXXXXX)
+     if (limpio.length !== 11) return false;
+
+     // Debe empezar con 569
+     if (!limpio.startsWith('569')) return false;
+
+     // Todos deben ser números
+     if (!/^\d+$/.test(limpio)) return false;
+
+     return true;
+   };
+
+   const formatearTelefono = (telefono) => {
+     const limpio = telefono.replace(/\D/g, '');
+
+     // Si empieza con 56, está bien
+     // Si empieza con 9, agregar 56
+     const conCodigo = limpio.startsWith('56') ? limpio : '56' + limpio;
+
+     // Formato: +56 9 1234 5678
+     return `+${conCodigo.slice(0,2)} ${conCodigo.slice(2,3)} ${conCodigo.slice(3,7)} ${conCodigo.slice(7)}`;
+   };
+   ```
+
+   Archivos a modificar:
+   - frontend/src/utils/validaciones.js
+   - frontend/src/pages/ReservaCabanasPage.jsx
+
+   Tiempo estimado: 1 hora
+
+
+================================================================================
+🟡 IMPORTANTE - HACER ESTA SEMANA
+================================================================================
+
+6. BLOQUEO DE FECHAS PARA MANTENIMIENTO
+   ---------------------------------------------------------------------------
+   Necesidad:
+   Poder marcar una cabaña como "en mantenimiento" para que no se reserve.
+
+   Solución:
+   - Botón "Bloquear fechas" en AdminCabanasPage
+   - Crear reserva especial con:
+     * tipo_reserva = 'mantenimiento'
+     * cliente_nombre = 'MANTENIMIENTO'
+     * estado = 'bloqueada'
+   - Mostrar en color gris/rayado en calendario
+   - No permitir check-in/out en reservas de mantenimiento
+
+   Tiempo estimado: 2-3 horas
+
+
+7. RECORDATORIOS AUTOMÁTICOS
+   ---------------------------------------------------------------------------
+   Necesidad:
+   Enviar recordatorio al cliente 1 día antes del check-in.
+
+   Solución:
+   - Crear cron job: /backend/cron/recordatorios.js
+   - Ejecutar diariamente a las 10:00 AM
+   - Buscar reservas con check-in = mañana
+   - Enviar WhatsApp:
+     "Hola {nombre}, te recordamos tu reserva mañana en Cabaña {numero}.
+      Check-in: 14:00 hrs. ¡Te esperamos! 🏡"
+
+   Script cron:
+   ```javascript
+   const cron = require('node-cron');
+
+   // Ejecutar diariamente a las 10:00
+   cron.schedule('0 10 * * *', async () => {
+     const reservasMañana = await obtenerReservasCheckInMañana();
+
+     for (const reserva of reservasMañana) {
+       await enviarWhatsAppRecordatorio(reserva);
+     }
+   });
+   ```
+
+   Tiempo estimado: 3 horas
+
+
+8. REPORTES Y ESTADÍSTICAS AVANZADAS
+   ---------------------------------------------------------------------------
+   Necesidad:
+   Dashboard con métricas de negocio para toma de decisiones.
+
+   Reportes necesarios:
+   - Ingresos mensuales (gráfico de barras)
+   - Ocupación por cabaña (%)
+   - Cabañas más reservadas
+   - Temporadas alta/baja
+   - Clientes frecuentes (top 10)
+   - Ingresos por tinajas
+   - Promedio de personas por reserva
+   - Exportar a Excel todas las reservas
+
+   Implementar:
+   - Pestaña "Reportes" en AdminCabanasPage
+   - Gráficos con Recharts
+   - Filtros: año, mes, cabaña específica
+   - Botón "Exportar a Excel" con xlsx library
+
+   Tiempo estimado: 6-8 horas
+
+
+9. FILTROS AVANZADOS EN ADMIN
+   ---------------------------------------------------------------------------
+   Necesidad:
+   Buscar reservas rápidamente entre cientos de registros.
+
+   Filtros a agregar:
+   - Por rango de fechas (desde/hasta)
+   - Por estado (Pendiente, Confirmada, Check-in, Check-out, Cancelada)
+   - Por cabaña (dropdown)
+   - Por nombre de cliente (input texto)
+   - Por RUT (input texto)
+   - Por teléfono
+   - Por estado de pago
+
+   Implementar:
+   - Barra de filtros colapsable arriba de la tabla
+   - Aplicar filtros en tiempo real
+   - Botón "Limpiar filtros"
+   - Mostrar contador: "23 reservas encontradas"
+
+   Tiempo estimado: 3-4 horas
+
+
+10. PDF/VOUCHER DE RESERVA IMPRIMIBLE
+    ---------------------------------------------------------------------------
+    Necesidad:
+    Cliente y admin necesitan comprobante impreso de reserva.
+
+    Contenido del voucher:
+    - Logo "Cabañas El Mirador"
+    - Código de reserva (grande)
+    - Datos cliente (nombre, RUT, teléfono, email)
+    - Cabaña reservada (nombre, número)
+    - Fechas (check-in / check-out)
+    - Cantidad personas
+    - Tinajas adicionales (si aplica)
+    - Monto total pagado
+    - Datos bancarios para pago
+    - QR code con código de reserva
+    - Políticas importantes
+    - Contacto emergencia
+
+    Implementar:
+    - Botón "Descargar Voucher PDF" en admin y en confirmación
+    - Usar jsPDF o react-pdf
+    - Diseño profesional con colores de marca
+    - Auto-enviar por email junto con confirmación
+
+    Tiempo estimado: 4-5 horas
+
+
+================================================================================
+🟢 MEJORAS OPCIONALES - PUEDEN ESPERAR
+================================================================================
+
+11. CÓDIGOS DE DESCUENTO/PROMOCIONES
+    ---------------------------------------------------------------------------
+    Descripción:
+    Permitir aplicar cupones de descuento en reservas.
+
+    Implementar:
+    - Tabla: codigos_descuento (codigo, porcentaje, fecha_expiracion, usos)
+    - Campo en Step 4 del formulario: "¿Tienes un código?"
+    - Validar código contra BD
+    - Aplicar descuento al total
+    - Registrar en reserva qué código se usó
+
+    Ejemplos:
+    - VERANO2025: 10% descuento
+    - PRIMERAVEZ: 15% descuento primera reserva
+    - FAMILIA20: 20% descuento 7+ personas
+
+    Tiempo estimado: 3 horas
+
+
+12. RESERVA MULTI-CABAÑA
+    ---------------------------------------------------------------------------
+    Descripción:
+    Permitir reservar 2 o más cabañas en una sola transacción.
+    Útil para grupos grandes o familias.
+
+    Implementar:
+    - Botón "Agregar otra cabaña" después de seleccionar primera
+    - Validar disponibilidad de todas
+    - Calcular precio total combinado
+    - Descuento por reservar múltiples (5% por cada cabaña extra)
+    - Guardar en tabla: reservas_multiples
+
+    Tiempo estimado: 6 horas
+
+
+13. HISTORIAL DE CAMBIOS EN RESERVAS
+    ---------------------------------------------------------------------------
+    Descripción:
+    Auditoría de quién modificó qué en cada reserva.
+
+    Implementar:
+    - Tabla: reservas_historial
+    - Campos: usuario_id, fecha, accion, datos_anteriores, datos_nuevos
+    - Registrar cada UPDATE
+    - Vista "Ver historial" en admin
+
+    Tiempo estimado: 3 horas
+
+
+14. GALERÍA DE FOTOS COMPLETA
+    ---------------------------------------------------------------------------
+    Problema:
+    Algunas cabañas no tienen fotos o tienen muy pocas.
+
+    Solución:
+    - Tomar fotos profesionales de TODAS las cabañas
+    - Mínimo 5 fotos por cabaña:
+      * Exterior
+      * Living
+      * Habitación principal
+      * Baño
+      * Quincho/terraza
+    - Subir a /frontend/src/images/cabanas/
+    - Optimizar tamaño (max 800px ancho)
+
+    Tiempo estimado: Medio día (sesión fotográfica)
+
+
+15. NOTIFICACIONES PUSH
+    ---------------------------------------------------------------------------
+    Descripción:
+    Alertas en tiempo real para el administrador.
+
+    Implementar:
+    - Firebase Cloud Messaging
+    - Notificaciones cuando:
+      * Nueva reserva creada
+      * Cliente sube comprobante
+      * Check-in/out realizado
+      * Cancelación de reserva
+    - Sonido + popup en navegador
+    - Historial de notificaciones
+
+    Tiempo estimado: 5 horas
+
+
+================================================================================
+📊 RESUMEN DE PRIORIDADES
+================================================================================
+
+CRÍTICO (Hacer HOY/MAÑANA):
+  1. Sistema de pagos y comprobantes         [6 horas]
+  2. Validación RUT chileno                  [2 horas]
+  3. Términos y condiciones                  [4 horas]
+  4. Manejo de errores y backup              [5 horas]
+  5. Validación teléfono                     [1 hora]
+                                    TOTAL:    18 horas (~3 días)
+
+IMPORTANTE (Esta semana):
+  6. Bloqueo fechas mantenimiento            [3 horas]
+  7. Recordatorios automáticos               [3 horas]
+  8. Reportes y estadísticas                 [7 horas]
+  9. Filtros avanzados admin                 [4 horas]
+  10. PDF/Voucher imprimible                 [5 horas]
+                                    TOTAL:    22 horas (~4 días)
+
+OPCIONAL (Próximo mes):
+  11-15. Mejoras adicionales                 [20 horas]
+
+
+================================================================================
+🔧 CONFIGURACIONES PENDIENTES
+================================================================================
+
+Base de Datos:
+  - Agregar columnas nuevas (comprobante_pago, estado_pago, etc.)
+  - Crear tabla emails_pendientes
+  - Crear tabla codigos_descuento
+  - Índices en columnas de búsqueda
+
+Servidor:
+  - Configurar cron jobs (recordatorios, backup)
+  - Crear carpeta /uploads/comprobantes/ con permisos
+  - Configurar backup automático diario
+  - Instalar dependencias: multer, node-cron, xlsx
+
+Documentación:
+  - Crear manual de usuario para administrador
+  - Documentar proceso de reserva
+  - Documentar cómo aprobar pagos
+  - FAQ para clientes
+
+
+================================================================================
+✅ CHECKLIST ANTES DE PRODUCCIÓN
+================================================================================
+
+[ ] 1. Sistema de comprobantes funcionando
+[ ] 2. Validación RUT implementada
+[ ] 3. Términos y condiciones visibles y obligatorios
+[ ] 4. Backup automático configurado
+[ ] 5. Manejo de errores EmailJS robusto
+[ ] 6. Validación teléfono chileno
+[ ] 7. Bloqueo de fechas para mantenimiento
+[ ] 8. Recordatorios automáticos funcionando
+[ ] 9. Reportes básicos implementados
+[ ] 10. Filtros de búsqueda en admin
+[ ] 11. Voucher PDF descargable
+[ ] 12. Todas las cabañas con fotos
+[ ] 13. Pruebas de carga (100+ reservas simultáneas)
+[ ] 14. Pruebas en móvil (iPhone y Android)
+[ ] 15. Capacitación a personal administrativo
+
+
+================================================================================
+📞 CONTACTO Y SOPORTE
+================================================================================
+
+Para implementar estas mejoras contactar a:
+- Desarrollador: Claude Code
+- Repositorio: GestionBeach-main
+- Documentación: /docs/
+
+Última actualización: Octubre 27, 2025
+
+================================================================================
+                              FIN DEL REPORTE
+================================================================================
