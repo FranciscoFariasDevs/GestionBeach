@@ -4,7 +4,9 @@
       "Bash(git commit -m \"$(cat <<''EOF''\nLanding page profesional con diseño moderno\n\n- Logo \"logo entero nitido.png\" en navbar\n- Iconos de colores: Cabañas (azul), Ferretería (naranja), Supermercado (morado), Multitienda (rojo)\n- Botón \"Cabañas\" destacado con animaciones (redirige a /reserva-cabanas)\n- Botón \"Ingresa\" destacado con animaciones (redirige a /login)\n- Sección Misión-Visión eliminada\n- Imágenes locales: ferre.jpg, morado.png, cabaña.jpeg, multitienda.jpeg\n- Hero section con gradiente y CTAs\n- Secciones con avatares de colores temáticos\n- Cards con hover effects y sombras\n- Footer completo con enlaces y contacto\n- Diseño responsive para mobile y desktop\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(cat:*)",
       "Bash(ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

@@ -50,6 +50,9 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import EditIcon from '@mui/icons-material/Edit';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import PercentIcon from '@mui/icons-material/Percent';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
@@ -57,7 +60,10 @@ import {
   ResultadoLineItem,
   ResultadoSection,
   AnalisisFinanciero,
-  EstadoResultadosDetallado
+  EstadoResultadosDetallado,
+  KPICard,
+  ExecutiveHeader,
+  IndicatorProgress
 } from './ResultadosComponents';
 import DynamicExpenseSection from '../../components/DynamicExpenseSection.jsx';
 
@@ -1184,106 +1190,58 @@ const EstadoResultadosPage = () => {
     }
   };
   
-  const ReportHeader = () => (
-    <Fade in={true}>
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <AccountBalanceIcon sx={{ fontSize: 40, mr: 2, color: 'primary.main' }} />
-            <Box>
-              <Typography variant="h4" component="h1" fontWeight="bold">
-                Estado de Resultados
-              </Typography>
-              <Typography variant="subtitle1" color="textSecondary">
-                Sistema Integrado con Clasificación Automática Admin/Ventas
-              </Typography>
+  const ReportHeader = () => {
+    if (!data) {
+      return (
+        <Fade in={true}>
+          <Box sx={{ mb: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <AccountBalanceIcon sx={{ fontSize: 40, mr: 2, color: 'primary.main' }} />
+                <Box>
+                  <Typography variant="h4" component="h1" fontWeight="bold">
+                    Estado de Resultados
+                  </Typography>
+                  <Typography variant="subtitle1" color="textSecondary">
+                    Sistema Integrado con Clasificación Automática Admin/Ventas
+                  </Typography>
+                </Box>
+              </Box>
             </Box>
           </Box>
-          
-          {data && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Chip
-                label={data.estado.toUpperCase()}
-                color={
-                  data.estado === 'borrador' ? 'warning' :
-                  data.estado === 'guardado' ? 'info' : 'success'
-                }
-                variant="outlined"
-              />
-              <Tooltip title="Debug APIs">
-                <IconButton onClick={debugAPI}>
-                  <BugReportIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Exportar a Excel">
-                <IconButton onClick={handleExportExcel}>
-                  <GetAppIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Imprimir">
-                <IconButton onClick={handlePrint}>
-                  <PrintIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Ver análisis">
-                <IconButton>
-                  <AnalyticsIcon />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          )}
+        </Fade>
+      );
+    }
+
+    const razonSocialSeleccionada = razonesSocialesDisponibles.find(
+      r => r.id.toString() === selectedRazonSocial
+    );
+
+    return (
+      <Fade in={true}>
+        <Box sx={{ mb: 4 }}>
+          <ExecutiveHeader
+            sucursal={data.sucursal}
+            periodo={data.periodo}
+            razonSocial={razonSocialSeleccionada?.nombre_razon || 'N/A'}
+            fechaCreacion={new Date().toLocaleDateString('es-CL', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            })}
+            estado={data.estado}
+            onDebugAPI={debugAPI}
+            onExportExcel={handleExportExcel}
+            onPrint={handlePrint}
+            clasificacion={data.datosOriginales?.clasificacion}
+            numeroFacturas={data.datosOriginales?.numeroFacturas || 0}
+            numeroVentas={data.datosOriginales?.numeroVentas || 0}
+            numeroEmpleados={data.datosOriginales?.numeroEmpleados || 0}
+          />
         </Box>
-        
-        {data && (
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Chip
-              icon={<AssignmentIcon />}
-              label={`${data.sucursal} - ${data.periodo}`}
-              variant="outlined"
-            />
-            {data.datosOriginales && (
-              <>
-                <Chip
-                  label={`${data.datosOriginales.numeroFacturas} Facturas`}
-                  size="small"
-                  color="info"
-                />
-                <Chip
-                  label={`${data.datosOriginales.numeroVentas} Ventas`}
-                  size="small"
-                  color="success"
-                />
-                <Chip
-                  label={`${data.datosOriginales.numeroEmpleados || 0} Empleados`}
-                  size="small"
-                  color="primary"
-                />
-                {/* 🔥 NUEVO: Mostrar clasificación */}
-                {data.datosOriginales.clasificacion && (
-                  <>
-                    <Chip
-                      icon={<span>💼</span>}
-                      label={`${data.datosOriginales.clasificacion.empleados_admin} Admin`}
-                      size="small"
-                      color="primary"
-                      variant="outlined"
-                    />
-                    <Chip
-                      icon={<span>🛒</span>}
-                      label={`${data.datosOriginales.clasificacion.empleados_ventas} Ventas`}
-                      size="small"
-                      color="success"
-                      variant="outlined"
-                    />
-                  </>
-                )}
-              </>
-            )}
-          </Box>
-        )}
-      </Box>
-    </Fade>
-  );
+      </Fade>
+    );
+  };
   
   const ReportFilter = () => (
     <Fade in={true}>
@@ -1401,235 +1359,132 @@ const EstadoResultadosPage = () => {
     </Fade>
   );
   
-  const KeyResultsCard = ({ data }) => (
-    <Zoom in={true} style={{ transitionDelay: '150ms' }}>
-      <Card sx={{ 
-        mb: 4, 
-        borderRadius: 3, 
-        boxShadow: `0 8px 32px ${theme.palette.primary.main}15`,
-        background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
-        border: `1px solid ${theme.palette.divider}`
-      }}>
-        <CardHeader 
-          title={
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <TrendingUpIcon sx={{ color: 'success.main' }} />
-              <Typography variant="h6" fontWeight="bold">
-                Resumen Ejecutivo
-              </Typography>
-            </Box>
-          }
-          sx={{ 
-            backgroundColor: 'transparent',
-            borderBottom: `1px solid ${theme.palette.divider}`,
-            pb: 2,
-          }}
-        />
-        <CardContent sx={{ pt: 3 }}>
+  const KeyResultsCard = ({ data }) => {
+    const margenBruto = calcularPorcentaje(data.utilidadBruta, data.ingresos.ventas);
+    const margenOperativo = calcularPorcentaje(data.utilidadOperativa, data.ingresos.ventas);
+    const margenNeto = calcularPorcentaje(data.utilidadNeta, data.ingresos.ventas);
+
+    return (
+      <Zoom in={true} style={{ transitionDelay: '150ms' }}>
+        <Box>
+          <Typography variant="h5" fontWeight="700" sx={{ mb: 3, mt: 4 }}>
+            Indicadores Clave de Rendimiento
+          </Typography>
+
           <Grid container spacing={3}>
-            <Grid item xs={6} lg={3}>
-              <Paper 
-                elevation={0}
-                sx={{ 
-                  p: 2.5, 
-                  borderRadius: 2, 
-                  background: `linear-gradient(135deg, ${theme.palette.primary.main}15 0%, ${theme.palette.primary.main}25 100%)`,
-                  border: `1px solid ${theme.palette.primary.main}30`,
-                  textAlign: 'center',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-              >
-                <Box sx={{ position: 'absolute', top: -10, right: -10, opacity: 0.1 }}>
-                  <TrendingUpIcon sx={{ fontSize: 60 }} />
-                </Box>
-                <Typography variant="body2" color="textSecondary" fontWeight="medium">
-                  Ventas Totales
-                </Typography>
-                <Typography variant="h5" fontWeight="bold" sx={{ mt: 1, mb: 1 }}>
-                  {formatCurrency(data.ingresos.ventas)}
-                </Typography>
-                <Typography variant="caption" color="success.main" fontWeight="medium">
-                  Base de ingresos
-                </Typography>
-              </Paper>
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard
+                title="Ventas Totales"
+                value={data.ingresos.ventas}
+                subtitle="Ingresos del período"
+                icon={<AttachMoneyIcon sx={{ fontSize: 28 }} />}
+                color="primary"
+                trend="up"
+                trendValue="+100%"
+              />
             </Grid>
-            
-            <Grid item xs={6} lg={3}>
-              <Paper 
-                elevation={0}
-                sx={{ 
-                  p: 2.5, 
-                  borderRadius: 2, 
-                  background: `linear-gradient(135deg, ${theme.palette.success.main}15 0%, ${theme.palette.success.main}25 100%)`,
-                  border: `1px solid ${theme.palette.success.main}30`,
-                  textAlign: 'center',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-              >
-                <Box sx={{ position: 'absolute', top: -10, right: -10, opacity: 0.1 }}>
-                  <TrendingUpIcon sx={{ fontSize: 60 }} />
-                </Box>
-                <Typography variant="body2" color="textSecondary" fontWeight="medium">
-                  Utilidad Bruta
-                </Typography>
-                <Typography variant="h5" fontWeight="bold" sx={{ mt: 1, mb: 1 }}>
-                  {formatCurrency(data.utilidadBruta)}
-                </Typography>
-                <Typography variant="caption" color="success.main" fontWeight="medium">
-                  {calcularPorcentaje(data.utilidadBruta, data.ingresos.ventas)}%
-                </Typography>
-              </Paper>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard
+                title="Utilidad Bruta"
+                value={data.utilidadBruta}
+                subtitle={`Margen: ${margenBruto}%`}
+                icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+                color="success"
+                trend={data.utilidadBruta > 0 ? 'up' : 'down'}
+                trendValue={`${margenBruto}%`}
+              />
             </Grid>
-            
-            <Grid item xs={6} lg={3}>
-              <Paper 
-                elevation={0}
-                sx={{ 
-                  p: 2.5, 
-                  borderRadius: 2, 
-                  background: `linear-gradient(135deg, ${theme.palette.warning.main}15 0%, ${theme.palette.warning.main}25 100%)`,
-                  border: `1px solid ${theme.palette.warning.main}30`,
-                  textAlign: 'center',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-              >
-                <Box sx={{ position: 'absolute', top: -10, right: -10, opacity: 0.1 }}>
-                  <TrendingDownIcon sx={{ fontSize: 60 }} />
-                </Box>
-                <Typography variant="body2" color="textSecondary" fontWeight="medium">
-                  Gastos Operativos
-                </Typography>
-                <Typography variant="h5" fontWeight="bold" sx={{ mt: 1, mb: 1 }}>
-                  {formatCurrency(data.gastosOperativos.totalGastosOperativos)}
-                </Typography>
-                <Typography variant="caption" color="warning.main" fontWeight="medium">
-                  {calcularPorcentaje(data.gastosOperativos.totalGastosOperativos, data.ingresos.ventas)}%
-                </Typography>
-              </Paper>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard
+                title="Gastos Operativos"
+                value={data.gastosOperativos.totalGastosOperativos}
+                subtitle={`${calcularPorcentaje(data.gastosOperativos.totalGastosOperativos, data.ingresos.ventas)}% de ventas`}
+                icon={<ReceiptIcon sx={{ fontSize: 28 }} />}
+                color="warning"
+                trend="neutral"
+              />
             </Grid>
-            
-            <Grid item xs={6} lg={3}>
-              <Paper 
-                elevation={0}
-                sx={{ 
-                  p: 2.5, 
-                  borderRadius: 2, 
-                  background: `linear-gradient(135deg, ${theme.palette.secondary.main}15 0%, ${theme.palette.secondary.main}25 100%)`,
-                  border: `1px solid ${theme.palette.secondary.main}30`,
-                  textAlign: 'center',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-              >
-                <Box sx={{ position: 'absolute', top: -10, right: -10, opacity: 0.1 }}>
-                  <AccountBalanceIcon sx={{ fontSize: 60 }} />
-                </Box>
-                <Typography variant="body2" color="textSecondary" fontWeight="medium">
-                  Utilidad Neta
-                </Typography>
-                <Typography variant="h5" fontWeight="bold" sx={{ mt: 1, mb: 1 }}>
-                  {formatCurrency(data.utilidadNeta)}
-                </Typography>
-                <Typography variant="caption" color="secondary.main" fontWeight="medium">
-                  {calcularPorcentaje(data.utilidadNeta, data.ingresos.ventas)}%
-                </Typography>
-              </Paper>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard
+                title="Utilidad Neta"
+                value={data.utilidadNeta}
+                subtitle={`Margen: ${margenNeto}%`}
+                icon={<AccountBalanceIcon sx={{ fontSize: 28 }} />}
+                color="secondary"
+                trend={data.utilidadNeta > 0 ? 'up' : 'down'}
+                trendValue={`${margenNeto}%`}
+              />
             </Grid>
           </Grid>
-          
-          {data.datosOriginales && (
-            <Box sx={{ mt: 3, pt: 3, borderTop: `1px solid ${theme.palette.divider}` }}>
-              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                Información del Período
+
+          <Card sx={{ mt: 3, borderRadius: 3, boxShadow: `0 4px 20px ${theme.palette.grey[500]}10` }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" fontWeight="700" gutterBottom>
+                Análisis de Márgenes
               </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="body2" color="textSecondary">
-                      Nº Facturas:
-                    </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {data.datosOriginales.numeroFacturas}
-                    </Typography>
-                  </Stack>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="body2" color="textSecondary">
-                      Nº Ventas:
-                    </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {data.datosOriginales.numeroVentas}
-                    </Typography>
-                  </Stack>
-                </Grid>
-                {data.datosOriginales.clasificacion && (
-                  <>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography variant="body2" color="textSecondary">
-                          💼 Admin:
-                        </Typography>
-                        <Typography variant="body2" fontWeight="medium" color="primary.main">
-                          {data.datosOriginales.clasificacion.empleados_admin} empleados
-                        </Typography>
-                      </Stack>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography variant="body2" color="textSecondary">
-                          🛒 Ventas:
-                        </Typography>
-                        <Typography variant="body2" fontWeight="medium" color="success.main">
-                          {data.datosOriginales.clasificacion.empleados_ventas} empleados
-                        </Typography>
-                      </Stack>
-                    </Grid>
-                  </>
-                )}
-              </Grid>
-            </Box>
-          )}
-        </CardContent>
-        
-        <Divider />
-        
-        <CardActions sx={{ justifyContent: 'flex-end', p: 3 }}>
-          <Button
-            variant="outlined"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveResultados}
-            disabled={loading || data.estado === "enviado" || !hasChanges}
-            sx={{ 
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 'medium'
-            }}
-          >
-            Guardar Cambios
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<SendIcon />}
-            onClick={handleSendResultados}
-            disabled={loading || data.estado === "enviado"}
-            sx={{ 
-              borderRadius: 2,
-              textTransform: 'none',
-              fontWeight: 'medium',
-              background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-              boxShadow: `0 4px 20px ${theme.palette.primary.main}25`
-            }}
-          >
-            Enviar al Sistema
-          </Button>
-        </CardActions>
-      </Card>
-    </Zoom>
-  );
+
+              <Box sx={{ mt: 3 }}>
+                <IndicatorProgress
+                  label="Margen Bruto"
+                  value={data.utilidadBruta}
+                  total={data.ingresos.ventas}
+                  color="success"
+                />
+                <IndicatorProgress
+                  label="Margen Operativo"
+                  value={data.utilidadOperativa}
+                  total={data.ingresos.ventas}
+                  color="info"
+                />
+                <IndicatorProgress
+                  label="Margen Neto"
+                  value={data.utilidadNeta}
+                  total={data.ingresos.ventas}
+                  color="secondary"
+                />
+              </Box>
+            </CardContent>
+
+            <Divider />
+
+            <CardActions sx={{ justifyContent: 'flex-end', p: 3 }}>
+              <Button
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveResultados}
+                disabled={loading || data.estado === "enviado" || !hasChanges}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 'medium'
+                }}
+              >
+                Guardar Cambios
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<SendIcon />}
+                onClick={handleSendResultados}
+                disabled={loading || data.estado === "enviado"}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 'medium',
+                  background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                  boxShadow: `0 4px 20px ${theme.palette.primary.main}25`
+                }}
+              >
+                Enviar al Sistema
+              </Button>
+            </CardActions>
+          </Card>
+        </Box>
+      </Zoom>
+    );
+  };
 
   const ConfirmDialog = () => (
     <Dialog

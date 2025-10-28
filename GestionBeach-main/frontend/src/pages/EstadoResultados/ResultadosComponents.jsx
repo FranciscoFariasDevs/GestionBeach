@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/ResultadosComponents.jsx - COMPLETO CON COSTOS PATRONALES
+// src/pages/EstadoResultados/ResultadosComponents.jsx - VERSIÓN MEJORADA PROFESIONAL
 import React from 'react';
 import {
   Box,
@@ -20,7 +20,8 @@ import {
   ListItemText,
   ListItemIcon,
   Avatar,
-  Alert
+  Alert,
+  alpha
 } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -37,6 +38,13 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import PercentIcon from '@mui/icons-material/Percent';
 import InfoIcon from '@mui/icons-material/Info';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+import PieChartIcon from '@mui/icons-material/PieChart';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import BugReportIcon from '@mui/icons-material/BugReport';
+import GetAppIcon from '@mui/icons-material/GetApp';
+import PrintIcon from '@mui/icons-material/Print';
 
 const formatCurrency = (value) => {
   const numValue = Number(value) || 0;
@@ -884,5 +892,434 @@ export const AnalisisFinanciero = ({ data }) => {
         </Card>
       </Grid>
     </Grid>
+  );
+};
+
+/**
+ * 🆕 COMPONENTE KPI CARD PROFESIONAL - DISEÑO GERENCIAL MEJORADO
+ */
+export const KPICard = ({ title, value, subtitle, icon, trend, trendValue, color = 'primary', bgGradient }) => {
+  const theme = useTheme();
+
+  const IconComponent = icon;
+  const colorMain = theme.palette[color]?.main || theme.palette.primary.main;
+  const colorLight = alpha(colorMain, 0.1);
+  const colorDark = alpha(colorMain, 0.8);
+
+  return (
+    <Card
+      elevation={0}
+      sx={{
+        height: '100%',
+        borderRadius: 3,
+        background: bgGradient || `linear-gradient(135deg, ${colorLight} 0%, ${alpha(colorMain, 0.05)} 100%)`,
+        border: `1px solid ${alpha(colorMain, 0.2)}`,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: `0 12px 24px ${alpha(colorMain, 0.15)}`,
+          border: `1px solid ${alpha(colorMain, 0.4)}`,
+        }
+      }}
+    >
+      <CardContent sx={{ p: 3 }}>
+        <Stack spacing={2}>
+          {/* Header con icono */}
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  fontSize: '0.75rem',
+                  mb: 1
+                }}
+              >
+                {title}
+              </Typography>
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
+                  color: colorDark,
+                  lineHeight: 1.2,
+                  fontSize: '2rem'
+                }}
+              >
+                {typeof value === 'number' ? formatCurrency(value) : value}
+              </Typography>
+            </Box>
+
+            <Avatar
+              sx={{
+                width: 56,
+                height: 56,
+                bgcolor: alpha(colorMain, 0.15),
+                color: colorMain,
+                boxShadow: `0 4px 12px ${alpha(colorMain, 0.2)}`
+              }}
+            >
+              {IconComponent}
+            </Avatar>
+          </Box>
+
+          {/* Tendencia y subtitle */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            {subtitle && (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: theme.palette.text.secondary,
+                  fontSize: '0.8rem'
+                }}
+              >
+                {subtitle}
+              </Typography>
+            )}
+
+            {trend && trendValue !== undefined && (
+              <Chip
+                size="small"
+                icon={trend === 'up' ? <TrendingUpIcon /> : <TrendingDownIcon />}
+                label={`${trendValue > 0 ? '+' : ''}${trendValue}%`}
+                sx={{
+                  fontWeight: 700,
+                  fontSize: '0.7rem',
+                  height: 24,
+                  bgcolor: trend === 'up'
+                    ? alpha(theme.palette.success.main, 0.15)
+                    : alpha(theme.palette.error.main, 0.15),
+                  color: trend === 'up'
+                    ? theme.palette.success.main
+                    : theme.palette.error.main,
+                  border: `1px solid ${trend === 'up'
+                    ? alpha(theme.palette.success.main, 0.3)
+                    : alpha(theme.palette.error.main, 0.3)}`,
+                  '& .MuiChip-icon': {
+                    fontSize: 16
+                  }
+                }}
+              />
+            )}
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+};
+
+/**
+ * 🆕 COMPONENTE HEADER EJECUTIVO MEJORADO PROFESIONAL
+ */
+export const ExecutiveHeader = ({
+  sucursal,
+  periodo,
+  razonSocial,
+  fechaCreacion,
+  estado,
+  onDebugAPI,
+  onExportExcel,
+  onPrint,
+  clasificacion,
+  numeroFacturas,
+  numeroVentas,
+  numeroEmpleados
+}) => {
+  const theme = useTheme();
+
+  return (
+    <Paper elevation={0} sx={{
+      p: 4, mb: 0, borderRadius: 3,
+      background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+      color: 'white',
+      position: 'relative',
+      overflow: 'hidden',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0, right: 0,
+        width: '300px', height: '300px',
+        background: `radial-gradient(circle, ${alpha('#fff', 0.1)} 0%, transparent 70%)`,
+        transform: 'translate(30%, -30%)'
+      },
+      '&::after': {
+        content: '""',
+        position: 'absolute',
+        bottom: 0, left: 0,
+        width: '250px', height: '250px',
+        background: `radial-gradient(circle, ${alpha('#fff', 0.08)} 0%, transparent 70%)`,
+        transform: 'translate(-30%, 30%)'
+      }
+    }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ position: 'relative', zIndex: 1 }}>
+        <Box>
+          <Typography variant="overline" sx={{ opacity: 0.9, letterSpacing: 1.5, fontWeight: 600 }}>
+            Estado de Resultados
+          </Typography>
+          <Typography variant="h3" fontWeight="800" sx={{ mb: 1, mt: 0.5 }}>
+            {razonSocial}
+          </Typography>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+            <Chip
+              label={sucursal}
+              sx={{
+                bgcolor: alpha('#fff', 0.25),
+                color: 'white',
+                fontWeight: 700,
+                backdropFilter: 'blur(10px)',
+                border: `1px solid ${alpha('#fff', 0.3)}`
+              }}
+              icon={<LocationOnIcon sx={{ color: 'white !important' }} />}
+            />
+            <Chip
+              label={periodo}
+              sx={{
+                bgcolor: alpha('#fff', 0.25),
+                color: 'white',
+                fontWeight: 700,
+                backdropFilter: 'blur(10px)',
+                border: `1px solid ${alpha('#fff', 0.3)}`
+              }}
+              icon={<CalendarTodayIcon sx={{ color: 'white !important' }} />}
+            />
+            {estado && (
+              <Chip
+                label={estado.toUpperCase()}
+                sx={{
+                  bgcolor: estado === 'borrador' ? alpha('#FFA726', 0.9) :
+                           estado === 'guardado' ? alpha('#29B6F6', 0.9) : alpha('#66BB6A', 0.9),
+                  color: 'white',
+                  fontWeight: 700,
+                  backdropFilter: 'blur(10px)'
+                }}
+              />
+            )}
+          </Stack>
+        </Box>
+
+        <Stack direction="row" spacing={1}>
+          {onDebugAPI && (
+            <Tooltip title="Debug APIs">
+              <IconButton
+                onClick={onDebugAPI}
+                sx={{
+                  color: 'white',
+                  bgcolor: alpha('#fff', 0.15),
+                  '&:hover': { bgcolor: alpha('#fff', 0.25) }
+                }}
+              >
+                <BugReportIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onExportExcel && (
+            <Tooltip title="Exportar a Excel">
+              <IconButton
+                onClick={onExportExcel}
+                sx={{
+                  color: 'white',
+                  bgcolor: alpha('#fff', 0.15),
+                  '&:hover': { bgcolor: alpha('#fff', 0.25) }
+                }}
+              >
+                <GetAppIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onPrint && (
+            <Tooltip title="Imprimir">
+              <IconButton
+                onClick={onPrint}
+                sx={{
+                  color: 'white',
+                  bgcolor: alpha('#fff', 0.15),
+                  '&:hover': { bgcolor: alpha('#fff', 0.25) }
+                }}
+              >
+                <PrintIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Stack>
+      </Stack>
+
+      <Divider sx={{ my: 2.5, bgcolor: alpha('#fff', 0.2) }} />
+
+      <Grid container spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Box sx={{
+            p: 2,
+            borderRadius: 2,
+            bgcolor: alpha('#fff', 0.12),
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${alpha('#fff', 0.2)}`
+          }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <ReceiptIcon sx={{ fontSize: 28, opacity: 0.9 }} />
+              <Box>
+                <Typography variant="h5" fontWeight="700">
+                  {numeroFacturas}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                  Facturas Procesadas
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Box sx={{
+            p: 2,
+            borderRadius: 2,
+            bgcolor: alpha('#fff', 0.12),
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${alpha('#fff', 0.2)}`
+          }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <ShoppingCartIcon sx={{ fontSize: 28, opacity: 0.9 }} />
+              <Box>
+                <Typography variant="h5" fontWeight="700">
+                  {numeroVentas}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                  Ventas Registradas
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Box sx={{
+            p: 2,
+            borderRadius: 2,
+            bgcolor: alpha('#fff', 0.12),
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${alpha('#fff', 0.2)}`
+          }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <PeopleIcon sx={{ fontSize: 28, opacity: 0.9 }} />
+              <Box>
+                <Typography variant="h5" fontWeight="700">
+                  {numeroEmpleados}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                  Total Empleados
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Box sx={{
+            p: 2,
+            borderRadius: 2,
+            bgcolor: alpha('#fff', 0.12),
+            backdropFilter: 'blur(10px)',
+            border: `1px solid ${alpha('#fff', 0.2)}`
+          }}>
+            <Stack spacing={0.5}>
+              <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                Clasificación
+              </Typography>
+              {clasificacion ? (
+                <Stack direction="row" spacing={1}>
+                  <Chip
+                    label={`${clasificacion.empleados_admin} Admin`}
+                    size="small"
+                    sx={{
+                      bgcolor: alpha('#2196F3', 0.9),
+                      color: 'white',
+                      fontWeight: 600,
+                      fontSize: '0.7rem'
+                    }}
+                  />
+                  <Chip
+                    label={`${clasificacion.empleados_ventas} Ventas`}
+                    size="small"
+                    sx={{
+                      bgcolor: alpha('#4CAF50', 0.9),
+                      color: 'white',
+                      fontWeight: 600,
+                      fontSize: '0.7rem'
+                    }}
+                  />
+                </Stack>
+              ) : (
+                <Typography variant="caption">N/A</Typography>
+              )}
+            </Stack>
+          </Box>
+        </Grid>
+      </Grid>
+
+      <Box sx={{ mt: 2.5, position: 'relative', zIndex: 1 }}>
+        <Typography variant="caption" sx={{ opacity: 0.75 }}>
+          Generado el {fechaCreacion}
+        </Typography>
+      </Box>
+    </Paper>
+  );
+};
+
+/**
+ * 🆕 COMPONENTE INDICADOR CON PROGRESO VISUAL
+ */
+export const IndicatorProgress = ({ label, value, total, color = 'primary', format = 'currency' }) => {
+  const theme = useTheme();
+  const percentage = total > 0 ? (value / total) * 100 : 0;
+  const colorMain = theme.palette[color]?.main || theme.palette.primary.main;
+
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+        <Typography variant="body2" fontWeight={600} color="text.secondary">
+          {label}
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="baseline">
+          <Typography variant="h6" fontWeight={700} color={colorMain}>
+            {format === 'currency' ? formatCurrency(value) : `${value}%`}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            / {format === 'currency' ? formatCurrency(total) : `${total}%`}
+          </Typography>
+        </Stack>
+      </Stack>
+
+      <Box sx={{ position: 'relative' }}>
+        <LinearProgress
+          variant="determinate"
+          value={Math.min(percentage, 100)}
+          sx={{
+            height: 8,
+            borderRadius: 4,
+            bgcolor: alpha(colorMain, 0.1),
+            '& .MuiLinearProgress-bar': {
+              borderRadius: 4,
+              bgcolor: colorMain,
+              backgroundImage: `linear-gradient(90deg, ${colorMain} 0%, ${theme.palette[color]?.dark || colorMain} 100%)`
+            }
+          }}
+        />
+        <Typography
+          variant="caption"
+          sx={{
+            position: 'absolute',
+            right: 0,
+            top: -20,
+            fontWeight: 700,
+            color: colorMain,
+            fontSize: '0.7rem'
+          }}
+        >
+          {percentage.toFixed(1)}%
+        </Typography>
+      </Box>
+    </Box>
   );
 };
