@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const cabanasController = require('../controllers/cabanasController');
 const reservasController = require('../controllers/reservasController');
+const mantencionesController = require('../controllers/mantencionesController');
 const twilioController = require('../controllers/twilioWhatsAppControllerV3'); // 🔄 Usando versión V3 sin fotos
 
 // ============================================
@@ -24,6 +25,17 @@ router.get('/cabanas/disponibilidad/calendario', cabanasController.obtenerCalend
 router.get('/tinajas', cabanasController.obtenerTinajas);
 router.put('/tinajas/:id', cabanasController.actualizarPreciosTinaja);
 router.get('/tinajas/reservas', cabanasController.obtenerReservasTinajas);
+
+// ============================================
+// RUTAS DE MANTENCIONES
+// ============================================
+
+// CRUD de mantenciones
+router.get('/mantenciones', mantencionesController.obtenerMantenciones);
+router.get('/mantenciones/activas', mantencionesController.obtenerMantencionesActivas);
+router.get('/mantenciones/:id', mantencionesController.obtenerMantencionPorId);
+router.post('/mantenciones', mantencionesController.crearMantencion);
+router.delete('/mantenciones/:id/cancelar', mantencionesController.cancelarMantencion);
 
 // ============================================
 // RUTAS DE RESERVAS

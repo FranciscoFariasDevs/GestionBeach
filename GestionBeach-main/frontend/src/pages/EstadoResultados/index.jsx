@@ -831,7 +831,7 @@ const EstadoResultadosPage = () => {
         totalRemuneraciones: totalCargo,
         totalVentas: ventas.total || 0,
         numeroFacturas: compras.cantidad || 0,
-        numeroVentas: ventasResult?.data?.length || 0,
+        numeroVentas: ventas.data?.length || 0,
         numeroEmpleados: remuneraciones.cantidad || 0,
         fechaConsulta: new Date().toISOString(),
         sucursal: selectedSucursal,

@@ -71,7 +71,14 @@ import {
   Upload as UploadIcon,
   Image as ImageIcon,
   DirectionsCar as DirectionsCarIcon,
+  Build as BuildIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { PickersDay } from '@mui/x-date-pickers/PickersDay';
+import { es } from 'date-fns/locale';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
@@ -89,6 +96,79 @@ const COLORES_CABANAS = {
   'departamentob': '#9C27B0',
 };
 
+// ============================================
+// FUNCIONES AUXILIARES PARA FECHAS
+// ============================================
+
+// Parsear fechas del servidor (formato YYYY-MM-DD) - CON VALIDACIÓN
+const parseServerDate = (dateString) => {
+  if (!dateString) return null;
+  try {
+    const [year, month, day] = dateString.split('T')[0].split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+
+    // Verificar que la fecha sea válida
+    if (isNaN(date.getTime())) return null;
+
+    return date;
+  } catch {
+    return null;
+  }
+};
+
+// Convertir a Date de forma 100% segura
+const toSafeDate = (dateValue) => {
+  if (!dateValue) return null;
+  if (dateValue instanceof Date) {
+    // Verificar que sea una fecha válida
+    return isNaN(dateValue.getTime()) ? null : dateValue;
+  }
+
+  // Si es string, intentar parsear
+  try {
+    const parsed = new Date(dateValue);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  } catch {
+    return null;
+  }
+};
+
+// Verificar si dos fechas son el mismo día - SIMPLIFICADO
+const isSameDay = (date1, date2) => {
+  if (!date1 || !date2) return false;
+
+  const d1 = date1 instanceof Date ? date1 : new Date(date1);
+  const d2 = date2 instanceof Date ? date2 : new Date(date2);
+
+  return d1.getFullYear() === d2.getFullYear() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getDate() === d2.getDate();
+};
+
+// Verificar si una fecha está en un rango - CON VALIDACIÓN
+const isDateInRange = (date, startDate, endDate, includeEnd = false) => {
+  if (!date || !startDate || !endDate) return false;
+
+  try {
+    // Verificar que sean fechas válidas
+    if (!(date instanceof Date) || isNaN(date.getTime())) return false;
+    if (!(startDate instanceof Date) || isNaN(startDate.getTime())) return false;
+    if (!(endDate instanceof Date) || isNaN(endDate.getTime())) return false;
+
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+    if (includeEnd) {
+      return d >= start && d <= end;
+    } else {
+      return d >= start && d < end;
+    }
+  } catch {
+    return false;
+  }
+};
+
 // Función para normalizar nombres
 const normalizarNombre = (nombre) => {
   if (!nombre) return '';
@@ -99,30 +179,57 @@ const normalizarNombre = (nombre) => {
     .replace(/\s+/g, '');
 };
 
-// Función para formatear fechas SIN problemas de zona horaria
+// Formatear fechas para display - CON VALIDACIÓN
 const formatDateForDisplay = (dateString) => {
   if (!dateString) return '-';
+
   try {
-    // Parsear la fecha del servidor (YYYY-MM-DD)
-    const [year, month, day] = dateString.split('T')[0].split('-');
-    // Retornar en formato chileno DD/MM/YYYY
-    return `${day}/${month}/${year}`;
-  } catch (error) {
-    console.error('Error formateando fecha:', error);
-    return dateString;
+    // Si es string del servidor (YYYY-MM-DD)
+    if (typeof dateString === 'string') {
+      const [year, month, day] = dateString.split('T')[0].split('-');
+      return `${day}/${month}/${year}`;
+    }
+
+    // Si es objeto Date
+    if (dateString instanceof Date) {
+      if (isNaN(dateString.getTime())) return '-';
+      const day = String(dateString.getDate()).padStart(2, '0');
+      const month = String(dateString.getMonth() + 1).padStart(2, '0');
+      const year = dateString.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+
+    return '-';
+  } catch {
+    return '-';
   }
 };
 
-// Función para formatear fechas en formato largo (para timeline)
+// Formatear fechas en formato largo - CON VALIDACIÓN
 const formatDateLong = (dateString) => {
   if (!dateString) return '-';
+
   try {
-    const [year, month, day] = dateString.split('T')[0].split('-');
     const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-    return `${day} de ${meses[parseInt(month) - 1]} de ${year}`;
-  } catch (error) {
-    console.error('Error formateando fecha:', error);
-    return dateString;
+
+    // Si es string del servidor (YYYY-MM-DD)
+    if (typeof dateString === 'string') {
+      const [year, month, day] = dateString.split('T')[0].split('-');
+      return `${day} de ${meses[parseInt(month) - 1]} de ${year}`;
+    }
+
+    // Si es objeto Date
+    if (dateString instanceof Date) {
+      if (isNaN(dateString.getTime())) return '-';
+      const day = dateString.getDate();
+      const month = dateString.getMonth();
+      const year = dateString.getFullYear();
+      return `${day} de ${meses[month]} de ${year}`;
+    }
+
+    return '-';
+  } catch {
+    return '-';
   }
 };
 
@@ -157,6 +264,17 @@ const AdminCabanasPage = () => {
   const [dialogPagoOpen, setDialogPagoOpen] = useState(false);
   const [reservaParaPago, setReservaParaPago] = useState(null);
 
+  // Estados de Mantenciones
+  const [mantenciones, setMantenciones] = useState([]);
+  const [loadingMantenciones, setLoadingMantenciones] = useState(false);
+  const [dialogMantencionOpen, setDialogMantencionOpen] = useState(false);
+  const [cabanaParaMantencion, setCabanaParaMantencion] = useState(null);
+  const [formMantencion, setFormMantencion] = useState({
+    fecha_inicio: '',
+    fecha_fin: '',
+    motivo: '',
+    notas: ''
+  });
 
   // Form states
   const [formCabana, setFormCabana] = useState({
@@ -197,13 +315,120 @@ const AdminCabanasPage = () => {
   });
 
   // ============================================
+  // RENDERIZADO PERSONALIZADO DE DÍAS EN CALENDARIO
+  // ============================================
+  const renderDayMantencion = (day, selectedDays, pickersDayProps) => {
+    // Si no hay cabaña seleccionada o día inválido, retornar día normal
+    if (!cabanaParaMantencion || !day) {
+      return <PickersDay {...(pickersDayProps || {})} day={day} />;
+    }
+
+    // Verificar que day sea una fecha válida
+    const currentDay = day instanceof Date && !isNaN(day.getTime()) ? day : null;
+    if (!currentDay) {
+      return <PickersDay {...(pickersDayProps || {})} day={day} />;
+    }
+
+    let dayColor = null;
+    let dayLabel = '';
+    let isDisabled = false;
+
+    try {
+      // Verificar si hay mantenciones en este día
+      const mantencionesEnDia = mantenciones.filter(m => {
+        try {
+          if (m.cabana_id !== cabanaParaMantencion.id) return false;
+          if (m.estado === 'cancelada') return false;
+
+          const fechaInicio = parseServerDate(m.fecha_inicio);
+          const fechaFin = parseServerDate(m.fecha_fin);
+
+          if (!fechaInicio || !fechaFin) return false;
+
+          return isDateInRange(currentDay, fechaInicio, fechaFin, true);
+        } catch {
+          return false;
+        }
+      });
+
+      if (mantencionesEnDia.length > 0) {
+        dayColor = '#8D6E63'; // Café para mantenciones
+        dayLabel = '🔧 En Mantención';
+        isDisabled = true;
+      } else {
+        // Verificar si hay reservas en este día
+        const reservasEnDia = reservas.filter(r => {
+          try {
+            if (r.cabana_id !== cabanaParaMantencion.id) return false;
+            if (r.estado === 'cancelada') return false;
+
+            const fechaInicio = parseServerDate(r.fecha_inicio);
+            const fechaFin = parseServerDate(r.fecha_fin);
+
+            if (!fechaInicio || !fechaFin) return false;
+
+            return isDateInRange(currentDay, fechaInicio, fechaFin);
+          } catch {
+            return false;
+          }
+        });
+
+        if (reservasEnDia.length > 0) {
+          const reserva = reservasEnDia[0];
+          isDisabled = true;
+
+          if (reserva.estado_pago === 'pagado' || reserva.estado === 'confirmada') {
+            dayColor = '#F44336'; // Rojo para ocupado
+            dayLabel = '🚫 Ocupada';
+          } else if (reserva.estado_pago === 'pendiente') {
+            dayColor = '#FFC107'; // Amarillo para pendiente
+            dayLabel = '⚠️ Pendiente';
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error en renderDayMantencion:', error);
+      // En caso de error, retornar día normal sin colores
+      return <PickersDay {...(pickersDayProps || {})} day={day} />;
+    }
+
+    return (
+      <Tooltip title={dayLabel || 'Disponible'} arrow>
+        <span>
+          <PickersDay
+            {...(pickersDayProps || {})}
+            day={day}
+            disabled={isDisabled || (pickersDayProps && pickersDayProps.disabled)}
+            sx={{
+              backgroundColor: dayColor || undefined,
+              color: dayColor ? '#fff' : undefined,
+              fontWeight: dayColor ? 'bold' : undefined,
+              '&:hover': dayColor ? {
+                backgroundColor: dayColor,
+                filter: 'brightness(1.1)',
+              } : undefined,
+            }}
+          />
+        </span>
+      </Tooltip>
+    );
+  };
+
+  // ============================================
   // EFECTOS
   // ============================================
   useEffect(() => {
-    if (tabValue === 0) cargarCabanas();
-    if (tabValue === 1) cargarReservas();
+    if (tabValue === 0) {
+      cargarCabanas();
+      cargarMantenciones();
+    }
+    if (tabValue === 1) {
+      cargarReservas();
+      cargarMantenciones();
+    }
     if (tabValue === 2) {
       cargarReservas();
+      cargarMantenciones();
       if (cabanas.length === 0) cargarCabanas();
     }
   }, [tabValue]);
@@ -250,6 +475,20 @@ const AdminCabanasPage = () => {
     }
   };
 
+  const cargarMantenciones = async () => {
+    try {
+      setLoadingMantenciones(true);
+      const response = await api.get('/cabanas/mantenciones');
+      const mantencionesData = response.data?.mantenciones || [];
+      setMantenciones(mantencionesData);
+    } catch (error) {
+      console.error('Error loading mantenciones:', error);
+      enqueueSnackbar('Error al cargar mantenciones', { variant: 'error' });
+      setMantenciones([]);
+    } finally {
+      setLoadingMantenciones(false);
+    }
+  };
 
   // ============================================
   // FUNCIONES PARA SUBIR IMÁGENES
@@ -523,6 +762,77 @@ const AdminCabanasPage = () => {
     }
   };
 
+  // ============================================
+  // FUNCIONES DE MANTENCIONES
+  // ============================================
+  const handleAbrirDialogMantencion = (cabana) => {
+    setCabanaParaMantencion(cabana);
+    setFormMantencion({
+      fecha_inicio: '',
+      fecha_fin: '',
+      motivo: '',
+      notas: ''
+    });
+    setDialogMantencionOpen(true);
+  };
+
+  const handleCerrarDialogMantencion = () => {
+    setDialogMantencionOpen(false);
+    setCabanaParaMantencion(null);
+    setFormMantencion({
+      fecha_inicio: '',
+      fecha_fin: '',
+      motivo: '',
+      notas: ''
+    });
+  };
+
+  const handleGuardarMantencion = async () => {
+    try {
+      // Validaciones
+      if (!formMantencion.fecha_inicio || !formMantencion.fecha_fin) {
+        enqueueSnackbar('Debes seleccionar fecha de inicio y fin', { variant: 'warning' });
+        return;
+      }
+
+      if (new Date(formMantencion.fecha_fin) < new Date(formMantencion.fecha_inicio)) {
+        enqueueSnackbar('La fecha de fin debe ser posterior a la fecha de inicio', { variant: 'warning' });
+        return;
+      }
+
+      // Crear mantención
+      const payload = {
+        cabana_id: cabanaParaMantencion.id,
+        fecha_inicio: formMantencion.fecha_inicio,
+        fecha_fin: formMantencion.fecha_fin,
+        motivo: formMantencion.motivo || 'Mantención preventiva',
+        notas: formMantencion.notas || '',
+        creado_por: 'Admin' // Aquí podrías poner el usuario actual
+      };
+
+      await api.post('/cabanas/mantenciones', payload);
+
+      enqueueSnackbar('✅ Mantención programada exitosamente', { variant: 'success' });
+      handleCerrarDialogMantencion();
+      cargarMantenciones();
+      cargarCabanas();
+    } catch (error) {
+      const mensaje = error.response?.data?.message || 'Error al programar mantención';
+      enqueueSnackbar(mensaje, { variant: 'error' });
+    }
+  };
+
+  const handleCancelarMantencion = async (id) => {
+    if (!window.confirm('¿Estás seguro de cancelar esta mantención?')) return;
+    try {
+      await api.delete(`/cabanas/mantenciones/${id}/cancelar`);
+      enqueueSnackbar('✅ Mantención cancelada exitosamente', { variant: 'success' });
+      cargarMantenciones();
+      cargarCabanas();
+    } catch (error) {
+      enqueueSnackbar('Error al cancelar mantención', { variant: 'error' });
+    }
+  };
 
   // ============================================
   // CARDS DE ESTADÍSTICAS
@@ -832,16 +1142,29 @@ const AdminCabanasPage = () => {
                       </Box>
                     </CardContent>
 
-                    <CardActions sx={{ px: 3, pb: 3, pt: 0 }}>
+                    <CardActions sx={{ px: 3, pb: 3, pt: 0, display: 'flex', gap: 1 }}>
                       <Button
                         fullWidth
                         variant="outlined"
                         startIcon={<EditIcon />}
                         onClick={() => handleOpenDialogCabana(cabana)}
-                        sx={{ borderRadius: 2, mr: 1 }}
+                        sx={{ borderRadius: 2 }}
                       >
                         Editar
                       </Button>
+                      <Tooltip title="Programar Mantención">
+                        <IconButton
+                          color="warning"
+                          onClick={() => handleAbrirDialogMantencion(cabana)}
+                          sx={{
+                            border: '1px solid',
+                            borderColor: 'warning.main',
+                            borderRadius: 2,
+                          }}
+                        >
+                          <BuildIcon />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Eliminar">
                         <IconButton
                           color="error"
@@ -2587,6 +2910,223 @@ const AdminCabanasPage = () => {
             sx={{ borderRadius: 2 }}
           >
             Cancelar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ============================================ */}
+      {/* DIALOG: PROGRAMAR MANTENCIÓN */}
+      {/* ============================================ */}
+      <Dialog
+        open={dialogMantencionOpen}
+        onClose={handleCerrarDialogMantencion}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+          }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: alpha('#ff9800', 0.05), fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <BuildIcon sx={{ color: '#ff9800' }} />
+          Programar Mantención - {cabanaParaMantencion?.nombre}
+        </DialogTitle>
+        <DialogContent sx={{ mt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            La cabaña quedará bloqueada en estas fechas y no podrá ser reservada.
+          </Alert>
+
+          {/* Leyenda de colores */}
+          <Paper elevation={0} sx={{ p: 2, bgcolor: '#F5F5F5', mb: 3, borderRadius: 2 }}>
+            <Typography variant="caption" fontWeight={700} sx={{ display: 'block', mb: 1 }}>
+              Leyenda del calendario:
+            </Typography>
+            <Grid container spacing={1}>
+              <Grid item xs={6} sm={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ width: 20, height: 20, bgcolor: '#F44336', borderRadius: 1 }} />
+                  <Typography variant="caption">Ocupada (Reserva)</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} sm={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ width: 20, height: 20, bgcolor: '#FFC107', borderRadius: 1 }} />
+                  <Typography variant="caption">Pago Pendiente</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} sm={4}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ width: 20, height: 20, bgcolor: '#8D6E63', borderRadius: 1 }} />
+                  <Typography variant="caption">En Mantención</Typography>
+                </Box>
+              </Grid>
+            </Grid>
+          </Paper>
+
+          <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Fecha Inicio"
+                  value={formMantencion.fecha_inicio ? toSafeDate(formMantencion.fecha_inicio) : null}
+                  onChange={(newValue) => {
+                    if (newValue && newValue instanceof Date && !isNaN(newValue.getTime())) {
+                      const year = newValue.getFullYear();
+                      const month = String(newValue.getMonth() + 1).padStart(2, '0');
+                      const day = String(newValue.getDate()).padStart(2, '0');
+                      setFormMantencion({ ...formMantencion, fecha_inicio: `${year}-${month}-${day}` });
+                    } else {
+                      setFormMantencion({ ...formMantencion, fecha_inicio: '' });
+                    }
+                  }}
+                  slots={{
+                    day: renderDayMantencion,
+                  }}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true,
+                      sx: {
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2
+                        }
+                      }
+                    }
+                  }}
+                  minDate={new Date()}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <DatePicker
+                  label="Fecha Fin"
+                  value={formMantencion.fecha_fin ? toSafeDate(formMantencion.fecha_fin) : null}
+                  onChange={(newValue) => {
+                    if (newValue && newValue instanceof Date && !isNaN(newValue.getTime())) {
+                      const year = newValue.getFullYear();
+                      const month = String(newValue.getMonth() + 1).padStart(2, '0');
+                      const day = String(newValue.getDate()).padStart(2, '0');
+                      setFormMantencion({ ...formMantencion, fecha_fin: `${year}-${month}-${day}` });
+                    } else {
+                      setFormMantencion({ ...formMantencion, fecha_fin: '' });
+                    }
+                  }}
+                  slots={{
+                    day: renderDayMantencion,
+                  }}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true,
+                      sx: {
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2
+                        }
+                      }
+                    }
+                  }}
+                  minDate={formMantencion.fecha_inicio ? (toSafeDate(formMantencion.fecha_inicio) || new Date()) : new Date()}
+                />
+              </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Motivo"
+                value={formMantencion.motivo}
+                onChange={(e) => setFormMantencion({ ...formMantencion, motivo: e.target.value })}
+                placeholder="Ej: Reparación de techo, Pintura, etc."
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 2
+                  }
+                }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notas Adicionales"
+                value={formMantencion.notas}
+                onChange={(e) => setFormMantencion({ ...formMantencion, notas: e.target.value })}
+                multiline
+                rows={3}
+                placeholder="Información adicional sobre la mantención..."
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 2
+                  }
+                }}
+              />
+            </Grid>
+          </Grid>
+          </LocalizationProvider>
+
+          {/* Mostrar mantenciones activas de esta cabaña */}
+          {mantenciones.filter(m => m.cabana_id === cabanaParaMantencion?.id && m.estado === 'activa').length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <WarningIcon sx={{ fontSize: 18, color: '#ff9800' }} />
+                Mantenciones Programadas:
+              </Typography>
+              {mantenciones
+                .filter(m => m.cabana_id === cabanaParaMantencion?.id && m.estado === 'activa')
+                .map((m) => (
+                  <Paper
+                    key={m.id}
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      mb: 1,
+                      bgcolor: '#fff3e0',
+                      border: '1px solid #ffb74d',
+                      borderRadius: 2,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="caption" display="block" fontWeight={700}>
+                        {formatDateForDisplay(m.fecha_inicio)} - {formatDateForDisplay(m.fecha_fin)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {m.motivo || 'Sin motivo especificado'}
+                      </Typography>
+                    </Box>
+                    <Tooltip title="Cancelar Mantención">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleCancelarMantencion(m.id)}
+                      >
+                        <CancelIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Paper>
+                ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button
+            onClick={handleCerrarDialogMantencion}
+            variant="outlined"
+            sx={{ borderRadius: 2 }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleGuardarMantencion}
+            variant="contained"
+            color="warning"
+            startIcon={<BuildIcon />}
+            sx={{ borderRadius: 2 }}
+          >
+            Programar Mantención
           </Button>
         </DialogActions>
       </Dialog>

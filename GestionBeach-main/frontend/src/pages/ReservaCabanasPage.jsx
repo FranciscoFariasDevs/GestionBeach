@@ -120,6 +120,7 @@ const ReservaCabanasPage = () => {
   // Estados principales
   const [cabanas, setCabanas] = useState([]);
   const [reservas, setReservas] = useState([]);
+  const [mantenciones, setMantenciones] = useState([]);
   const [tinajas, setTinajas] = useState([]);
   const [reservasTinajas, setReservasTinajas] = useState([]);
   const [selectedCabana, setSelectedCabana] = useState(null);
@@ -297,13 +298,19 @@ const ReservaCabanasPage = () => {
            date1.getDate() === date2.getDate();
   };
 
-  const isDateInRange = (date, startDate, endDate) => {
+  const isDateInRange = (date, startDate, endDate, includeEnd = false) => {
     if (!date || !startDate || !endDate) return false;
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
     const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    // El día de checkout no cuenta como ocupado (< en vez de <=)
-    return d >= start && d < end;
+
+    // Para mantenciones (includeEnd=true): incluir ambas fechas
+    // Para reservas (includeEnd=false): el día de checkout no cuenta como ocupado
+    if (includeEnd) {
+      return d >= start && d <= end;
+    } else {
+      return d >= start && d < end;
+    }
   };
 
   // ============================================
@@ -338,15 +345,17 @@ const ReservaCabanasPage = () => {
 
   const cargarDatos = async () => {
     try {
-      const [cabanasRes, reservasRes, tinajasRes, reservasTinajasRes] = await Promise.all([
+      const [cabanasRes, reservasRes, mantencionesRes, tinajasRes, reservasTinajasRes] = await Promise.all([
         api.get('/cabanas/cabanas'),
         api.get('/cabanas/reservas'),
+        api.get('/cabanas/mantenciones/activas'),
         api.get('/cabanas/tinajas'),
         api.get('/cabanas/tinajas/reservas'),
       ]);
 
       setCabanas(cabanasRes.data?.cabanas || []);
       setReservas(reservasRes.data?.reservas || []);
+      setMantenciones(mantencionesRes.data?.mantenciones || []);
       setTinajas(tinajasRes.data?.tinajas || []);
       setReservasTinajas(reservasTinajasRes.data?.reservas || []);
       setLoading(false);
@@ -716,6 +725,48 @@ const ReservaCabanasPage = () => {
     let dayLabel = '';
     let isDisabled = false;
     let isCheckoutDay = false;
+
+    // ============================================
+    // PRIORIDAD 1: MANTENCIONES (Máxima prioridad)
+    // ============================================
+    const mantencionesEnDia = mantenciones.filter(m => {
+      if (m.cabana_id !== selectedCabana.id) return false;
+      if (m.estado === 'cancelada') return false;
+
+      const fechaInicio = parseServerDate(m.fecha_inicio);
+      const fechaFin = parseServerDate(m.fecha_fin);
+
+      // Para mantenciones: incluir tanto fecha_inicio como fecha_fin (ambos días bloqueados)
+      return isDateInRange(date, fechaInicio, fechaFin, true);
+    });
+
+    if (mantencionesEnDia.length > 0) {
+      const mantencion = mantencionesEnDia[0];
+      dayColor = '#8D6E63'; // Color café/marrón para mantención
+      dayLabel = `🔧 En Mantención: ${mantencion.motivo || 'Mantención preventiva'}`;
+      isDisabled = true;
+
+      return (
+        <Tooltip title={dayLabel} arrow>
+          <span>
+            <PickersDay
+              {...pickersDayProps}
+              disabled={true}
+              sx={{
+                backgroundColor: dayColor,
+                color: '#fff',
+                fontWeight: 'bold',
+                textDecoration: 'line-through',
+                '&:hover': {
+                  backgroundColor: dayColor,
+                  filter: 'brightness(0.9)',
+                },
+              }}
+            />
+          </span>
+        </Tooltip>
+      );
+    }
 
     // ============================================
     // CALENDARIO DE CHECKOUT - Lógica especial
