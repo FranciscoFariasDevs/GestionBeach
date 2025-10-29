@@ -34,11 +34,29 @@ router.get('/compras', estadoResultadosController.obtenerCompras);
 // GET /api/estado-resultados/remuneraciones?anio=2024&mes=1&sucursal_id=1&razon_social_id=1
 router.get('/remuneraciones', estadoResultadosController.obtenerRemuneraciones);
 
-// ==================== RUTA PRINCIPAL ====================
+// ==================== RUTAS CRUD PARA ESTADOS DE RESULTADOS ====================
 
-// Generar estado de resultados completo
-// POST /api/estado-resultados/generar
-// Body: { fecha_desde, fecha_hasta, sucursal_id, razon_social_id }
-router.post('/generar', estadoResultadosController.generarEstadoResultados);
+// Guardar nuevo estado de resultados
+// POST /api/estado-resultados
+// Body: { data: {...estadoResultados}, usuario: 'nombre_usuario' }
+router.post('/', estadoResultadosController.guardarEstadoResultados);
+
+// Listar estados de resultados con filtros
+// GET /api/estado-resultados?sucursal_id=1&mes=1&anio=2024&estado=enviado
+router.get('/', estadoResultadosController.listarEstadosResultados);
+
+// Obtener un estado de resultados por ID
+// GET /api/estado-resultados/:id
+router.get('/:id', estadoResultadosController.obtenerEstadoResultadosPorId);
+
+// Actualizar estado de resultados existente
+// PUT /api/estado-resultados/:id
+// Body: { data: {...estadoResultados}, usuario: 'nombre_usuario' }
+router.put('/:id', estadoResultadosController.actualizarEstadoResultados);
+
+// Enviar estado de resultados (cambiar a estado 'enviado')
+// POST /api/estado-resultados/:id/enviar
+// Body: { usuario: 'nombre_usuario' }
+router.post('/:id/enviar', estadoResultadosController.enviarEstadoResultados);
 
 module.exports = router;

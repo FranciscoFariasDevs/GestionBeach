@@ -1136,19 +1136,49 @@ const EstadoResultadosPage = () => {
     window.print();
   };
   
-  const handleSaveResultados = () => {
+  const handleSaveResultados = async () => {
     setLoading(true);
     const updatedData = updateDataFromExpenses();
-    
-    if (updatedData) {
-      setTimeout(() => {
+
+    if (!updatedData) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Si ya tiene ID, actualizar; si no, crear nuevo
+      const payload = {
+        data: updatedData,
+        usuario: 'Usuario' // TODO: obtener del contexto de autenticación
+      };
+
+      let response;
+      if (updatedData.id) {
+        // Actualizar existente
+        response = await api.put(`/estado-resultados/${updatedData.id}`, payload);
+      } else {
+        // Crear nuevo
+        response = await api.post('/estado-resultados', payload);
+      }
+
+      if (response.data.success) {
         const newData = { ...updatedData };
         newData.estado = "guardado";
+        newData.id = response.data.data?.id || updatedData.id;
         setData(newData);
-        setLoading(false);
         setHasChanges(false);
         enqueueSnackbar('Estado de resultados guardado correctamente', { variant: 'success' });
-      }, 800);
+      } else {
+        throw new Error(response.data.message || 'Error al guardar');
+      }
+    } catch (error) {
+      console.error('❌ Error guardando estado de resultados:', error);
+      enqueueSnackbar(
+        `Error al guardar: ${error.response?.data?.message || error.message}`,
+        { variant: 'error' }
+      );
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -1157,21 +1187,65 @@ const EstadoResultadosPage = () => {
       open: true,
       title: "Confirmar Envío",
       message: "Una vez enviado, no podrá modificar los datos. ¿Está seguro de que desea enviar el estado de resultados al sistema?",
-      onConfirm: () => {
+      onConfirm: async () => {
         setLoading(true);
         const updatedData = updateDataFromExpenses();
-        
-        if (updatedData) {
-          setTimeout(() => {
+
+        if (!updatedData) {
+          setLoading(false);
+          return;
+        }
+
+        try {
+          // Primero guardar si hay cambios
+          if (hasChanges || !updatedData.id) {
+            const payload = {
+              data: updatedData,
+              usuario: 'Usuario' // TODO: obtener del contexto de autenticación
+            };
+
+            let saveResponse;
+            if (updatedData.id) {
+              saveResponse = await api.put(`/estado-resultados/${updatedData.id}`, payload);
+            } else {
+              saveResponse = await api.post('/estado-resultados', payload);
+            }
+
+            if (!saveResponse.data.success) {
+              throw new Error('Error al guardar antes de enviar');
+            }
+
+            updatedData.id = saveResponse.data.data?.id || updatedData.id;
+          }
+
+          // Ahora enviar
+          if (!updatedData.id) {
+            throw new Error('No se pudo obtener el ID del estado de resultados');
+          }
+
+          const enviarResponse = await api.post(`/estado-resultados/${updatedData.id}/enviar`, {
+            usuario: 'Usuario' // TODO: obtener del contexto de autenticación
+          });
+
+          if (enviarResponse.data.success) {
             const newData = { ...updatedData };
             newData.estado = "enviado";
             newData.fechaEnvio = new Date().toISOString();
-            newData.usuarioEnvio = "usuario_actual";
+            newData.usuarioEnvio = "Usuario";
             setData(newData);
-            setLoading(false);
             setHasChanges(false);
             enqueueSnackbar('Estado de resultados enviado correctamente', { variant: 'success' });
-          }, 1200);
+          } else {
+            throw new Error(enviarResponse.data.message || 'Error al enviar');
+          }
+        } catch (error) {
+          console.error('❌ Error enviando estado de resultados:', error);
+          enqueueSnackbar(
+            `Error al enviar: ${error.response?.data?.message || error.message}`,
+            { variant: 'error' }
+          );
+        } finally {
+          setLoading(false);
         }
       }
     });

@@ -651,7 +651,7 @@ exports.obtenerRazonesSociales = async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request().query(`
       SELECT id, nombre_razon, rut, activo
-      FROM razones_sociales 
+      FROM razones_sociales
       WHERE activo = 1
       ORDER BY nombre_razon
     `);
@@ -665,6 +665,527 @@ exports.obtenerRazonesSociales = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al obtener razones sociales',
+      error: error.message
+    });
+  }
+};
+
+// ==================== FUNCIONES PARA GUARDAR ESTADOS DE RESULTADOS ====================
+
+// GUARDAR ESTADO DE RESULTADOS (CREAR NUEVO)
+exports.guardarEstadoResultados = async (req, res) => {
+  try {
+    console.log('💾 Guardando estado de resultados...');
+    const { data, usuario } = req.body;
+
+    if (!data) {
+      return res.status(400).json({
+        success: false,
+        message: 'Datos del estado de resultados son requeridos'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Extraer datos del objeto
+    const {
+      sucursal,
+      periodo,
+      ingresos,
+      costos,
+      utilidadBruta,
+      utilidadOperativa,
+      utilidadAntesImpuestos,
+      utilidadNeta,
+      gastosOperativos,
+      costoArriendo,
+      otrosIngresosFinancieros,
+      impuestos,
+      estado,
+      datosOriginales
+    } = data;
+
+    const result = await pool.request()
+      .input('sucursal_id', sql.Int, datosOriginales.sucursal)
+      .input('sucursal_nombre', sql.NVarChar, sucursal)
+      .input('razon_social_id', sql.Int, datosOriginales.razonSocialId || null)
+      .input('razon_social_nombre', sql.NVarChar, datosOriginales.razonSocialNombre || null)
+      .input('periodo', sql.NVarChar, periodo)
+      .input('mes', sql.Int, datosOriginales.periodo?.mes)
+      .input('anio', sql.Int, datosOriginales.periodo?.año)
+
+      // Ingresos
+      .input('ventas', sql.Decimal(18, 2), ingresos.ventas)
+      .input('otros_ingresos_fletes', sql.Decimal(18, 2), ingresos.otrosIngresos?.fletes || 0)
+      .input('otros_ingresos_total', sql.Decimal(18, 2), ingresos.otrosIngresos?.total || 0)
+      .input('total_ingresos', sql.Decimal(18, 2), ingresos.totalIngresos)
+
+      // Costos
+      .input('costo_ventas', sql.Decimal(18, 2), costos.costoVentas)
+      .input('compras_totales', sql.Decimal(18, 2), costos.compras)
+      .input('merma_venta', sql.Decimal(18, 2), costos.mermaVenta || 0)
+      .input('total_costos', sql.Decimal(18, 2), costos.totalCostos)
+
+      // Utilidades
+      .input('utilidad_bruta', sql.Decimal(18, 2), utilidadBruta)
+      .input('utilidad_operativa', sql.Decimal(18, 2), utilidadOperativa)
+      .input('utilidad_antes_impuestos', sql.Decimal(18, 2), utilidadAntesImpuestos)
+      .input('utilidad_neta', sql.Decimal(18, 2), utilidadNeta)
+
+      // Gastos Administrativos
+      .input('gastos_admin_sueldos', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.sueldos || 0)
+      .input('gastos_admin_seguros', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.seguros || 0)
+      .input('gastos_admin_gastos_comunes', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.gastosComunes || 0)
+      .input('gastos_admin_electricidad', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.electricidad || 0)
+      .input('gastos_admin_agua', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.agua || 0)
+      .input('gastos_admin_telefonia', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.telefonia || 0)
+      .input('gastos_admin_alarma', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.alarma || 0)
+      .input('gastos_admin_internet', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.internet || 0)
+      .input('gastos_admin_facturas_net', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.facturasNet || 0)
+      .input('gastos_admin_transbank', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.transbank || 0)
+      .input('gastos_admin_patente_municipal', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.patenteMunicipal || 0)
+      .input('gastos_admin_contribuciones', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.contribuciones || 0)
+      .input('gastos_admin_petroleo', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.petroleo || 0)
+      .input('gastos_admin_otros', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.otros || 0)
+      .input('gastos_admin_total', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.total || 0)
+
+      // Gastos de Venta
+      .input('gastos_venta_sueldos', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.sueldos || 0)
+      .input('gastos_venta_fletes', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.fletes || 0)
+      .input('gastos_venta_finiquitos', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.finiquitos || 0)
+      .input('gastos_venta_mantenciones', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.mantenciones || 0)
+      .input('gastos_venta_publicidad', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.publicidad || 0)
+      .input('gastos_venta_total', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.total || 0)
+
+      // Totales
+      .input('total_gastos_operativos', sql.Decimal(18, 2), gastosOperativos.totalGastosOperativos)
+
+      // Otros
+      .input('costo_arriendo', sql.Decimal(18, 2), costoArriendo || 0)
+      .input('otros_ingresos_financieros', sql.Decimal(18, 2), otrosIngresosFinancieros || 0)
+      .input('impuestos', sql.Decimal(18, 2), impuestos || 0)
+
+      // Metadata
+      .input('numero_facturas', sql.Int, datosOriginales.numeroFacturas || 0)
+      .input('numero_ventas', sql.Int, datosOriginales.numeroVentas || 0)
+      .input('numero_empleados', sql.Int, datosOriginales.numeroEmpleados || 0)
+      .input('empleados_admin', sql.Int, datosOriginales.clasificacion?.empleados_admin || 0)
+      .input('empleados_ventas', sql.Int, datosOriginales.clasificacion?.empleados_ventas || 0)
+      .input('total_compras_valor', sql.Decimal(18, 2), datosOriginales.totalCompras || 0)
+      .input('total_remuneraciones_valor', sql.Decimal(18, 2), datosOriginales.totalRemuneraciones || 0)
+
+      // JSON
+      .input('datos_originales_json', sql.NVarChar(sql.MAX), JSON.stringify(datosOriginales))
+      .input('detalle_remuneraciones_json', sql.NVarChar(sql.MAX), JSON.stringify(datosOriginales.detalleRemuneraciones || {}))
+
+      // Control
+      .input('estado', sql.NVarChar, estado || 'borrador')
+      .input('creado_por', sql.NVarChar, usuario || 'sistema')
+      .query(`
+        INSERT INTO estados_resultados (
+          sucursal_id, sucursal_nombre, razon_social_id, razon_social_nombre,
+          periodo, mes, anio,
+          ventas, otros_ingresos_fletes, otros_ingresos_total, total_ingresos,
+          costo_ventas, compras_totales, merma_venta, total_costos,
+          utilidad_bruta, utilidad_operativa, utilidad_antes_impuestos, utilidad_neta,
+          gastos_admin_sueldos, gastos_admin_seguros, gastos_admin_gastos_comunes,
+          gastos_admin_electricidad, gastos_admin_agua, gastos_admin_telefonia,
+          gastos_admin_alarma, gastos_admin_internet, gastos_admin_facturas_net,
+          gastos_admin_transbank, gastos_admin_patente_municipal, gastos_admin_contribuciones,
+          gastos_admin_petroleo, gastos_admin_otros, gastos_admin_total,
+          gastos_venta_sueldos, gastos_venta_fletes, gastos_venta_finiquitos,
+          gastos_venta_mantenciones, gastos_venta_publicidad, gastos_venta_total,
+          total_gastos_operativos,
+          costo_arriendo, otros_ingresos_financieros, impuestos,
+          numero_facturas, numero_ventas, numero_empleados, empleados_admin, empleados_ventas,
+          total_compras_valor, total_remuneraciones_valor,
+          datos_originales_json, detalle_remuneraciones_json,
+          estado, creado_por, fecha_creacion
+        )
+        OUTPUT INSERTED.*
+        VALUES (
+          @sucursal_id, @sucursal_nombre, @razon_social_id, @razon_social_nombre,
+          @periodo, @mes, @anio,
+          @ventas, @otros_ingresos_fletes, @otros_ingresos_total, @total_ingresos,
+          @costo_ventas, @compras_totales, @merma_venta, @total_costos,
+          @utilidad_bruta, @utilidad_operativa, @utilidad_antes_impuestos, @utilidad_neta,
+          @gastos_admin_sueldos, @gastos_admin_seguros, @gastos_admin_gastos_comunes,
+          @gastos_admin_electricidad, @gastos_admin_agua, @gastos_admin_telefonia,
+          @gastos_admin_alarma, @gastos_admin_internet, @gastos_admin_facturas_net,
+          @gastos_admin_transbank, @gastos_admin_patente_municipal, @gastos_admin_contribuciones,
+          @gastos_admin_petroleo, @gastos_admin_otros, @gastos_admin_total,
+          @gastos_venta_sueldos, @gastos_venta_fletes, @gastos_venta_finiquitos,
+          @gastos_venta_mantenciones, @gastos_venta_publicidad, @gastos_venta_total,
+          @total_gastos_operativos,
+          @costo_arriendo, @otros_ingresos_financieros, @impuestos,
+          @numero_facturas, @numero_ventas, @numero_empleados, @empleados_admin, @empleados_ventas,
+          @total_compras_valor, @total_remuneraciones_valor,
+          @datos_originales_json, @detalle_remuneraciones_json,
+          @estado, @creado_por, GETDATE()
+        )
+      `);
+
+    console.log('✅ Estado de resultados guardado:', result.recordset[0].id);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Estado de resultados guardado exitosamente',
+      data: result.recordset[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error guardando estado de resultados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al guardar estado de resultados',
+      error: error.message
+    });
+  }
+};
+
+// ACTUALIZAR ESTADO DE RESULTADOS EXISTENTE
+exports.actualizarEstadoResultados = async (req, res) => {
+  try {
+    console.log('📝 Actualizando estado de resultados...');
+    const { id } = req.params;
+    const { data, usuario } = req.body;
+
+    if (!id || !data) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID y datos del estado de resultados son requeridos'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Verificar que el estado de resultados existe y no está enviado
+    const checkResult = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id, estado FROM estados_resultados WHERE id = @id');
+
+    if (checkResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Estado de resultados no encontrado'
+      });
+    }
+
+    if (checkResult.recordset[0].estado === 'enviado') {
+      return res.status(400).json({
+        success: false,
+        message: 'No se puede modificar un estado de resultados enviado'
+      });
+    }
+
+    // Actualizar
+    const {
+      ingresos,
+      costos,
+      utilidadBruta,
+      utilidadOperativa,
+      utilidadAntesImpuestos,
+      utilidadNeta,
+      gastosOperativos,
+      costoArriendo,
+      otrosIngresosFinancieros,
+      impuestos,
+      estado,
+      datosOriginales
+    } = data;
+
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      // Ingresos
+      .input('ventas', sql.Decimal(18, 2), ingresos.ventas)
+      .input('otros_ingresos_fletes', sql.Decimal(18, 2), ingresos.otrosIngresos?.fletes || 0)
+      .input('otros_ingresos_total', sql.Decimal(18, 2), ingresos.otrosIngresos?.total || 0)
+      .input('total_ingresos', sql.Decimal(18, 2), ingresos.totalIngresos)
+
+      // Costos
+      .input('costo_ventas', sql.Decimal(18, 2), costos.costoVentas)
+      .input('merma_venta', sql.Decimal(18, 2), costos.mermaVenta || 0)
+      .input('total_costos', sql.Decimal(18, 2), costos.totalCostos)
+
+      // Utilidades
+      .input('utilidad_bruta', sql.Decimal(18, 2), utilidadBruta)
+      .input('utilidad_operativa', sql.Decimal(18, 2), utilidadOperativa)
+      .input('utilidad_antes_impuestos', sql.Decimal(18, 2), utilidadAntesImpuestos)
+      .input('utilidad_neta', sql.Decimal(18, 2), utilidadNeta)
+
+      // Gastos Administrativos
+      .input('gastos_admin_gastos_comunes', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.gastosComunes || 0)
+      .input('gastos_admin_electricidad', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.electricidad || 0)
+      .input('gastos_admin_agua', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.agua || 0)
+      .input('gastos_admin_telefonia', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.telefonia || 0)
+      .input('gastos_admin_alarma', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.alarma || 0)
+      .input('gastos_admin_internet', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.internet || 0)
+      .input('gastos_admin_facturas_net', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.facturasNet || 0)
+      .input('gastos_admin_transbank', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.transbank || 0)
+      .input('gastos_admin_patente_municipal', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.patenteMunicipal || 0)
+      .input('gastos_admin_contribuciones', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.contribuciones || 0)
+      .input('gastos_admin_petroleo', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.petroleo || 0)
+      .input('gastos_admin_otros', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.otros || 0)
+      .input('gastos_admin_total', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.total || 0)
+
+      // Gastos de Venta
+      .input('gastos_venta_fletes', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.fletes || 0)
+      .input('gastos_venta_finiquitos', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.finiquitos || 0)
+      .input('gastos_venta_mantenciones', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.mantenciones || 0)
+      .input('gastos_venta_publicidad', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.publicidad || 0)
+      .input('gastos_venta_total', sql.Decimal(18, 2), gastosOperativos.gastosVenta?.total || 0)
+
+      // Totales
+      .input('total_gastos_operativos', sql.Decimal(18, 2), gastosOperativos.totalGastosOperativos)
+
+      // Otros
+      .input('costo_arriendo', sql.Decimal(18, 2), costoArriendo || 0)
+      .input('otros_ingresos_financieros', sql.Decimal(18, 2), otrosIngresosFinancieros || 0)
+      .input('impuestos', sql.Decimal(18, 2), impuestos || 0)
+
+      // Control
+      .input('estado', sql.NVarChar, estado || 'guardado')
+      .input('modificado_por', sql.NVarChar, usuario || 'sistema')
+      .query(`
+        UPDATE estados_resultados
+        SET
+          ventas = @ventas,
+          otros_ingresos_fletes = @otros_ingresos_fletes,
+          otros_ingresos_total = @otros_ingresos_total,
+          total_ingresos = @total_ingresos,
+          costo_ventas = @costo_ventas,
+          merma_venta = @merma_venta,
+          total_costos = @total_costos,
+          utilidad_bruta = @utilidad_bruta,
+          utilidad_operativa = @utilidad_operativa,
+          utilidad_antes_impuestos = @utilidad_antes_impuestos,
+          utilidad_neta = @utilidad_neta,
+          gastos_admin_gastos_comunes = @gastos_admin_gastos_comunes,
+          gastos_admin_electricidad = @gastos_admin_electricidad,
+          gastos_admin_agua = @gastos_admin_agua,
+          gastos_admin_telefonia = @gastos_admin_telefonia,
+          gastos_admin_alarma = @gastos_admin_alarma,
+          gastos_admin_internet = @gastos_admin_internet,
+          gastos_admin_facturas_net = @gastos_admin_facturas_net,
+          gastos_admin_transbank = @gastos_admin_transbank,
+          gastos_admin_patente_municipal = @gastos_admin_patente_municipal,
+          gastos_admin_contribuciones = @gastos_admin_contribuciones,
+          gastos_admin_petroleo = @gastos_admin_petroleo,
+          gastos_admin_otros = @gastos_admin_otros,
+          gastos_admin_total = @gastos_admin_total,
+          gastos_venta_fletes = @gastos_venta_fletes,
+          gastos_venta_finiquitos = @gastos_venta_finiquitos,
+          gastos_venta_mantenciones = @gastos_venta_mantenciones,
+          gastos_venta_publicidad = @gastos_venta_publicidad,
+          gastos_venta_total = @gastos_venta_total,
+          total_gastos_operativos = @total_gastos_operativos,
+          costo_arriendo = @costo_arriendo,
+          otros_ingresos_financieros = @otros_ingresos_financieros,
+          impuestos = @impuestos,
+          estado = @estado,
+          modificado_por = @modificado_por,
+          fecha_modificacion = GETDATE()
+        WHERE id = @id
+      `);
+
+    console.log('✅ Estado de resultados actualizado:', id);
+
+    return res.json({
+      success: true,
+      message: 'Estado de resultados actualizado exitosamente',
+      id: parseInt(id)
+    });
+
+  } catch (error) {
+    console.error('❌ Error actualizando estado de resultados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar estado de resultados',
+      error: error.message
+    });
+  }
+};
+
+// ENVIAR ESTADO DE RESULTADOS (cambiar estado a 'enviado')
+exports.enviarEstadoResultados = async (req, res) => {
+  try {
+    console.log('📤 Enviando estado de resultados...');
+    const { id } = req.params;
+    const { usuario } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID del estado de resultados es requerido'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Verificar que existe
+    const checkResult = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id, estado FROM estados_resultados WHERE id = @id');
+
+    if (checkResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Estado de resultados no encontrado'
+      });
+    }
+
+    if (checkResult.recordset[0].estado === 'enviado') {
+      return res.status(400).json({
+        success: false,
+        message: 'El estado de resultados ya ha sido enviado'
+      });
+    }
+
+    // Cambiar estado a enviado
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('enviado_por', sql.NVarChar, usuario || 'sistema')
+      .query(`
+        UPDATE estados_resultados
+        SET estado = 'enviado',
+            enviado_por = @enviado_por,
+            fecha_envio = GETDATE()
+        WHERE id = @id
+      `);
+
+    console.log('✅ Estado de resultados enviado:', id);
+
+    return res.json({
+      success: true,
+      message: 'Estado de resultados enviado exitosamente',
+      id: parseInt(id)
+    });
+
+  } catch (error) {
+    console.error('❌ Error enviando estado de resultados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al enviar estado de resultados',
+      error: error.message
+    });
+  }
+};
+
+// LISTAR ESTADOS DE RESULTADOS CON FILTROS
+exports.listarEstadosResultados = async (req, res) => {
+  try {
+    console.log('📋 Listando estados de resultados...');
+    const { sucursal_id, mes, anio, estado, limit = 50, offset = 0 } = req.query;
+
+    const pool = await poolPromise;
+    let query = `
+      SELECT
+        id, sucursal_id, sucursal_nombre, razon_social_id, razon_social_nombre,
+        periodo, mes, anio,
+        ventas, total_ingresos, total_costos,
+        utilidad_bruta, utilidad_operativa, utilidad_neta,
+        total_gastos_operativos,
+        estado, creado_por, fecha_creacion, modificado_por, fecha_modificacion,
+        enviado_por, fecha_envio,
+        numero_facturas, numero_ventas, numero_empleados,
+        empleados_admin, empleados_ventas
+      FROM estados_resultados
+      WHERE 1=1
+    `;
+
+    const request = pool.request();
+
+    if (sucursal_id) {
+      query += ' AND sucursal_id = @sucursal_id';
+      request.input('sucursal_id', sql.Int, sucursal_id);
+    }
+
+    if (mes) {
+      query += ' AND mes = @mes';
+      request.input('mes', sql.Int, mes);
+    }
+
+    if (anio) {
+      query += ' AND anio = @anio';
+      request.input('anio', sql.Int, anio);
+    }
+
+    if (estado) {
+      query += ' AND estado = @estado';
+      request.input('estado', sql.NVarChar, estado);
+    }
+
+    query += `
+      ORDER BY anio DESC, mes DESC, fecha_creacion DESC
+      OFFSET @offset ROWS
+      FETCH NEXT @limit ROWS ONLY
+    `;
+
+    request.input('offset', sql.Int, parseInt(offset));
+    request.input('limit', sql.Int, parseInt(limit));
+
+    const result = await request.query(query);
+
+    return res.json({
+      success: true,
+      data: result.recordset,
+      count: result.recordset.length,
+      message: `${result.recordset.length} estados de resultados encontrados`
+    });
+
+  } catch (error) {
+    console.error('❌ Error listando estados de resultados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al listar estados de resultados',
+      error: error.message
+    });
+  }
+};
+
+// OBTENER UN ESTADO DE RESULTADOS POR ID
+exports.obtenerEstadoResultadosPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID del estado de resultados es requerido'
+      });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT * FROM estados_resultados WHERE id = @id');
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Estado de resultados no encontrado'
+      });
+    }
+
+    // Parsear JSON fields
+    const data = result.recordset[0];
+    if (data.datos_originales_json) {
+      data.datosOriginales = JSON.parse(data.datos_originales_json);
+    }
+    if (data.detalle_remuneraciones_json) {
+      data.detalleRemuneraciones = JSON.parse(data.detalle_remuneraciones_json);
+    }
+
+    return res.json({
+      success: true,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo estado de resultados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener estado de resultados',
       error: error.message
     });
   }
