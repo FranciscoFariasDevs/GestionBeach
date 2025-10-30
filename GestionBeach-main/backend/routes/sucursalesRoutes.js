@@ -7,8 +7,11 @@ const authMiddleware = require('../middleware/authMiddleware');
 // Proteger todas las rutas con autenticación
 router.use(authMiddleware);
 
-// Ruta para obtener sucursales
+// Ruta para obtener sucursales del usuario (según su perfil)
 router.get('/', sucursalesController.getSucursales);
+
+// Ruta para obtener TODAS las sucursales (para administración)
+router.get('/all', sucursalesController.getAllSucursales);
 
 // ✅ RUTA DE DIAGNÓSTICO CON ESTRUCTURA REAL
 router.get('/test', async (req, res) => {

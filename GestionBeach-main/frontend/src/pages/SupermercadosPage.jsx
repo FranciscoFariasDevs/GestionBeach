@@ -73,6 +73,7 @@ import {
 } from 'recharts';
 import api from '../api/api';
 import { useSnackbar } from 'notistack';
+import SucursalSelect from '../components/SucursalSelect';
 
 // Colores mejorados para gráficos
 const CHART_COLORS = {
@@ -152,7 +153,6 @@ const SupermercadosPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   
   // Estados principales
-  const [sucursales, setSucursales] = useState([]);
   const [selectedSucursal, setSelectedSucursal] = useState('');
   const [familias, setFamilias] = useState([]);
   const [selectedFamilia, setSelectedFamilia] = useState('all');
@@ -210,34 +210,6 @@ const SupermercadosPage = () => {
     }
   };
 
-  // ✅ FUNCIÓN PARA CARGAR SUCURSALES
-  const loadSucursales = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No hay token de autenticación. Por favor, inicie sesión.');
-      }
-      
-      const response = await api.get('/sucursales');
-      setSucursales(response.data);
-      
-      if (response.data.length > 0) {
-        const firstSucursal = response.data[0].id;
-        setSelectedSucursal(firstSucursal);
-        await testConnection(firstSucursal);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error al cargar sucursales:', error);
-      setError(error.message.includes('token') ? error.message : 'Error al cargar sucursales');
-      enqueueSnackbar('Error al cargar sucursales', { variant: 'error' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [enqueueSnackbar]);
 
   // ✅ FUNCIÓN PARA CARGAR FAMILIAS
   const loadFamilias = useCallback(async () => {
@@ -338,9 +310,6 @@ const SupermercadosPage = () => {
   }, [selectedSucursal, selectedFamilia, period]);
 
   // ✅ EFECTOS
-  useEffect(() => {
-    loadSucursales();
-  }, [loadSucursales]);
 
   useEffect(() => {
     if (selectedSucursal) {
@@ -619,20 +588,13 @@ const SupermercadosPage = () => {
         <Grid container spacing={3}>
           {/* Fila 1: Filtros básicos */}
           <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Sucursal</InputLabel>
-              <Select
-                value={selectedSucursal}
-                label="Sucursal"
-                onChange={(e) => setSelectedSucursal(e.target.value)}
-              >
-                {sucursales.map((sucursal) => (
-                  <MenuItem key={sucursal.id} value={sucursal.id}>
-                    {sucursal.nombre}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <SucursalSelect
+              value={selectedSucursal}
+              onChange={(e) => setSelectedSucursal(e.target.value)}
+              label="Sucursal"
+              fullWidth
+              required
+            />
           </Grid>
 
           <Grid item xs={12} sm={6} md={3}>

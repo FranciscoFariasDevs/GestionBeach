@@ -139,10 +139,35 @@ export const PERMISSIONS_BY_PROFILE = {
   }
 };
 
+// Mapeo de nombres de módulos desde BD a rutas del sistema
+const MODULE_NAME_TO_ROUTE = {
+  'Dashboard': MODULES.DASHBOARD,
+  'Estado Resultado': MODULES.ESTADO_RESULTADO,
+  'Monitoreo': MODULES.MONITOREO,
+  'Remuneraciones': MODULES.REMUNERACIONES,
+  'Inventario': MODULES.INVENTARIO,
+  'Ventas': MODULES.VENTAS,
+  'Productos': MODULES.PRODUCTOS,
+  'Supermercados': MODULES.SUPERMERCADOS,
+  'Ferreterías': MODULES.FERRETERIAS,
+  'Multitiendas': MODULES.MULTITIENDAS,
+  'Compras': MODULES.COMPRAS,
+  'Centros de Costos': MODULES.CENTROS_COSTOS,
+  'Facturas XML': MODULES.FACTURAS_XML,
+  'Tarjeta Empleado': MODULES.TARJETA_EMPLEADO,
+  'Empleados': MODULES.EMPLEADOS,
+  'Cabañas': MODULES.CABANAS,
+  'Usuarios': MODULES.USUARIOS,
+  'Perfiles': MODULES.PERFILES,
+  'Módulos': MODULES.MODULOS,
+  'Configuración': MODULES.CONFIGURACION,
+  'Correo Electrónico': MODULES.CORREO
+};
+
 // Función para crear habilidades basadas en el perfil del usuario
 export function defineAbilitiesFor(user) {
   const { can, cannot, build } = new AbilityBuilder(Ability);
-  
+
   if (!user || !user.perfilId) {
     // Usuario sin perfil - sin permisos
     return build();
@@ -154,12 +179,38 @@ export function defineAbilitiesFor(user) {
     return build();
   }
 
-  // Obtener perfil del usuario
+  // NUEVO SISTEMA: Usar módulos que vienen desde el backend
+  if (user.modules && Array.isArray(user.modules) && user.modules.length > 0) {
+    console.log(`✅ Aplicando permisos desde módulos del backend:`, user.modules);
+
+    // Convertir nombres de módulos de BD a rutas del sistema
+    user.modules.forEach(moduleName => {
+      const moduleRoute = MODULE_NAME_TO_ROUTE[moduleName];
+      if (moduleRoute) {
+        can(ACTIONS.READ, moduleRoute);
+        can(ACTIONS.create, moduleRoute);
+        can(ACTIONS.update, moduleRoute);
+        can(ACTIONS.delete, moduleRoute);
+      } else {
+        console.warn(`⚠️ Módulo "${moduleName}" no mapeado a ruta`);
+      }
+    });
+
+    // Siempre agregar Correo Electrónico para todos
+    can(ACTIONS.READ, MODULES.CORREO);
+
+    return build();
+  }
+
+  // FALLBACK: Sistema antiguo con PROFILE_MAP (para compatibilidad)
   const profileKey = PROFILE_MAP[user.perfilId];
   const permissions = PERMISSIONS_BY_PROFILE[profileKey];
 
   if (!permissions) {
-    console.warn(`Perfil no encontrado para perfilId: ${user.perfilId}`);
+    console.warn(`⚠️ Perfil ${user.perfilId} no encontrado en mapeo ni tiene módulos desde backend`);
+    // Solo dar acceso a Dashboard y Correo
+    can(ACTIONS.READ, MODULES.DASHBOARD);
+    can(ACTIONS.READ, MODULES.CORREO);
     return build();
   }
 

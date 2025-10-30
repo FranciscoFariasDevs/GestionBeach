@@ -197,30 +197,30 @@ exports.getAllPerfiles = async (req, res) => {
   }
 };
 
-// OBTENER UN PERFIL POR ID CON SUS MÓDULOS
+// OBTENER UN PERFIL POR ID CON SUS MÓDULOS Y SUCURSALES
 exports.getPerfilById = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const pool = await poolPromise;
-    
+
     // Obtener perfil
     const result = await pool.request()
       .input('id', sql.Int, id)
       .query(`SELECT id, nombre FROM perfiles WHERE id = @id`);
-    
+
     if (result.recordset.length === 0) {
       return res.status(404).json({ message: 'Perfil no encontrado' });
     }
 
     const perfil = result.recordset[0];
-    
+
     // Obtener módulos del perfil
     try {
       const modulosResult = await pool.request()
         .input('perfilId', sql.Int, id)
         .query(`
-          SELECT m.id, m.nombre, m.descripcion 
+          SELECT m.id, m.nombre, m.descripcion
           FROM modulos m
           INNER JOIN perfil_modulo pm ON pm.modulo_id = m.id
           WHERE pm.perfil_id = @perfilId
@@ -229,7 +229,7 @@ exports.getPerfilById = async (req, res) => {
 
       perfil.modulos = modulosResult.recordset.map(row => row.nombre);
       perfil.moduloIds = modulosResult.recordset.map(row => row.id);
-      
+
       console.log(`✅ Perfil ${id} cargado con ${perfil.modulos.length} módulos`);
     } catch (error) {
       console.warn('⚠️ Error obteniendo módulos del perfil:', error.message);
@@ -237,12 +237,34 @@ exports.getPerfilById = async (req, res) => {
       perfil.moduloIds = [];
     }
 
+    // Obtener sucursales del perfil
+    try {
+      const sucursalesResult = await pool.request()
+        .input('perfilId', sql.Int, id)
+        .query(`
+          SELECT s.id, s.nombre, s.tipo_sucursal
+          FROM sucursales s
+          INNER JOIN perfil_sucursal ps ON ps.sucursal_id = s.id
+          WHERE ps.perfil_id = @perfilId
+          ORDER BY s.nombre
+        `);
+
+      perfil.sucursales = sucursalesResult.recordset.map(row => row.id);
+      perfil.sucursalesDetalle = sucursalesResult.recordset;
+
+      console.log(`✅ Perfil ${id} tiene ${perfil.sucursales.length} sucursales asignadas`);
+    } catch (error) {
+      console.warn('⚠️ Error obteniendo sucursales del perfil:', error.message);
+      perfil.sucursales = [];
+      perfil.sucursalesDetalle = [];
+    }
+
     res.status(200).json(perfil);
   } catch (error) {
     console.error('❌ Error al obtener perfil:', error);
-    res.status(500).json({ 
-      message: 'Error al obtener perfil', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Error al obtener perfil',
+      error: error.message
     });
   }
 };
@@ -252,11 +274,12 @@ exports.createPerfil = async (req, res) => {
   let transaction;
 
   try {
-    const { nombre, modulos } = req.body;
+    const { nombre, modulos, sucursales } = req.body;
 
     console.log('🔄 === CREANDO PERFIL ===');
     console.log('📝 Nombre:', nombre);
     console.log('📝 Módulos recibidos:', modulos);
+    console.log('📝 Sucursales recibidas:', sucursales);
 
     if (!nombre || nombre.trim() === '') {
       return res.status(400).json({
@@ -347,6 +370,35 @@ exports.createPerfil = async (req, res) => {
       }
     }
 
+    // Asignar sucursales
+    const sucursalesAsignadas = [];
+
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+      console.log(`🔄 Asignando ${sucursales.length} sucursales...`);
+
+      // Construir VALUES para INSERT masivo de sucursales
+      const sucursalesToInsert = [];
+
+      for (const sucursalId of sucursales) {
+        if (sucursalId) {
+          sucursalesToInsert.push(`(${perfilId}, ${sucursalId})`);
+          sucursalesAsignadas.push(sucursalId);
+          console.log(`✅ Sucursal ID=${sucursalId} preparada`);
+        }
+      }
+
+      // INSERT masivo de sucursales
+      if (sucursalesToInsert.length > 0) {
+        const insertSucursalesQuery = `
+          INSERT INTO perfil_sucursal (perfil_id, sucursal_id)
+          VALUES ${sucursalesToInsert.join(', ')}
+        `;
+
+        await transaction.request().query(insertSucursalesQuery);
+        console.log(`✅ ${sucursalesToInsert.length} sucursales insertadas correctamente`);
+      }
+    }
+
     // Confirmar transacción
     await transaction.commit();
 
@@ -354,11 +406,14 @@ exports.createPerfil = async (req, res) => {
       id: perfilId,
       nombre: nombre.trim(),
       modulos: modulosAsignados,
-      totalModulosAsignados: modulosAsignados.length
+      totalModulosAsignados: modulosAsignados.length,
+      sucursales: sucursalesAsignadas,
+      totalSucursalesAsignadas: sucursalesAsignadas.length
     };
 
     console.log('✅ === PERFIL CREADO EXITOSAMENTE ===');
-    console.log(`📊 Total: ${modulosAsignados.length}/${modulos.length} módulos asignados`);
+    console.log(`📊 Total: ${modulosAsignados.length}/${modulos ? modulos.length : 0} módulos asignados`);
+    console.log(`📊 Total: ${sucursalesAsignadas.length}/${sucursales ? sucursales.length : 0} sucursales asignadas`);
 
     res.status(201).json(resultado);
 
@@ -389,12 +444,13 @@ exports.updatePerfil = async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { nombre, modulos } = req.body;
+    const { nombre, modulos, sucursales } = req.body;
 
     console.log('🔄 === ACTUALIZANDO PERFIL ===');
     console.log('📝 ID:', id);
     console.log('📝 Nombre:', nombre);
     console.log('📝 Módulos recibidos:', modulos);
+    console.log('📝 Sucursales recibidas:', sucursales);
 
     if (!nombre || nombre.trim() === '') {
       return res.status(400).json({
@@ -441,6 +497,13 @@ exports.updatePerfil = async (req, res) => {
       .query('DELETE FROM perfil_modulo WHERE perfil_id = @perfilId');
 
     console.log(`🗑️ Módulos anteriores eliminados`);
+
+    // Eliminar sucursales existentes
+    await transaction.request()
+      .input('perfilId', sql.Int, id)
+      .query('DELETE FROM perfil_sucursal WHERE perfil_id = @perfilId');
+
+    console.log(`🗑️ Sucursales anteriores eliminadas`);
 
     // Asignar nuevos módulos - VERSIÓN OPTIMIZADA
     const modulosAsignados = [];
@@ -493,7 +556,36 @@ exports.updatePerfil = async (req, res) => {
         console.warn(`📋 Lista:`, modulosNoEncontrados);
       }
     }
-    
+
+    // Asignar nuevas sucursales
+    const sucursalesAsignadas = [];
+
+    if (Array.isArray(sucursales) && sucursales.length > 0) {
+      console.log(`🔄 Reasignando ${sucursales.length} sucursales...`);
+
+      // Construir VALUES para INSERT masivo de sucursales
+      const sucursalesToInsert = [];
+
+      for (const sucursalId of sucursales) {
+        if (sucursalId) {
+          sucursalesToInsert.push(`(${id}, ${sucursalId})`);
+          sucursalesAsignadas.push(sucursalId);
+          console.log(`✅ Sucursal ID=${sucursalId} preparada`);
+        }
+      }
+
+      // INSERT masivo de sucursales
+      if (sucursalesToInsert.length > 0) {
+        const insertSucursalesQuery = `
+          INSERT INTO perfil_sucursal (perfil_id, sucursal_id)
+          VALUES ${sucursalesToInsert.join(', ')}
+        `;
+
+        await transaction.request().query(insertSucursalesQuery);
+        console.log(`✅ ${sucursalesToInsert.length} sucursales insertadas correctamente`);
+      }
+    }
+
     // Confirmar transacción
     await transaction.commit();
 
@@ -501,11 +593,14 @@ exports.updatePerfil = async (req, res) => {
       id: parseInt(id),
       nombre: nombre.trim(),
       modulos: modulosAsignados,
-      totalModulosAsignados: modulosAsignados.length
+      totalModulosAsignados: modulosAsignados.length,
+      sucursales: sucursalesAsignadas,
+      totalSucursalesAsignadas: sucursalesAsignadas.length
     };
 
     console.log('✅ === PERFIL ACTUALIZADO EXITOSAMENTE ===');
-    console.log(`📊 Total: ${modulosAsignados.length}/${modulos.length} módulos asignados`);
+    console.log(`📊 Total: ${modulosAsignados.length}/${modulos ? modulos.length : 0} módulos asignados`);
+    console.log(`📊 Total: ${sucursalesAsignadas.length}/${sucursales ? sucursales.length : 0} sucursales asignadas`);
     res.status(200).json(resultado);
     
   } catch (error) {

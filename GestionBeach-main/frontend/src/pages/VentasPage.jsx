@@ -30,10 +30,10 @@ import ErrorIcon from '@mui/icons-material/Error';
 import api, { authUtils } from '../api/api';
 import { useSnackbar } from 'notistack';
 import { format } from 'date-fns';
+import SucursalSelect from '../components/SucursalSelect';
 
 const VentasPage = () => {
   const theme = useTheme();
-  const [sucursales, setSucursales] = useState([]);
   const [selectedSucursal, setSelectedSucursal] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)));
   const [endDate, setEndDate] = useState(new Date());
@@ -62,42 +62,6 @@ const VentasPage = () => {
   });
 
   const { enqueueSnackbar } = useSnackbar();
-
-  useEffect(() => {
-    const loadSucursales = async () => {
-      try {
-        console.log('Cargando sucursales...');
-        const response = await api.get('/sucursales');
-        
-        let sucursalesData = [];
-        if (Array.isArray(response.data)) {
-          sucursalesData = response.data;
-        } else if (response.data?.data && Array.isArray(response.data.data)) {
-          sucursalesData = response.data.data;
-        } else if (response.data?.sucursales && Array.isArray(response.data.sucursales)) {
-          sucursalesData = response.data.sucursales;
-        }
-        
-        setSucursales(sucursalesData);
-        
-        if (sucursalesData.length > 0) {
-          enqueueSnackbar(`${sucursalesData.length} sucursales cargadas`, { variant: 'success' });
-        }
-        
-      } catch (error) {
-        console.error('Error al cargar sucursales:', error);
-        setSucursales([]);
-        
-        if (error.response?.status === 401) {
-          enqueueSnackbar('Sesión expirada', { variant: 'error' });
-        } else {
-          enqueueSnackbar('Error al cargar sucursales', { variant: 'error' });
-        }
-      }
-    };
-    
-    loadSucursales();
-  }, [enqueueSnackbar]);
 
   const formatCurrency = (value) => new Intl.NumberFormat('es-CL', {
     style: 'currency',
@@ -341,21 +305,14 @@ const VentasPage = () => {
             <CardContent>
               <Grid container spacing={3}>
                 <Grid item xs={12}>
-                  <TextField
-                    select
-                    fullWidth
-                    label="Sucursal"
+                  <SucursalSelect
                     value={selectedSucursal}
                     onChange={(e) => setSelectedSucursal(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <BusinessIcon />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{ 
-                      '& .MuiInputBase-root': { 
+                    label="Sucursal"
+                    fullWidth
+                    required
+                    sx={{
+                      '& .MuiInputBase-root': {
                         bgcolor: 'rgba(255,255,255,0.1)',
                         color: 'white',
                         height: '56px'
@@ -364,17 +321,7 @@ const VentasPage = () => {
                       '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.3)' },
                       '& .MuiSelect-icon': { color: 'white' }
                     }}
-                  >
-                    <MenuItem value="">Seleccione una sucursal</MenuItem>
-                    {sucursales.map((s) => (
-                      <MenuItem key={s.id} value={s.id}>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <BusinessIcon sx={{ mr: 1, fontSize: '18px' }} />
-                          {s.nombre} {s.tipo_sucursal && `(${s.tipo_sucursal})`}
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  />
                 </Grid>
                 
                 <Grid item xs={12}>

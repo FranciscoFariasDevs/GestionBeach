@@ -40,12 +40,14 @@ import api from '../api/api';
 export default function PerfilPage() {
   const [perfiles, setPerfiles] = useState([]);
   const [modulos, setModulos] = useState([]);
+  const [sucursales, setSucursales] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [currentPerfil, setCurrentPerfil] = useState({
     id: null,
     nombre: '',
-    modulos: []
+    modulos: [],
+    sucursales: []
   });
   const [loading, setLoading] = useState(false);
   const [fetchingPerfil, setFetchingPerfil] = useState(false);
@@ -55,6 +57,7 @@ export default function PerfilPage() {
   useEffect(() => {
     fetchPerfiles();
     fetchModulos();
+    fetchSucursales();
   }, []);
 
   // Obtener todos los perfiles con manejo de errores mejorado
@@ -114,7 +117,7 @@ export default function PerfilPage() {
       setModulos(response.data || []);
     } catch (error) {
       console.error('❌ Error al cargar módulos:', error);
-      
+
       // Fallback: usar lista predefinida si falla el backend
       const modulosFallback = [
         { id: 1, nombre: 'Dashboard', descripcion: 'Panel principal del sistema' },
@@ -133,12 +136,28 @@ export default function PerfilPage() {
         { id: 14, nombre: 'Configuración', descripcion: 'Configuración del sistema' },
         { id: 15, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico' }
       ];
-      
+
       console.log('📋 Usando módulos predefinidos como fallback');
       setModulos(modulosFallback);
-      
+
       if (error.response?.status !== 404) {
         enqueueSnackbar('Error al cargar módulos, usando lista predefinida', { variant: 'warning' });
+      }
+    }
+  };
+
+  // Obtener todas las sucursales disponibles
+  const fetchSucursales = async () => {
+    try {
+      const response = await api.get('/sucursales/all');
+      console.log('✅ Sucursales cargadas:', response.data);
+      setSucursales(response.data || []);
+    } catch (error) {
+      console.error('❌ Error al cargar sucursales:', error);
+      setSucursales([]);
+
+      if (error.response?.status !== 404) {
+        enqueueSnackbar('Error al cargar sucursales', { variant: 'warning' });
       }
     }
   };
@@ -166,14 +185,16 @@ export default function PerfilPage() {
         setCurrentPerfil({
           id: perfilDetalle.id,
           nombre: perfilDetalle.nombre,
-          modulos: perfilDetalle.modulos || []
+          modulos: perfilDetalle.modulos || [],
+          sucursales: perfilDetalle.sucursales || []
         });
       } else {
         // Si falla, usar los datos básicos
         setCurrentPerfil({
           id: perfil.id,
           nombre: perfil.nombre,
-          modulos: perfil.modulos || []
+          modulos: perfil.modulos || [],
+          sucursales: perfil.sucursales || []
         });
       }
     } else {
@@ -181,7 +202,8 @@ export default function PerfilPage() {
       setCurrentPerfil({
         id: null,
         nombre: '',
-        modulos: []
+        modulos: [],
+        sucursales: []
       });
     }
     setOpenDialog(true);
@@ -192,7 +214,8 @@ export default function PerfilPage() {
     setCurrentPerfil({
       id: null,
       nombre: '',
-      modulos: []
+      modulos: [],
+      sucursales: []
     });
   };
 
@@ -214,10 +237,21 @@ export default function PerfilPage() {
   const handleModuloChange = (event) => {
     const { value } = event.target;
     console.log('Módulos seleccionados:', value);
-    
+
     setCurrentPerfil((prev) => ({
       ...prev,
       modulos: typeof value === 'string' ? value.split(',') : value
+    }));
+  };
+
+  // Manejo de selección de sucursales
+  const handleSucursalChange = (event) => {
+    const { value } = event.target;
+    console.log('Sucursales seleccionadas:', value);
+
+    setCurrentPerfil((prev) => ({
+      ...prev,
+      sucursales: typeof value === 'string' ? value.split(',').map(Number) : value
     }));
   };
 
@@ -232,7 +266,8 @@ export default function PerfilPage() {
 
       const perfilData = {
         nombre: currentPerfil.nombre.trim(),
-        modulos: currentPerfil.modulos || []
+        modulos: currentPerfil.modulos || [],
+        sucursales: currentPerfil.sucursales || []
       };
 
       console.log('🔄 Guardando perfil:', perfilData);
@@ -475,10 +510,56 @@ export default function PerfilPage() {
                 </Select>
               </FormControl>
 
-              {/* DEBUG: Mostrar módulos seleccionados */}
+              <FormControl fullWidth sx={{ mt: 3 }}>
+                <InputLabel>Sucursales Permitidas</InputLabel>
+                <Select
+                  multiple
+                  value={currentPerfil.sucursales || []}
+                  onChange={handleSucursalChange}
+                  input={<OutlinedInput label="Sucursales Permitidas" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {selected.map((value) => {
+                        const sucursal = sucursales.find(s => s.id === value);
+                        return (
+                          <Chip
+                            key={value}
+                            label={sucursal ? sucursal.nombre : `ID: ${value}`}
+                            size="small"
+                          />
+                        );
+                      })}
+                    </Box>
+                  )}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 300,
+                        width: 300,
+                      },
+                    },
+                  }}
+                >
+                  {sucursales.map((sucursal) => (
+                    <MenuItem key={sucursal.id} value={sucursal.id}>
+                      <Checkbox
+                        checked={(currentPerfil.sucursales || []).indexOf(sucursal.id) > -1}
+                        size="small"
+                      />
+                      <ListItemText
+                        primary={sucursal.nombre}
+                        secondary={sucursal.tipo_sucursal}
+                      />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* DEBUG: Mostrar módulos y sucursales seleccionados */}
               {process.env.NODE_ENV === 'development' && (
                 <Alert severity="info" sx={{ mt: 2 }}>
-                  <strong>Debug:</strong> Módulos seleccionados: {JSON.stringify(currentPerfil.modulos)}
+                  <strong>Debug:</strong> Módulos: {JSON.stringify(currentPerfil.modulos)}<br />
+                  <strong>Sucursales:</strong> {JSON.stringify(currentPerfil.sucursales)}
                 </Alert>
               )}
 
