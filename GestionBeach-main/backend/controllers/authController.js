@@ -39,25 +39,16 @@ exports.login = async (req, res) => {
     
     // Verificar contraseña
     if (password === user.password) {
-      // Obtener módulos permitidos desde perfil_modulo
+      // Obtener módulos permitidos (opcional)
       let modules = [];
       try {
-        // Primero intentar obtener desde perfil_modulo (nuevo sistema)
         const modulesResult = await pool.request()
-          .input('perfilId', sql.Int, user.perfil_id)
-          .query(`
-            SELECT m.nombre, m.ruta
-            FROM perfil_modulo pm
-            INNER JOIN modulos m ON pm.modulo_id = m.id
-            WHERE pm.perfil_id = @perfilId
-            ORDER BY m.nombre
-          `);
+          .input('userId', sql.Int, user.id)
+          .query('SELECT distinct modulo_id FROM permisos_usuario WHERE usuario_id = @userId');
 
-        modules = modulesResult.recordset.map(row => row.nombre);
-        console.log(`✅ Usuario ${user.username} tiene ${modules.length} módulos del perfil ${user.perfil_nombre}`);
+        modules = modulesResult.recordset.map(row => row.modulo_id);
       } catch (error) {
-        console.log('⚠️ No se pudieron obtener módulos del perfil, continuando...');
-        console.error(error.message);
+        console.log('⚠️ No se pudieron obtener módulos de permisos_usuario, continuando...');
       }
       
       // Generar token JWT
@@ -123,24 +114,16 @@ exports.check = async (req, res) => {
     
     const user = userResult.recordset[0];
     
-    // Obtener módulos permitidos desde perfil_modulo
+    // Obtener módulos permitidos
     let modules = [];
     try {
       const modulesResult = await pool.request()
-        .input('perfilId', sql.Int, user.perfil_id)
-        .query(`
-          SELECT m.nombre, m.ruta
-          FROM perfil_modulo pm
-          INNER JOIN modulos m ON pm.modulo_id = m.id
-          WHERE pm.perfil_id = @perfilId
-          ORDER BY m.nombre
-        `);
+        .input('userId', sql.Int, decoded.id)
+        .query('SELECT distinct modulo_id FROM permisos_usuario WHERE usuario_id = @userId');
 
-      modules = modulesResult.recordset.map(row => row.nombre);
-      console.log(`✅ Usuario ${user.username} tiene ${modules.length} módulos del perfil ${user.perfil_nombre}`);
+      modules = modulesResult.recordset.map(row => row.modulo_id);
     } catch (error) {
-      console.log('⚠️ No se pudieron obtener módulos del perfil, continuando...');
-      console.error(error.message);
+      console.log('⚠️ No se pudieron obtener módulos, continuando...');
     }
     
     // ✅ INCLUIR PERFILID EN CHECK TAMBIÉN
