@@ -1,7 +1,7 @@
 // frontend/src/config/permissions.js
 import { AbilityBuilder, Ability } from '@casl/ability';
 
-// Definir todos los módulos del sistema
+// Definir todos los módulos del sistema - SINCRONIZADO CON BACKEND
 export const MODULES = {
   DASHBOARD: 'dashboard',
   ESTADO_RESULTADO: 'estado-resultado',
@@ -10,10 +10,15 @@ export const MODULES = {
   INVENTARIO: 'inventario',
   VENTAS: 'ventas',
   PRODUCTOS: 'productos',
+  SUPERMERCADOS: 'productos/supermercados',
+  FERRETERIAS: 'productos/ferreterias',
+  MULTITIENDAS: 'productos/multitiendas',
   COMPRAS: 'compras',
+  CENTROS_COSTOS: 'compras/centros-costos',
+  FACTURAS_XML: 'compras/facturas-xml',
   TARJETA_EMPLEADO: 'tarjeta-empleado',
   EMPLEADOS: 'empleados',
-  CABANAS: 'admin/cabanas', // 🏡 CABAÑAS - SIN PERMISOS PARA DESARROLLO
+  CABANAS: 'admin/cabanas',
   USUARIOS: 'usuarios',
   PERFILES: 'perfiles',
   MODULOS: 'modulos',
@@ -65,10 +70,15 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.INVENTARIO,
       MODULES.VENTAS,
       MODULES.PRODUCTOS,
+      MODULES.SUPERMERCADOS,
+      MODULES.FERRETERIAS,
+      MODULES.MULTITIENDAS,
       MODULES.COMPRAS,
+      MODULES.CENTROS_COSTOS,
+      MODULES.FACTURAS_XML,
       MODULES.TARJETA_EMPLEADO,
       MODULES.EMPLEADOS,
-      MODULES.CABANAS, // 🏡 Acceso a Cabañas
+      MODULES.CABANAS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update, ACTIONS.delete]
@@ -81,7 +91,9 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.ESTADO_RESULTADO,
       MODULES.REMUNERACIONES,
       MODULES.COMPRAS,
-      MODULES.CABANAS, // 🏡 Acceso a Cabañas
+      MODULES.CENTROS_COSTOS,
+      MODULES.FACTURAS_XML,
+      MODULES.CABANAS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
@@ -94,7 +106,7 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.EMPLEADOS,
       MODULES.REMUNERACIONES,
       MODULES.TARJETA_EMPLEADO,
-      MODULES.CABANAS, // 🏡 Acceso a Cabañas
+      MODULES.CABANAS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
@@ -107,8 +119,11 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.VENTAS,
       MODULES.INVENTARIO,
       MODULES.PRODUCTOS,
+      MODULES.SUPERMERCADOS,
+      MODULES.FERRETERIAS,
+      MODULES.MULTITIENDAS,
       MODULES.MONITOREO,
-      MODULES.CABANAS, // 🏡 Acceso a Cabañas
+      MODULES.CABANAS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
@@ -118,7 +133,7 @@ export const PERMISSIONS_BY_PROFILE = {
     // Solo Lectura: Solo consulta
     modules: [
       MODULES.DASHBOARD,
-      MODULES.CABANAS // 🏡 Acceso a Cabañas (solo lectura)
+      MODULES.CABANAS
     ],
     actions: [ACTIONS.read]
   }

@@ -1,7 +1,7 @@
 // backend/controllers/modulosController.js - AJUSTADO A TU ESTRUCTURA DE BD
 const { sql, poolPromise } = require('../config/db');
 
-// Lista de pantallas/módulos del dashboard - SINCRONIZADA CON TU MENÚ LATERAL
+// Lista de pantallas/módulos del dashboard - SINCRONIZADA CON DASHBOARDLAYOUT
 const pantallasDashboard = [
   { id: 1, nombre: 'Dashboard', descripcion: 'Panel principal del sistema', ruta: '/dashboard', icono: 'dashboard' },
   { id: 2, nombre: 'Estado Resultado', descripcion: 'Estados financieros del holding', ruta: '/estado-resultado', icono: 'assessment' },
@@ -10,14 +10,20 @@ const pantallasDashboard = [
   { id: 5, nombre: 'Inventario', descripcion: 'Sistema de inventarios', ruta: '/inventario', icono: 'inventory_2' },
   { id: 6, nombre: 'Ventas', descripcion: 'Gestión de ventas', ruta: '/ventas', icono: 'shopping_cart' },
   { id: 7, nombre: 'Productos', descripcion: 'Catálogo de productos', ruta: '/productos', icono: 'trending_up' },
-  { id: 8, nombre: 'Compras', descripcion: 'Gestión de compras', ruta: '/compras', icono: 'shopping_bag' },
-  { id: 9, nombre: 'Tarjeta Empleado', descripcion: 'Gestión de empleados', ruta: '/tarjeta-empleado', icono: 'badge' },
-  { id: 10, nombre: 'Empleados', descripcion: 'Recursos humanos', ruta: '/empleados', icono: 'people' },
-  { id: 11, nombre: 'Usuarios', descripcion: 'Gestión de usuarios', ruta: '/usuarios', icono: 'person' },
-  { id: 12, nombre: 'Perfiles', descripcion: 'Gestión de perfiles', ruta: '/perfiles', icono: 'security' },
-  { id: 13, nombre: 'Módulos', descripcion: 'Gestión de módulos', ruta: '/modulos', icono: 'view_module' },
-  { id: 14, nombre: 'Configuración', descripcion: 'Configuración del sistema', ruta: '/configuracion', icono: 'settings' },
-  { id: 15, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico', ruta: '/correo', icono: 'email' }
+  { id: 8, nombre: 'Supermercados', descripcion: 'Productos - Supermercados', ruta: '/productos/supermercados', icono: 'store' },
+  { id: 9, nombre: 'Ferreterías', descripcion: 'Productos - Ferreterías', ruta: '/productos/ferreterias', icono: 'store' },
+  { id: 10, nombre: 'Multitiendas', descripcion: 'Productos - Multitiendas', ruta: '/productos/multitiendas', icono: 'store' },
+  { id: 11, nombre: 'Compras', descripcion: 'Gestión de compras', ruta: '/compras', icono: 'shopping_bag' },
+  { id: 12, nombre: 'Centros de Costos', descripcion: 'Gestión de Centros de Costos', ruta: '/compras/centros-costos', icono: 'business_center' },
+  { id: 13, nombre: 'Facturas XML', descripcion: 'Gestión de Facturas XML', ruta: '/compras/facturas-xml', icono: 'receipt' },
+  { id: 14, nombre: 'Tarjeta Empleado', descripcion: 'Gestión de tarjetas de empleado', ruta: '/tarjeta-empleado', icono: 'badge' },
+  { id: 15, nombre: 'Empleados', descripcion: 'Recursos humanos', ruta: '/empleados', icono: 'people' },
+  { id: 16, nombre: 'Cabañas', descripcion: 'Gestión de Cabañas y Reservas', ruta: '/admin/cabanas', icono: 'cottage' },
+  { id: 17, nombre: 'Usuarios', descripcion: 'Gestión de usuarios', ruta: '/usuarios', icono: 'person' },
+  { id: 18, nombre: 'Perfiles', descripcion: 'Gestión de perfiles', ruta: '/perfiles', icono: 'security' },
+  { id: 19, nombre: 'Módulos', descripcion: 'Gestión de módulos', ruta: '/modulos', icono: 'view_module' },
+  { id: 20, nombre: 'Configuración', descripcion: 'Configuración del sistema', ruta: '/configuracion', icono: 'settings' },
+  { id: 21, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico', ruta: '/correo', icono: 'email' }
 ];
 
 // Función para sincronizar pantallas con la base de datos usando tu estructura
@@ -68,6 +74,8 @@ const sincronizarPantallas = async () => {
   } catch (error) {
     console.error('❌ Error en sincronización:', error.message);
   }
+};
+
 // Endpoint para debug - obtener info completa del sistema
 exports.getDebugInfo = async (req, res) => {
   try {
@@ -399,9 +407,9 @@ exports.deleteModulo = async (req, res) => {
     
   } catch (error) {
     console.error('❌ Error al eliminar módulo:', error);
-    res.status(500).json({ 
-      message: 'Error al eliminar módulo', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Error al eliminar módulo',
+      error: error.message
     });
   }
-}; }
+};

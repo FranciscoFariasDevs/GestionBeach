@@ -6,7 +6,10 @@
       "Bash(ls:*)",
       "Bash(find:*)",
       "Bash(wc:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(git checkout:*)",
+      "Bash(npm uninstall:*)"
     ],
     "deny": [],
     "ask": []

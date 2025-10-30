@@ -6,6 +6,9 @@ const authMiddleware = require('../middleware/authMiddleware');
 // Ruta de debug (sin auth para facilitar testing)
 router.get('/debug', perfilesController.getDebugPerfiles);
 
+// Ruta de sincronización de módulos (sin auth para facilitar testing)
+router.post('/sincronizar-modulos', perfilesController.sincronizarModulos);
+
 // Rutas principales de perfiles
 router.get('/', authMiddleware, perfilesController.getAllPerfiles);
 router.get('/:id', authMiddleware, perfilesController.getPerfilById);

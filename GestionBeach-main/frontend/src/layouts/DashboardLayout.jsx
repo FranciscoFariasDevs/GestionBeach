@@ -57,6 +57,7 @@ import { filterMenuItems } from '../config/permissions';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const drawerWidth = 200;
+const miniDrawerWidth = 60;
 
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
@@ -66,13 +67,13 @@ const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.leavingScreen,
     }),
-    marginLeft: `-${drawerWidth}px`,
+    marginLeft: miniDrawerWidth,
     ...(open && {
       transition: theme.transitions.create('margin', {
         easing: theme.transitions.easing.easeOut,
         duration: theme.transitions.duration.enteringScreen,
       }),
-      marginLeft: 0,
+      marginLeft: drawerWidth,
     }),
     [theme.breakpoints.down('md')]: {
       marginLeft: 0,
@@ -87,6 +88,8 @@ const AppBarStyled = styled(AppBar, { shouldForwardProp: (prop) => prop !== 'ope
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.leavingScreen,
     }),
+    width: `calc(100% - ${miniDrawerWidth}px)`,
+    marginLeft: `${miniDrawerWidth}px`,
     ...(open && {
       width: `calc(100% - ${drawerWidth}px)`,
       marginLeft: `${drawerWidth}px`,
@@ -95,6 +98,10 @@ const AppBarStyled = styled(AppBar, { shouldForwardProp: (prop) => prop !== 'ope
         duration: theme.transitions.duration.enteringScreen,
       }),
     }),
+    [theme.breakpoints.down('md')]: {
+      width: '100%',
+      marginLeft: 0,
+    },
   })
 );
 
@@ -156,7 +163,7 @@ const avatarVariants = {
 export default function DashboardLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [open, setOpen] = useState(!isMobile);
+  const [open, setOpen] = useState(true);
   const [anchorEl, setAnchorEl] = useState(null);
   const { user, logout } = useAuth();
   const { ability, isSuperUser, hasProfile } = usePermissions();
@@ -165,23 +172,51 @@ export default function DashboardLayout() {
   const [showEmail, setShowEmail] = useState(false);
   const [productosOpen, setProductosOpen] = useState(false);
   const [comprasOpen, setComprasOpen] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
 
   const handleDrawerOpen = () => setOpen(true);
   const handleDrawerClose = () => {
     if (isMobile) {
       setOpen(false);
     } else {
-      setTimeout(() => setOpen(false), 200);
+      if (!isHovering) {
+        setOpen(false);
+      }
     }
   };
 
+  // Auto-cerrar drawer después de 2 segundos al cargar
+  useEffect(() => {
+    if (!isMobile) {
+      const timer = setTimeout(() => {
+        setOpen(false);
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isMobile]);
+
+  // Controlar apertura en mobile
   useEffect(() => {
     if (isMobile) {
       setOpen(false);
-    } else {
-      setOpen(true);
     }
   }, [isMobile]);
+
+  // Handlers para hover
+  const handleMouseEnter = () => {
+    if (!isMobile) {
+      setIsHovering(true);
+      setOpen(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (!isMobile) {
+      setIsHovering(false);
+      setOpen(false);
+    }
+  };
 
   const handleMenu = (event) => setAnchorEl(event.currentTarget);
   const handleClose = () => setAnchorEl(null);
@@ -295,14 +330,16 @@ export default function DashboardLayout() {
     <Box sx={{ display: 'flex' }}>
       <AppBarStyled position="fixed" open={open && !isMobile}>
         <Toolbar>
-          <IconButton 
-            color="inherit" 
-            onClick={handleDrawerOpen} 
-            edge="start" 
-            sx={{ mr: 2, ...(open && !isMobile && { display: 'none' }) }}
-          >
-            <MenuIcon />
-          </IconButton>
+          {isMobile && (
+            <IconButton
+              color="inherit"
+              onClick={handleDrawerOpen}
+              edge="start"
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             {currentTitle}
           </Typography>
@@ -336,51 +373,61 @@ export default function DashboardLayout() {
 
       <Drawer
         sx={{
-          width: drawerWidth,
+          width: open ? drawerWidth : miniDrawerWidth,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { 
-            width: drawerWidth, 
+          '& .MuiDrawer-paper': {
+            width: open ? drawerWidth : miniDrawerWidth,
             boxSizing: 'border-box',
-            overflowX: 'hidden'
+            overflowX: 'hidden',
+            transition: theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
           },
         }}
-        variant={isMobile ? 'temporary' : 'persistent'}
+        variant={isMobile ? 'temporary' : 'permanent'}
         anchor="left"
-        open={open}
+        open={isMobile ? open : true}
         onClose={handleDrawerClose}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <DrawerHeader>
-          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', px: 1.5 }}>
-            <MotionAvatar 
+          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', px: open ? 1.5 : 0.5, justifyContent: open ? 'flex-start' : 'center' }}>
+            <MotionAvatar
               variants={avatarVariants}
               initial="hidden"
               animate="visible"
-              sx={{ 
-                bgcolor: isSuperUser() ? 'error.main' : 'primary.main', 
-                mr: 1.5, 
-                width: 36, 
-                height: 36 
+              sx={{
+                bgcolor: isSuperUser() ? 'error.main' : 'primary.main',
+                mr: open ? 1.5 : 0,
+                width: 36,
+                height: 36
               }}
             >
               {user?.username?.charAt(0).toUpperCase() || 'U'}
             </MotionAvatar>
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography variant="subtitle2" noWrap sx={{ fontSize: '0.875rem' }}>
-                {user?.username || 'Usuario'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: '0.7rem' }}>
-                {getUserProfileName()}
-              </Typography>
-            </Box>
+            {open && (
+              <Box sx={{ flexGrow: 1 }}>
+                <Typography variant="subtitle2" noWrap sx={{ fontSize: '0.875rem' }}>
+                  {user?.username || 'Usuario'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: '0.7rem' }}>
+                  {getUserProfileName()}
+                </Typography>
+              </Box>
+            )}
           </Box>
-          <IconButton onClick={handleDrawerClose} size="small">
-            <ChevronLeftIcon />
-          </IconButton>
+          {open && !isMobile && (
+            <IconButton onClick={handleDrawerClose} size="small">
+              <ChevronLeftIcon />
+            </IconButton>
+          )}
         </DrawerHeader>
         <Divider />
         
         {/* Mostrar información de permisos para Super Users */}
-        {isSuperUser() && (
+        {isSuperUser() && open && (
           <Box sx={{ p: 1, bgcolor: 'warning.lighter' }}>
             <Typography variant="caption" color="warning.dark" align="center" display="block">
               🔓 Acceso Total
@@ -403,26 +450,31 @@ export default function DashboardLayout() {
                       custom={index}
                       sx={{ display: 'block' }}
                     >
-                      <ListItemButton 
+                      <ListItemButton
                         onClick={item.toggle}
-                        sx={{ 
-                          py: 0.5, 
-                          px: 1.5, 
-                          minHeight: 38
+                        sx={{
+                          py: 0.5,
+                          px: open ? 1.5 : 1,
+                          minHeight: 38,
+                          justifyContent: open ? 'flex-start' : 'center'
                         }}
                       >
-                        <ListItemIcon sx={{ color: orangeColors[item.orangeType], minWidth: '36px' }}>
+                        <ListItemIcon sx={{ color: orangeColors[item.orangeType], minWidth: open ? '36px' : 'auto', justifyContent: 'center' }}>
                           {item.icon}
                         </ListItemIcon>
-                        <ListItemText 
-                          primary={item.text} 
-                          primaryTypographyProps={{ fontSize: '0.875rem' }}
-                        />
-                        {item.isOpen ? <ExpandLess /> : <ExpandMore />}
+                        {open && (
+                          <>
+                            <ListItemText
+                              primary={item.text}
+                              primaryTypographyProps={{ fontSize: '0.875rem' }}
+                            />
+                            {item.isOpen ? <ExpandLess /> : <ExpandMore />}
+                          </>
+                        )}
                       </ListItemButton>
                     </MotionListItem>
                     
-                    <Collapse in={item.isOpen} timeout="auto" unmountOnExit>
+                    <Collapse in={item.isOpen && open} timeout="auto" unmountOnExit>
                       <AnimatePresence>
                         {item.subItems?.map((sub, idx) => (
                           <MotionListItem
@@ -510,17 +562,20 @@ export default function DashboardLayout() {
                         },
                       },
                       py: 0.5,
-                      px: 1.5,
-                      minHeight: 38
+                      px: open ? 1.5 : 1,
+                      minHeight: 38,
+                      justifyContent: open ? 'flex-start' : 'center'
                     }}
                   >
-                    <ListItemIcon sx={{ color: orangeColors[item.orangeType], minWidth: '36px' }}>
+                    <ListItemIcon sx={{ color: orangeColors[item.orangeType], minWidth: open ? '36px' : 'auto', justifyContent: 'center' }}>
                       {item.icon}
                     </ListItemIcon>
-                    <ListItemText 
-                      primary={item.text} 
-                      primaryTypographyProps={{ fontSize: '0.875rem' }}
-                    />
+                    {open && (
+                      <ListItemText
+                        primary={item.text}
+                        primaryTypographyProps={{ fontSize: '0.875rem' }}
+                      />
+                    )}
                   </ListItemButton>
                 </MotionListItem>
               );
@@ -530,7 +585,7 @@ export default function DashboardLayout() {
         <Divider />
         
         {/* Información de debugging para desarrollo */}
-        {process.env.NODE_ENV === 'development' && (
+        {process.env.NODE_ENV === 'development' && open && (
           <Box sx={{ p: 1 }}>
             <Typography variant="caption" color="text.disabled" display="block">
               Módulos accesibles: {menuItems.length}
@@ -550,21 +605,24 @@ export default function DashboardLayout() {
             exit="exit"
             custom={menuItems.length + 1}
           >
-            <ListItemButton 
+            <ListItemButton
               onClick={handleLogout}
-              sx={{ 
-                py: 0.5, 
-                px: 1.5,
-                minHeight: 38 
+              sx={{
+                py: 0.5,
+                px: open ? 1.5 : 1,
+                minHeight: 38,
+                justifyContent: open ? 'flex-start' : 'center'
               }}
             >
-              <ListItemIcon sx={{ minWidth: '36px' }}>
+              <ListItemIcon sx={{ minWidth: open ? '36px' : 'auto', justifyContent: 'center' }}>
                 <LogoutIcon />
               </ListItemIcon>
-              <ListItemText 
-                primary="Cerrar Sesión" 
-                primaryTypographyProps={{ fontSize: '0.875rem' }}
-              />
+              {open && (
+                <ListItemText
+                  primary="Cerrar Sesión"
+                  primaryTypographyProps={{ fontSize: '0.875rem' }}
+                />
+              )}
             </ListItemButton>
           </MotionListItem>
         </List>

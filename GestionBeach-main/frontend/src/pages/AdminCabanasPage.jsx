@@ -420,6 +420,7 @@ const AdminCabanasPage = () => {
   useEffect(() => {
     if (tabValue === 0) {
       cargarCabanas();
+      cargarReservas(); // ✅ Cargar reservas también en tab 0
       cargarMantenciones();
     }
     if (tabValue === 1) {

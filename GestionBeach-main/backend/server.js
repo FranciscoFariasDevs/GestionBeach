@@ -395,12 +395,105 @@ const startServer = async () => {
   try {
     // Verificar conexión DB al inicio
     console.log('🔍 Verificando conexión a base de datos...');
-    
+
     try {
       const { poolPromise } = require('./config/db');
       const pool = await poolPromise;
       await pool.request().query('SELECT 1 as test');
       console.log('✅ Conexión a base de datos exitosa');
+
+      // 🔄 SINCRONIZAR MÓDULOS AUTOMÁTICAMENTE AL INICIO
+      console.log('\n🔄 === SINCRONIZANDO MÓDULOS DEL SISTEMA ===');
+      try {
+        const perfilesController = require('./controllers/perfilesController');
+
+        // Importar la función de sincronización directamente
+        const { sql } = require('./config/db');
+
+        // Lista de módulos del sistema
+        const modulosDelSistema = [
+          'Dashboard', 'Estado Resultado', 'Monitoreo', 'Remuneraciones',
+          'Inventario', 'Ventas', 'Productos', 'Supermercados', 'Ferreterías',
+          'Multitiendas', 'Compras', 'Centros de Costos', 'Facturas XML',
+          'Tarjeta Empleado', 'Empleados', 'Cabañas', 'Usuarios', 'Perfiles',
+          'Módulos', 'Configuración', 'Correo Electrónico'
+        ];
+
+        // Verificar si modulos tiene IDENTITY
+        const identityResult = await pool.request()
+          .query(`SELECT COLUMNPROPERTY(OBJECT_ID('modulos'), 'id', 'IsIdentity') as IsIdentity`);
+
+        const tieneIdentity = identityResult.recordset[0]?.IsIdentity === 1;
+
+        if (!tieneIdentity) {
+          console.warn('⚠️ La tabla modulos NO tiene IDENTITY.');
+          console.warn('⚠️ Intentando insertar módulos SIN IDENTITY...');
+          console.warn('⚠️ RECOMENDACIÓN: Ejecuta setup_modulos_identity.sql después');
+        }
+
+        // Intentar sincronizar aunque no tenga IDENTITY
+        {
+          // Sincronizar cada módulo
+          let modulosCreados = 0;
+          for (const nombreModulo of modulosDelSistema) {
+            try {
+              const existeResult = await pool.request()
+                .input('nombre', sql.VarChar, nombreModulo)
+                .query('SELECT id FROM modulos WHERE nombre = @nombre');
+
+              if (existeResult.recordset.length === 0) {
+                // Verificar qué columnas existen en la tabla
+                const columnsResult = await pool.request()
+                  .query(`
+                    SELECT COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'modulos'
+                  `);
+
+                const columnas = columnsResult.recordset.map(r => r.COLUMN_NAME.toLowerCase());
+                const tieneRuta = columnas.includes('ruta');
+                const tieneIcono = columnas.includes('icono');
+
+                // Insertar solo con las columnas que existen
+                if (tieneRuta && tieneIcono) {
+                  await pool.request()
+                    .input('nombre', sql.VarChar, nombreModulo)
+                    .input('descripcion', sql.VarChar, `Módulo: ${nombreModulo}`)
+                    .input('ruta', sql.VarChar, `/${nombreModulo.toLowerCase().replace(/\s+/g, '-')}`)
+                    .input('icono', sql.VarChar, 'extension')
+                    .query(`
+                      INSERT INTO modulos (nombre, descripcion, ruta, icono)
+                      VALUES (@nombre, @descripcion, @ruta, @icono)
+                    `);
+                } else {
+                  // Solo insertar nombre y descripcion
+                  await pool.request()
+                    .input('nombre', sql.VarChar, nombreModulo)
+                    .input('descripcion', sql.VarChar, `Módulo: ${nombreModulo}`)
+                    .query(`
+                      INSERT INTO modulos (nombre, descripcion)
+                      VALUES (@nombre, @descripcion)
+                    `);
+                }
+                modulosCreados++;
+                console.log(`  ✅ Módulo "${nombreModulo}" sincronizado`);
+              }
+            } catch (error) {
+              console.warn(`  ⚠️ Error con módulo "${nombreModulo}":`, error.message);
+            }
+          }
+
+          // Mostrar resumen
+          const totalModulos = await pool.request()
+            .query('SELECT COUNT(*) as total FROM modulos');
+          console.log(`✅ Sincronización completada: ${modulosCreados} módulos nuevos, ${totalModulos.recordset[0].total} módulos totales`);
+        }
+      } catch (syncError) {
+        console.warn('⚠️ Error en sincronización automática de módulos:', syncError.message);
+        console.log('⚠️ Los módulos se sincronizarán en el primer uso');
+      }
+      console.log('===========================================\n');
+
     } catch (dbError) {
       console.error('❌ Error de conexión a BD:', dbError.message);
       console.log('⚠️ El servidor continuará pero algunas funciones pueden fallar');

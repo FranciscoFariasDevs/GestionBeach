@@ -1,18 +1,24 @@
 // backend/controllers/perfilesController.js - VERSIÓN COMPLETA Y FUNCIONAL
 const { sql, poolPromise } = require('../config/db');
 
-// Lista de módulos basada en tu menú lateral
+// Lista de módulos basada en tu menú lateral - SINCRONIZADA CON DASHBOARDLAYOUT
 const modulosDelSistema = [
   'Dashboard',
-  'Estado Resultado', 
+  'Estado Resultado',
   'Monitoreo',
   'Remuneraciones',
   'Inventario',
   'Ventas',
   'Productos',
+  'Supermercados',
+  'Ferreterías',
+  'Multitiendas',
   'Compras',
+  'Centros de Costos',
+  'Facturas XML',
   'Tarjeta Empleado',
   'Empleados',
+  'Cabañas',
   'Usuarios',
   'Perfiles',
   'Módulos',
@@ -83,16 +89,38 @@ const sincronizarModulos = async () => {
           .query('SELECT id FROM modulos WHERE nombre = @nombre');
         
         if (existeResult.recordset.length === 0) {
-          // No existe, crearlo (ahora con IDENTITY)
-          await pool.request()
-            .input('nombre', sql.VarChar, nombreModulo)
-            .input('descripcion', sql.VarChar, `Módulo: ${nombreModulo}`)
-            .input('ruta', sql.VarChar, `/${nombreModulo.toLowerCase().replace(/\s+/g, '-')}`)
-            .input('icono', sql.VarChar, 'extension')
+          // Verificar columnas disponibles
+          const columnsCheck = await pool.request()
             .query(`
-              INSERT INTO modulos (nombre, descripcion, ruta, icono)
-              VALUES (@nombre, @descripcion, @ruta, @icono)
+              SELECT COLUMN_NAME
+              FROM INFORMATION_SCHEMA.COLUMNS
+              WHERE TABLE_NAME = 'modulos'
             `);
+
+          const columnas = columnsCheck.recordset.map(r => r.COLUMN_NAME.toLowerCase());
+          const tieneRuta = columnas.includes('ruta');
+          const tieneIcono = columnas.includes('icono');
+
+          // Insertar con columnas adaptativas
+          if (tieneRuta && tieneIcono) {
+            await pool.request()
+              .input('nombre', sql.VarChar, nombreModulo)
+              .input('descripcion', sql.VarChar, `Módulo: ${nombreModulo}`)
+              .input('ruta', sql.VarChar, `/${nombreModulo.toLowerCase().replace(/\s+/g, '-')}`)
+              .input('icono', sql.VarChar, 'extension')
+              .query(`
+                INSERT INTO modulos (nombre, descripcion, ruta, icono)
+                VALUES (@nombre, @descripcion, @ruta, @icono)
+              `);
+          } else {
+            await pool.request()
+              .input('nombre', sql.VarChar, nombreModulo)
+              .input('descripcion', sql.VarChar, `Módulo: ${nombreModulo}`)
+              .query(`
+                INSERT INTO modulos (nombre, descripcion)
+                VALUES (@nombre, @descripcion)
+              `);
+          }
           console.log(`✅ Módulo "${nombreModulo}" creado`);
         }
       } catch (error) {
@@ -219,40 +247,40 @@ exports.getPerfilById = async (req, res) => {
   }
 };
 
-// CREAR UN NUEVO PERFIL
+// CREAR UN NUEVO PERFIL - VERSIÓN OPTIMIZADA
 exports.createPerfil = async (req, res) => {
   let transaction;
-  
+
   try {
     const { nombre, modulos } = req.body;
-    
+
     console.log('🔄 === CREANDO PERFIL ===');
     console.log('📝 Nombre:', nombre);
-    console.log('📝 Módulos:', modulos);
-    
+    console.log('📝 Módulos recibidos:', modulos);
+
     if (!nombre || nombre.trim() === '') {
-      return res.status(400).json({ 
-        message: 'El nombre del perfil es requerido' 
+      return res.status(400).json({
+        message: 'El nombre del perfil es requerido'
       });
     }
-    
+
     await sincronizarModulos();
-    
+
     const pool = await poolPromise;
-    
+
     // Verificar nombre único
     const checkNombre = await pool.request()
       .input('nombre', sql.VarChar, nombre.trim())
       .query('SELECT id FROM perfiles WHERE nombre = @nombre');
-    
+
     if (checkNombre.recordset.length > 0) {
       return res.status(400).json({ message: 'Ya existe un perfil con ese nombre' });
     }
-    
+
     // Iniciar transacción
     transaction = new sql.Transaction(pool);
     await transaction.begin();
-    
+
     // Crear el perfil
     const insertResult = await transaction.request()
       .input('nombre', sql.VarChar, nombre.trim())
@@ -263,57 +291,77 @@ exports.createPerfil = async (req, res) => {
         VALUES (@nombre, @descripcion, @activo, GETDATE());
         SELECT SCOPE_IDENTITY() AS id;
       `);
-    
+
     const perfilId = insertResult.recordset[0].id;
     console.log(`✅ Perfil creado con ID: ${perfilId}`);
-    
-    // Asignar módulos
+
+    // Asignar módulos - VERSIÓN OPTIMIZADA
     const modulosAsignados = [];
+    const modulosNoEncontrados = [];
+
     if (Array.isArray(modulos) && modulos.length > 0) {
       console.log(`🔄 Asignando ${modulos.length} módulos...`);
-      
-      for (const nombreModulo of modulos) {
-        try {
-          const moduloResult = await transaction.request()
-            .input('nombre', sql.VarChar, nombreModulo.trim())
-            .query('SELECT id FROM modulos WHERE nombre = @nombre');
 
-          if (moduloResult.recordset.length > 0) {
-            const moduloId = moduloResult.recordset[0].id;
-            
-            await transaction.request()
-              .input('perfilId', sql.Int, perfilId)
-              .input('moduloId', sql.Int, moduloId)
-              .query(`
-                INSERT INTO perfil_modulo (perfil_id, modulo_id) 
-                VALUES (@perfilId, @moduloId)
-              `);
-            
-            modulosAsignados.push(nombreModulo);
-            console.log(`✅ Módulo "${nombreModulo}" asignado`);
-          } else {
-            console.warn(`⚠️ Módulo "${nombreModulo}" no encontrado`);
-          }
-        } catch (error) {
-          console.error(`❌ Error con módulo "${nombreModulo}":`, error.message);
+      // Obtener TODOS los módulos de la BD de una vez
+      const todosModulosResult = await pool.request()
+        .query('SELECT id, nombre FROM modulos');
+
+      const modulosMap = {};
+      todosModulosResult.recordset.forEach(m => {
+        modulosMap[m.nombre.trim()] = m.id;
+      });
+
+      console.log(`📊 Módulos disponibles en BD:`, Object.keys(modulosMap));
+
+      // Construir VALUES para INSERT masivo
+      const valuesToInsert = [];
+
+      for (const nombreModulo of modulos) {
+        const nombreTrimmed = nombreModulo.trim();
+        const moduloId = modulosMap[nombreTrimmed];
+
+        if (moduloId) {
+          valuesToInsert.push(`(${perfilId}, ${moduloId})`);
+          modulosAsignados.push(nombreTrimmed);
+          console.log(`✅ Módulo "${nombreTrimmed}" (ID=${moduloId}) preparado`);
+        } else {
+          console.warn(`⚠️ Módulo "${nombreTrimmed}" NO ENCONTRADO`);
+          modulosNoEncontrados.push(nombreTrimmed);
         }
       }
+
+      // INSERT masivo de todos los módulos de una vez
+      if (valuesToInsert.length > 0) {
+        const insertQuery = `
+          INSERT INTO perfil_modulo (perfil_id, modulo_id)
+          VALUES ${valuesToInsert.join(', ')}
+        `;
+
+        await transaction.request().query(insertQuery);
+        console.log(`✅ ${valuesToInsert.length} módulos insertados correctamente`);
+      }
+
+      if (modulosNoEncontrados.length > 0) {
+        console.warn(`⚠️ === MÓDULOS NO ENCONTRADOS (${modulosNoEncontrados.length}) ===`);
+        console.warn(`📋 Lista:`, modulosNoEncontrados);
+      }
     }
-    
+
     // Confirmar transacción
     await transaction.commit();
-    
+
     const resultado = {
       id: perfilId,
       nombre: nombre.trim(),
-      modulos: modulosAsignados
+      modulos: modulosAsignados,
+      totalModulosAsignados: modulosAsignados.length
     };
-    
+
     console.log('✅ === PERFIL CREADO EXITOSAMENTE ===');
-    console.log('📊 Resultado:', resultado);
-    
+    console.log(`📊 Total: ${modulosAsignados.length}/${modulos.length} módulos asignados`);
+
     res.status(201).json(resultado);
-    
+
   } catch (error) {
     // Rollback en caso de error
     if (transaction) {
@@ -324,114 +372,140 @@ exports.createPerfil = async (req, res) => {
         console.error('❌ Error en rollback:', rollbackError.message);
       }
     }
-    
+
     console.error('❌ === ERROR CREANDO PERFIL ===');
     console.error('💥 Error completo:', error);
-    
-    res.status(500).json({ 
-      message: 'Error al crear perfil', 
+
+    res.status(500).json({
+      message: 'Error al crear perfil',
       error: error.message
     });
   }
 };
 
-// ACTUALIZAR UN PERFIL
+// ACTUALIZAR UN PERFIL - VERSIÓN OPTIMIZADA
 exports.updatePerfil = async (req, res) => {
   let transaction;
-  
+
   try {
     const { id } = req.params;
     const { nombre, modulos } = req.body;
-    
+
     console.log('🔄 === ACTUALIZANDO PERFIL ===');
     console.log('📝 ID:', id);
     console.log('📝 Nombre:', nombre);
-    console.log('📝 Módulos:', modulos);
-    
+    console.log('📝 Módulos recibidos:', modulos);
+
     if (!nombre || nombre.trim() === '') {
-      return res.status(400).json({ 
-        message: 'El nombre del perfil es requerido' 
+      return res.status(400).json({
+        message: 'El nombre del perfil es requerido'
       });
     }
-    
+
     const pool = await poolPromise;
-    
+
     // Verificar que el perfil existe
     const checkPerfil = await pool.request()
       .input('id', sql.Int, id)
       .query('SELECT id, nombre FROM perfiles WHERE id = @id');
-    
+
     if (checkPerfil.recordset.length === 0) {
       return res.status(404).json({ message: 'Perfil no encontrado' });
     }
-    
+
     // Verificar nombre único (excepto el mismo perfil)
     const checkNombre = await pool.request()
       .input('nombre', sql.VarChar, nombre.trim())
       .input('id', sql.Int, id)
       .query('SELECT id FROM perfiles WHERE nombre = @nombre AND id != @id');
-    
+
     if (checkNombre.recordset.length > 0) {
       return res.status(400).json({ message: 'Ya existe un perfil con ese nombre' });
     }
-    
+
     // Iniciar transacción
     transaction = new sql.Transaction(pool);
     await transaction.begin();
-    
+
     // Actualizar nombre del perfil
     await transaction.request()
       .input('id', sql.Int, id)
       .input('nombre', sql.VarChar, nombre.trim())
       .query('UPDATE perfiles SET nombre = @nombre WHERE id = @id');
-    
+
     console.log(`✅ Nombre del perfil ${id} actualizado`);
-    
+
     // Eliminar módulos existentes
     await transaction.request()
       .input('perfilId', sql.Int, id)
       .query('DELETE FROM perfil_modulo WHERE perfil_id = @perfilId');
-    
-    console.log(`🗑️ Módulos anteriores eliminados`);
-    
-    // Asignar nuevos módulos
-    const modulosAsignados = [];
-    if (Array.isArray(modulos) && modulos.length > 0) {
-      for (const nombreModulo of modulos) {
-        try {
-          const moduloResult = await transaction.request()
-            .input('nombre', sql.VarChar, nombreModulo.trim())
-            .query('SELECT id FROM modulos WHERE nombre = @nombre');
 
-          if (moduloResult.recordset.length > 0) {
-            const moduloId = moduloResult.recordset[0].id;
-            
-            await transaction.request()
-              .input('perfilId', sql.Int, id)
-              .input('moduloId', sql.Int, moduloId)
-              .query('INSERT INTO perfil_modulo (perfil_id, modulo_id) VALUES (@perfilId, @moduloId)');
-            
-            modulosAsignados.push(nombreModulo);
-            console.log(`✅ Módulo "${nombreModulo}" reasignado`);
-          } else {
-            console.warn(`⚠️ Módulo "${nombreModulo}" no encontrado`);
-          }
-        } catch (error) {
-          console.error(`❌ Error reasignando módulo "${nombreModulo}":`, error.message);
+    console.log(`🗑️ Módulos anteriores eliminados`);
+
+    // Asignar nuevos módulos - VERSIÓN OPTIMIZADA
+    const modulosAsignados = [];
+    const modulosNoEncontrados = [];
+
+    if (Array.isArray(modulos) && modulos.length > 0) {
+      console.log(`🔄 Reasignando ${modulos.length} módulos...`);
+
+      // Obtener TODOS los módulos de la BD de una vez
+      const todosModulosResult = await pool.request()
+        .query('SELECT id, nombre FROM modulos');
+
+      const modulosMap = {};
+      todosModulosResult.recordset.forEach(m => {
+        modulosMap[m.nombre.trim()] = m.id;
+      });
+
+      console.log(`📊 Módulos disponibles en BD:`, Object.keys(modulosMap));
+
+      // Construir VALUES para INSERT masivo
+      const valuesToInsert = [];
+
+      for (const nombreModulo of modulos) {
+        const nombreTrimmed = nombreModulo.trim();
+        const moduloId = modulosMap[nombreTrimmed];
+
+        if (moduloId) {
+          valuesToInsert.push(`(${id}, ${moduloId})`);
+          modulosAsignados.push(nombreTrimmed);
+          console.log(`✅ Módulo "${nombreTrimmed}" (ID=${moduloId}) preparado`);
+        } else {
+          console.warn(`⚠️ Módulo "${nombreTrimmed}" NO ENCONTRADO`);
+          modulosNoEncontrados.push(nombreTrimmed);
         }
+      }
+
+      // INSERT masivo de todos los módulos de una vez
+      if (valuesToInsert.length > 0) {
+        const insertQuery = `
+          INSERT INTO perfil_modulo (perfil_id, modulo_id)
+          VALUES ${valuesToInsert.join(', ')}
+        `;
+
+        await transaction.request().query(insertQuery);
+        console.log(`✅ ${valuesToInsert.length} módulos insertados correctamente`);
+      }
+
+      if (modulosNoEncontrados.length > 0) {
+        console.warn(`⚠️ === MÓDULOS NO ENCONTRADOS (${modulosNoEncontrados.length}) ===`);
+        console.warn(`📋 Lista:`, modulosNoEncontrados);
       }
     }
     
     // Confirmar transacción
     await transaction.commit();
-    
+
     const resultado = {
       id: parseInt(id),
       nombre: nombre.trim(),
-      modulos: modulosAsignados
+      modulos: modulosAsignados,
+      totalModulosAsignados: modulosAsignados.length
     };
-    
+
     console.log('✅ === PERFIL ACTUALIZADO EXITOSAMENTE ===');
+    console.log(`📊 Total: ${modulosAsignados.length}/${modulos.length} módulos asignados`);
     res.status(200).json(resultado);
     
   } catch (error) {
@@ -519,6 +593,42 @@ exports.deletePerfil = async (req, res) => {
     res.status(500).json({ 
       message: 'Error al eliminar perfil', 
       error: error.message 
+    });
+  }
+};
+
+// ENDPOINT PARA SINCRONIZACIÓN MANUAL DE MÓDULOS
+exports.sincronizarModulos = async (req, res) => {
+  try {
+    console.log('🔄 === SINCRONIZACIÓN MANUAL DE MÓDULOS SOLICITADA ===');
+
+    const resultado = await sincronizarModulos();
+
+    if (resultado) {
+      const pool = await poolPromise;
+      const modulosResult = await pool.request()
+        .query('SELECT COUNT(*) as total FROM modulos');
+
+      const total = modulosResult.recordset[0].total;
+
+      res.status(200).json({
+        success: true,
+        message: 'Módulos sincronizados correctamente',
+        totalModulos: total,
+        modulosSistema: modulosDelSistema.length
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Error al sincronizar módulos. Verifica que la tabla modulos tenga IDENTITY configurado.'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error en sincronización manual:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al sincronizar módulos',
+      error: error.message
     });
   }
 };
