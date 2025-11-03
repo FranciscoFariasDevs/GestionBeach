@@ -142,7 +142,6 @@ export const PERMISSIONS_BY_PROFILE = {
   encargada_turno_lord: {
     // Encargada de Turno Lord: Ventas y productos
     modules: [
-      MODULES.DASHBOARD,
       MODULES.VENTAS,
       MODULES.PRODUCTOS,
       MODULES.SUPERMERCADOS,

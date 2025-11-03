@@ -6,46 +6,60 @@ exports.getSucursales = async (req, res) => {
   try {
     // Obtener usuario desde token JWT
     const userId = req.user.id;
+    const username = req.user.username;
 
-    console.log(`🔍 Obteniendo sucursales para usuario ID: ${userId}`);
+    console.log(`🔍 Obteniendo sucursales para usuario: ${username} (ID: ${userId})`);
 
     // Obtener pool de conexión
     const pool = await poolPromise;
 
-    // OPCIÓN 1: Buscar sucursales basadas en el perfil del usuario
-    try {
-      const result = await pool.request()
-        .input('userId', sql.Int, userId)
-        .query(`
-          SELECT DISTINCT s.id, s.nombre, s.tipo_sucursal, s.ip, s.base_datos
-          FROM usuarios u
-          INNER JOIN perfiles p ON u.perfil_id = p.id
-          INNER JOIN perfil_sucursal ps ON ps.perfil_id = p.id
-          INNER JOIN sucursales s ON ps.sucursal_id = s.id
-          WHERE u.id = @userId
-          ORDER BY s.nombre
-        `);
-
-      if (result.recordset.length > 0) {
-        console.log(`✅ Usuario tiene ${result.recordset.length} sucursales asignadas por perfil`);
-        return res.json(result.recordset);
-      } else {
-        console.log(`⚠️ Usuario no tiene sucursales asignadas en su perfil`);
-      }
-    } catch (perfilError) {
-      console.log('⚠️ Error obteniendo sucursales por perfil:', perfilError.message);
-    }
-
-    // OPCIÓN 2: Fallback - TODAS las sucursales (para usuarios sin perfil o superadmin)
-    const fallbackResult = await pool.request()
+    // Primero obtener el perfil del usuario
+    const userResult = await pool.request()
+      .input('userId', sql.Int, userId)
       .query(`
-        SELECT id, nombre, tipo_sucursal, ip, base_datos
-        FROM sucursales
-        ORDER BY nombre
+        SELECT u.perfil_id, p.nombre as perfil_nombre
+        FROM usuarios u
+        LEFT JOIN perfiles p ON u.perfil_id = p.id
+        WHERE u.id = @userId
       `);
 
-    console.log(`✅ Fallback: Devolviendo todas las sucursales (${fallbackResult.recordset.length})`);
-    return res.json(fallbackResult.recordset);
+    const perfilId = userResult.recordset[0]?.perfil_id;
+    const perfilNombre = userResult.recordset[0]?.perfil_nombre;
+
+    console.log(`👤 Usuario tiene perfil_id: ${perfilId} (${perfilNombre})`);
+
+    // SUPER ADMIN (10) y ADMINISTRADOR (16) ven TODAS las sucursales
+    if (perfilId === 10 || perfilId === 16 || username === 'NOVLUI') {
+      console.log('🔓 Usuario con acceso total - Devolviendo TODAS las sucursales');
+      const allResult = await pool.request()
+        .query(`
+          SELECT id, nombre, tipo_sucursal, ip, base_datos
+          FROM sucursales
+          ORDER BY nombre
+        `);
+
+      console.log(`✅ Total sucursales: ${allResult.recordset.length}`);
+      return res.json(allResult.recordset);
+    }
+
+    // OTROS PERFILES: Buscar sucursales basadas en el perfil
+    const result = await pool.request()
+      .input('perfilId', sql.Int, perfilId)
+      .query(`
+        SELECT DISTINCT s.id, s.nombre, s.tipo_sucursal, s.ip, s.base_datos
+        FROM perfil_sucursal ps
+        INNER JOIN sucursales s ON ps.sucursal_id = s.id
+        WHERE ps.perfil_id = @perfilId
+        ORDER BY s.nombre
+      `);
+
+    if (result.recordset.length > 0) {
+      console.log(`✅ Usuario tiene ${result.recordset.length} sucursales asignadas por perfil`);
+      return res.json(result.recordset);
+    } else {
+      console.log(`⚠️ Usuario no tiene sucursales asignadas - Devolviendo array vacío`);
+      return res.json([]);
+    }
 
   } catch (error) {
     console.error('❌ Error al obtener sucursales:', error);

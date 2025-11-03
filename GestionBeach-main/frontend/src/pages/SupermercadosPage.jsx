@@ -524,20 +524,17 @@ const SupermercadosPage = () => {
     </TableContainer>
   );
 
-  if (isLoading && productsData.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-        <Stack alignItems="center" spacing={2}>
-          <CircularProgress size={60} />
-          <Typography variant="h6">Cargando datos...</Typography>
-        </Stack>
-      </Box>
-    );
-  }
-
   return (
     <Box sx={{ flexGrow: 1, p: 2 }}>
-      {isLoading && <LinearProgress sx={{ width: '100%', mb: 2 }} />}
+      {isLoading && productsData.length === 0 && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+          <Stack alignItems="center" spacing={2}>
+            <CircularProgress size={60} />
+            <Typography variant="h6">Cargando datos...</Typography>
+          </Stack>
+        </Box>
+      )}
+      {isLoading && productsData.length > 0 && <LinearProgress sx={{ width: '100%', mb: 2 }} />}
       
       {/* Alert de errores */}
       {error && (
@@ -848,7 +845,16 @@ const SupermercadosPage = () => {
           </Stack>
 
           {/* Contenido según vista */}
-          {productsData.length > 0 ? (
+          {!selectedSucursal ? (
+            <Box sx={{ textAlign: 'center', py: 8 }}>
+              <Typography variant="h5" color="text.secondary" sx={{ mb: 2 }}>
+                Selecciona una sucursal para ver los datos
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Usa el selector de sucursal arriba para comenzar
+              </Typography>
+            </Box>
+          ) : productsData.length > 0 ? (
             <>
               {viewType === 'cards' && (
                 <Box>

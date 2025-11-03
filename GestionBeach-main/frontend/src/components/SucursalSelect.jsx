@@ -81,14 +81,6 @@ export default function SucursalSelect({
     );
   }
 
-  if (sucursales.length === 0) {
-    return (
-      <Alert severity="warning" sx={sx}>
-        No tienes sucursales asignadas. Contacta al administrador.
-      </Alert>
-    );
-  }
-
   return (
     <FormControl fullWidth={fullWidth} required={required} sx={sx}>
       <InputLabel>{label}</InputLabel>
@@ -96,16 +88,27 @@ export default function SucursalSelect({
         value={value || ''}
         onChange={onChange}
         label={label}
-        disabled={disabled || sucursales.length === 1}
+        disabled={disabled || sucursales.length === 0}
       >
-        {sucursales.map((sucursal) => (
-          <MenuItem key={sucursal.id} value={sucursal.id}>
-            {sucursal.nombre} - {sucursal.tipo_sucursal}
+        {sucursales.length === 0 ? (
+          <MenuItem value="" disabled>
+            No tienes sucursales asignadas
           </MenuItem>
-        ))}
+        ) : (
+          sucursales.map((sucursal) => (
+            <MenuItem key={sucursal.id} value={sucursal.id}>
+              {sucursal.nombre} - {sucursal.tipo_sucursal}
+            </MenuItem>
+          ))
+        )}
       </Select>
+      {sucursales.length === 0 && (
+        <Alert severity="warning" sx={{ mt: 1, fontSize: '0.75rem' }}>
+          No tienes sucursales asignadas. Contacta al administrador.
+        </Alert>
+      )}
       {sucursales.length === 1 && (
-        <Alert severity="info" sx={{ mt: 1 }}>
+        <Alert severity="info" sx={{ mt: 1, fontSize: '0.75rem' }}>
           Solo tienes acceso a una sucursal
         </Alert>
       )}
