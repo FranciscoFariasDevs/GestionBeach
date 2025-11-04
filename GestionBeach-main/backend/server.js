@@ -21,7 +21,8 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:3000',           
-  'http://192.168.100.150:3000',        
+  'http://192.168.100.150:3000',    
+  'http://190.102.248.163',
   'https://intranet.beach.cl',
   'https://reservas.beach.cl',         
   'https://api.beach.cl'              // ⬅️ importante: tu nuevo subdominio backend

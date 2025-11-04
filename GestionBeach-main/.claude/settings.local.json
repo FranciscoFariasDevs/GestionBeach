@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\GestionBeach-main\\frontend\\src\\images\" /b)",
+      "Bash(git config:*)",
+      "Bash(del \"frontend\\nul\" 2)",
+      "Bash(NUL)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(del NUL 2)",
+      "Bash(nul)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

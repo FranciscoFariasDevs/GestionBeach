@@ -9,7 +9,12 @@
       "Bash(npm run build:*)",
       "Bash(npm install:*)",
       "Bash(git checkout:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(npx rimraf node_modules)",
+      "Bash(tasklist:*)",
+      "Bash(chmod:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

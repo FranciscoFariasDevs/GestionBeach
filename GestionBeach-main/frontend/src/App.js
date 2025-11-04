@@ -26,6 +26,7 @@ import ConcursoPiscinasPage from './pages/ConcursoPiscinasPage'; // 🆕 NUEVO
 import ReservaCabanasPage from './pages/ReservaCabanasPage'; // 🏡 NUEVO - Mapa de Cabañas
 import NotFoundPage from './pages/NotFoundPage';
 import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema de Cabañas
+import SorteoConcursoPage from './pages/SorteoConcursoPage'; // 🎲 SORTEO DEL CONCURSO
 
 // ========================================
 // PAGES - PRIVADAS
@@ -83,6 +84,9 @@ function App() {
 
                 {/* 🏡 MAPA DE RESERVA DE CABAÑAS - RUTA PÚBLICA */}
                 <Route path="/reserva-cabanas" element={<ReservaCabanasPage />} />
+
+                {/* 🎲 SORTEO DEL CONCURSO - RUTA PÚBLICA */}
+                <Route path="/sorteo-concurso" element={<SorteoConcursoPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS - INTRANET                  */}
@@ -316,6 +320,7 @@ function App() {
                       </ProtectedRoute>
                     }
                   />
+
                 </Route>
 
                 {/* ========================================== */}
