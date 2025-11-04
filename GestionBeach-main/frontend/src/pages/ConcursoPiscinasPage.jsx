@@ -47,8 +47,7 @@ import api from '../api/api';
 import fondoImage from '../images/aqua.png';
 import logoIntro from '../images/logo.jpg';
 import estrellaIcon from '../images/estrella.png';
-import piscinaImg from '../images/piscina.jpg';
-import piscina2Img from '../images/piscina2.png';
+import beachPiscinaImg from '../images/beach piscina.png';
 
 // Animaciones profesionales
 const float = keyframes`
@@ -652,55 +651,6 @@ const ConcursoPiscinasPage = () => {
         />
       ))}
 
-      {/* Imágenes de piscina - Solo visible en desktop */}
-      <Box
-        sx={{
-          display: { xs: 'none', md: 'block' },
-        }}
-      >
-        <Box
-          component="img"
-          src={piscinaImg}
-          alt="Piscina 1"
-          sx={{
-            position: 'fixed',
-            right: { md: 40 },
-            top: '35%',
-            transform: 'translateY(-50%)',
-            width: { md: '250px', lg: '280px' },
-            height: 'auto',
-            opacity: 0.95,
-            zIndex: 1,
-            animation: `${float} 8s ease-in-out infinite`,
-            pointerEvents: 'none',
-            borderRadius: '24px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
-            border: '4px solid white',
-          }}
-        />
-
-        <Box
-          component="img"
-          src={piscina2Img}
-          alt="Piscina 2"
-          sx={{
-            position: 'fixed',
-            right: { md: 40 },
-            top: '65%',
-            transform: 'translateY(-50%)',
-            width: { md: '250px', lg: '280px' },
-            height: 'auto',
-            opacity: 0.95,
-            zIndex: 1,
-            animation: `${float2} 7s ease-in-out infinite`,
-            pointerEvents: 'none',
-            borderRadius: '24px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
-            border: '4px solid white',
-          }}
-        />
-      </Box>
-
       <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 2 }}>
         {/* Header profesional */}
         <Fade in timeout={800}>
@@ -737,8 +687,8 @@ const ConcursoPiscinasPage = () => {
                 src={estrellaIcon}
                 alt="Estrella"
                 sx={{
-                  width: 80,
-                  height: 80,
+                  width: 100,
+                  height: 100,
                   filter: 'drop-shadow(0 4px 12px rgba(255, 215, 0, 0.6))',
                 }}
               />
@@ -748,7 +698,7 @@ const ConcursoPiscinasPage = () => {
             <Typography
               variant="h1"
               sx={{
-                fontWeight: 900,
+                fontWeight: 990,
                 color: 'white',
                 mb: 0.5,
                 fontSize: { xs: '1.8rem', md: '2.5rem' },
@@ -766,7 +716,7 @@ const ConcursoPiscinasPage = () => {
             <Typography
               variant="h2"
               sx={{
-                fontWeight: 900,
+                fontWeight: 950,
                 background: 'linear-gradient(135deg, #FFFFFF 0%, #FFD700 100%)',
                 backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
@@ -811,9 +761,9 @@ const ConcursoPiscinasPage = () => {
           </Box>
         </Fade>
 
-        <Grid container spacing={2} justifyContent="flex-start">
+        <Grid container spacing={2} justifyContent="flex-start" alignItems="flex-start" sx={{ maxWidth: '100%' }}>
           {/* Formulario principal */}
-          <Grid item xs={12} sm={10} md={6} lg={5}>
+          <Grid item xs={12} sm={8} md={8} lg={7.5} xl={7.5} sx={{ order: { xs: 2, sm: 1 } }}>
             <Zoom in timeout={1000}>
               <Card
                 sx={{
@@ -1649,15 +1599,15 @@ const ConcursoPiscinasPage = () => {
             </Zoom>
           </Grid>
 
-          {/* Panel de Premios e Instrucciones - Debajo del formulario */}
-          <Grid item xs={12} sm={10} md={6} lg={5}>
+          {/* Panel de Premios e Instrucciones */}
+          <Grid item xs={12} sm={4} md={4} lg={4} xl={4} sx={{ order: { xs: 1, sm: 2 } }}>
             {/* Card de Premios */}
             <Zoom in timeout={1200}>
               <Card
                 sx={{
                   background: 'white',
-                  borderRadius: 2,
-                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+                  borderRadius: { xs: 2, sm: 2 },
+                  boxShadow: '0 8px 20px rgba(0, 0, 0, 0.12)',
                   mb: 2,
                   transition: 'all 0.3s ease',
                   position: 'relative',
@@ -1668,96 +1618,181 @@ const ConcursoPiscinasPage = () => {
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: '3px',
-                    background: 'linear-gradient(90deg, #FFD700 0%, #FF6B35 100%)',
+                    height: { xs: '3px', sm: '4px' },
+                    background: 'linear-gradient(90deg, #FFD700 0%, #FF6B35 50%, #FFD700 100%)',
+                    backgroundSize: '200% auto',
+                    animation: `${shimmer} 3s linear infinite`,
                   },
                   '&:hover': {
                     transform: 'translateY(-2px)',
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.15)',
+                    boxShadow: '0 12px 28px rgba(255, 215, 0, 0.25)',
                   }
                 }}
               >
-                <CardContent sx={{ p: 2 }}>
-                  <Box sx={{ textAlign: 'center', mb: 2 }}>
+                <CardContent sx={{ p: { xs: 2, sm: 1.5, md: 2 } }}>
+                  {/* Header del premio - Llamativo */}
+                  <Box sx={{ textAlign: 'center', mb: { xs: 1.5, sm: 1, md: 1.2 } }}>
                     <Avatar
                       sx={{
-                        width: 50,
-                        height: 50,
+                        width: { xs: 50, sm: 50, md: 55, lg: 60 },
+                        height: { xs: 50, sm: 50, md: 55, lg: 60 },
                         mx: 'auto',
-                        mb: 1,
-                        bgcolor: '#FFF5F0',
-                        border: '3px solid #FFD700',
-                        boxShadow: '0 4px 12px rgba(255, 215, 0, 0.3)',
+                        mb: { xs: 1, sm: 0.8, md: 1 },
+                        bgcolor: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                        border: { xs: '3px solid #FFD700', sm: '3px solid #FFD700' },
+                        boxShadow: '0 4px 12px rgba(255, 215, 0, 0.5)',
+                        animation: `${pulse} 2s ease-in-out infinite`,
                       }}
                     >
                       <TrophyIcon
                         sx={{
-                          fontSize: 30,
-                          color: '#FF6B35',
+                          fontSize: { xs: 28, sm: 28, md: 30, lg: 32 },
+                          color: 'white',
+                          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
                         }}
                       />
                     </Avatar>
-                    <Typography variant="h6" sx={{ fontWeight: 800, color: '#FF6B35', fontSize: '1.1rem' }}>
-                      PREMIO
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 900,
+                        background: 'linear-gradient(135deg, #FF6B35 0%, #FFD700 100%)',
+                        backgroundClip: 'text',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        fontSize: { xs: '1.1rem', sm: '1rem', md: '1.1rem', lg: '1.2rem' },
+                        mb: { xs: 0.5, sm: 0.3, md: 0.5 },
+                        letterSpacing: '0.5px',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      🏆 GRAN PREMIO 🏆
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: 700,
+                        color: '#333',
+                        fontSize: { xs: '0.85rem', sm: '0.85rem', md: '0.9rem', lg: '0.95rem' },
+                        lineHeight: 1.2,
+                        mb: { xs: 0.2, sm: 0.2 },
+                      }}
+                    >
+                      Piscina Bestway Power Steel
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 600,
+                        color: '#666',
+                        fontSize: { xs: '0.75rem', sm: '0.75rem', md: '0.8rem' },
+                        display: 'block',
+                      }}
+                    >
+                      640 x 274 x 132 cm
                     </Typography>
                   </Box>
 
-                  <List sx={{ pt: 0 }}>
-                    <ListItem
-                      sx={{
-                        borderRadius: 2,
-                        mb: 1,
-                        bgcolor: '#FFFBEA',
+                  {/* Imagen del premio - LLAMATIVA */}
+                  <Box
+                    sx={{
+                      position: 'relative',
+                      width: '100%',
+                      borderRadius: { xs: 2, sm: 2 },
+                      overflow: 'hidden',
+                      boxShadow: '0 6px 16px rgba(0, 0, 0, 0.15)',
+                      border: { xs: '3px solid #FFD700', sm: '3px solid #FFD700' },
+                      mb: { xs: 1.5, sm: 1, md: 1.2 },
+                      background: 'linear-gradient(135deg, #E3F9FF 0%, #B3E5FC 100%)',
+                      animation: `${scaleIn} 0.6s ease-out`,
+                      maxHeight: { xs: '100', sm: '200px', md: '420px', lg: '540px' },
+                      '&:hover': {
+                        transform: 'scale(1.03)',
+                        boxShadow: '0 10px 24px rgba(255, 215, 0, 0.4)',
                         transition: 'all 0.3s ease',
-                        border: '2px solid #FFD70020',
-                        py: 1,
-                        '&:hover': {
-                          transform: 'translateX(4px)',
-                          boxShadow: '0 2px 8px #FFD70040',
-                        }
+                      }
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={beachPiscinaImg}
+                      alt="Piscina Bestway Power Steel - Premio del Concurso"
+                      sx={{
+                        width: '100%',
+                        height: { xs: 'auto', sm: '200px', md: '320px', lg: '440px' },
+                        display: 'block',
+                        objectFit: 'cover',
+                        objectPosition: 'center',
+                      }}
+                    />
+                    {/* Badge decorativo - Más visible */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: { xs: 8, sm: 8, md: 10 },
+                        right: { xs: 8, sm: 8, md: 10 },
+                        bgcolor: '#FFD700',
+                        color: '#333',
+                        px: { xs: 1.5, sm: 1.2, md: 1.5 },
+                        py: { xs: 0.5, sm: 0.4, md: 0.5 },
+                        borderRadius: 50,
+                        fontWeight: 900,
+                        fontSize: { xs: '0.75rem', sm: '0.7rem', md: '0.75rem' },
+                        boxShadow: '0 3px 10px rgba(255, 215, 0, 0.6)',
+                        border: '2px solid white',
+                        animation: `${bounce} 2s ease-in-out infinite`,
                       }}
                     >
-                      <ListItemAvatar>
-                        <Avatar
-                          sx={{
-                            bgcolor: '#FFD700',
-                            fontWeight: 800,
-                            width: 35,
-                            height: 35,
-                            fontSize: '0.9rem',
-                            boxShadow: '0 2px 8px #FFD70060',
-                          }}
-                        >
-                          🏆
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary="Gran Premio"
-                        secondary="Piscina bestway power steel 640 x 274 x 132 cm"
-                        primaryTypographyProps={{
-                          fontWeight: 800,
-                          color: '#333',
-                          fontSize: '0.95rem',
-                        }}
-                        secondaryTypographyProps={{
-                          color: '#666',
-                          fontWeight: 600,
-                          fontSize: '0.8rem',
-                        }}
-                      />
-                    </ListItem>
-                  </List>
+                      ¡PREMIO!
+                    </Box>
+                  </Box>
+
+                  {/* Información destacada - Llamativa */}
+                  <Box
+                    sx={{
+                      p: { xs: 1.5, sm: 1, md: 1.2 },
+                      background: 'linear-gradient(135deg, #FFFBEA 0%, #FFF5E1 100%)',
+                      borderRadius: 2,
+                      border: '3px solid #FFD700',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <Typography
+                      variant="body1"
+                      sx={{
+                        fontWeight: 900,
+                        color: '#FF6B35',
+                        fontSize: { xs: '0.85rem', sm: '0.85rem', md: '0.9rem', lg: '0.95rem' },
+                        mb: { xs: 0.3, sm: 0.2 },
+                        display: 'block',
+                      }}
+                    >
+                      ✨ Valor: $1.500.000 ✨
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 600,
+                        color: '#666',
+                        fontSize: { xs: '0.75rem', sm: '0.72rem', md: '0.75rem' },
+                        display: 'block',
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      Incluye bomba, escalera y cubierta
+                    </Typography>
+                  </Box>
                 </CardContent>
               </Card>
             </Zoom>
 
-            {/* Card de Requisitos */}
+            {/* Card de Requisitos - Compacto */}
             <Zoom in timeout={1400}>
               <Card
                 sx={{
                   background: 'white',
                   borderRadius: 2,
-                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+                  boxShadow: '0 6px 16px rgba(0, 0, 0, 0.1)',
                   transition: 'all 0.3s ease',
                   position: 'relative',
                   overflow: 'hidden',
@@ -1767,76 +1802,77 @@ const ConcursoPiscinasPage = () => {
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: '3px',
+                    height: { xs: '5px', sm: '5px' },
                     background: 'linear-gradient(90deg, #00D4FF 0%, #4CAF50 100%)',
                   },
                   '&:hover': {
                     transform: 'translateY(-2px)',
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.15)',
+                    boxShadow: '0 8px 20px rgba(0, 0, 0, 0.12)',
                   }
                 }}
               >
-                <CardContent sx={{ p: 2 }}>
-                  <Box sx={{ textAlign: 'center', mb: 1.5 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 800, color: '#00D4FF', fontSize: '1rem' }}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 1, md: 1.2 } }}>
+                  <Box sx={{ textAlign: 'center', mb: { xs: 1, sm: 0.4, md: 0.5 } }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#00D4FF', fontSize: { xs: '0.9rem', sm: '0.75rem', md: '0.8rem' } }}>
                       ✅ REQUISITOS
                     </Typography>
                   </Box>
-                  
-                  <List sx={{ pt: 0 }}>
-                    <ListItem sx={{ px: 0, py: 0.5 }}>
-                      <Typography variant="body2" sx={{ color: '#333', fontWeight: 600, fontSize: '0.8rem' }}>
-                        ✓ Compra mínima de <strong style={{ color: '#FF6B35' }}>$5.000</strong>
+
+                  <List dense sx={{ pt: 0, pb: 0 }}>
+                    <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
+                      <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
+                        ✓ Mínimo <strong style={{ color: '#FF6B35' }}>$5.000</strong>
                       </Typography>
                     </ListItem>
-                    <Divider />
-                    <ListItem sx={{ px: 0, py: 0.5 }}>
-                      <Typography variant="body2" sx={{ color: '#333', fontWeight: 600, fontSize: '0.8rem' }}>
-                        ✓ Fecha desde <strong style={{ color: '#00D4FF' }}>08-10-2025</strong>
+                    <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
+                    <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
+                      <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
+                        ✓ Desde <strong style={{ color: '#00D4FF' }}>08-10-25</strong>
                       </Typography>
                     </ListItem>
-                    <Divider />
-                    <ListItem sx={{ px: 0, py: 0.5 }}>
-                      <Typography variant="body2" sx={{ color: '#333', fontWeight: 600, fontSize: '0.8rem' }}>
-                        ✓ Una participación por boleta
+                    <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
+                    <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
+                      <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
+                        ✓ Una por boleta
                       </Typography>
                     </ListItem>
-                    <Divider />
-                    <ListItem sx={{ px: 0, py: 0.5 }}>
-                      <Typography variant="body2" sx={{ color: '#333', fontWeight: 600, fontSize: '0.8rem' }}>
-                        ✓ Múltiples boletas permitidas
+                    <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
+                    <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
+                      <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
+                        ✓ Múltiples boletas OK
                       </Typography>
                     </ListItem>
-                    <Divider />
-                    <ListItem sx={{ px: 0, py: 0.5 }}>
-                      <Typography variant="body2" sx={{ color: '#333', fontWeight: 600, fontSize: '0.8rem' }}>
-                        ✓ Imagen clara y legible
+                    <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
+                    <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
+                      <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
+                        ✓ Imagen legible
                       </Typography>
                     </ListItem>
                   </List>
 
                   <Box
                     sx={{
-                      mt: 1.5,
-                      p: 1.5,
+                      mt: { xs: 1, sm: 0.5 },
+                      p: { xs: 1, sm: 0.5, md: 0.6 },
                       bgcolor: '#FFF5F0',
-                      borderRadius: 2,
+                      borderRadius: 1.5,
                       border: '2px solid #FF6B35',
                     }}
                   >
                     <Typography
-                      variant="body2"
+                      variant="caption"
                       sx={{
                         fontWeight: 700,
                         color: '#FF6B35',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 0.5,
-                        fontSize: '0.85rem',
+                        justifyContent: 'center',
+                        gap: 0.3,
+                        fontSize: { xs: '0.8rem', sm: '0.68rem', md: '0.7rem' },
                       }}
                     >
-                      <span style={{ fontSize: '1.2rem' }}>🏊</span>
-                      ¡Suerte en el sorteo!
+                      <Box component="span" sx={{ fontSize: { xs: '1rem', sm: '0.85rem' } }}>🏊</Box>
+                      ¡Suerte!
                     </Typography>
                   </Box>
                 </CardContent>
@@ -1844,47 +1880,6 @@ const ConcursoPiscinasPage = () => {
             </Zoom>
           </Grid>
         </Grid>
-
-        {/* Imágenes de piscina - Solo visible en móvil, al final del contenido */}
-        <Box
-          sx={{
-            display: { xs: 'flex', md: 'none' },
-            gap: 2,
-            mt: 4,
-            justifyContent: 'center',
-            flexWrap: 'nowrap',
-            overflow: 'visible',
-          }}
-        >
-          <Box
-            component="img"
-            src={piscinaImg}
-            alt="Piscina 1"
-            sx={{
-              width: { xs: '48%', sm: '40%' },
-              maxWidth: '250px',
-              height: 'auto',
-              borderRadius: '24px',
-              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
-              border: '3px solid white',
-              animation: `${float} 8s ease-in-out infinite`,
-            }}
-          />
-          <Box
-            component="img"
-            src={piscina2Img}
-            alt="Piscina 2"
-            sx={{
-              width: { xs: '48%', sm: '40%' },
-              maxWidth: '250px',
-              height: 'auto',
-              borderRadius: '24px',
-              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
-              border: '3px solid white',
-              animation: `${float2} 7s ease-in-out infinite`,
-            }}
-          />
-        </Box>
       </Container>
     </Box>
     </>

@@ -669,6 +669,98 @@ exports.verificarBoleta = async (req, res) => {
   }
 };
 
+// Obtener participantes para sorteo (solo activos y válidos)
+exports.obtenerParticipantesSorteo = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    const resultado = await pool.request()
+      .query(`
+        SELECT
+          id,
+          nombres,
+          apellidos,
+          rut,
+          email,
+          telefono,
+          numero_boleta,
+          fecha_participacion
+        FROM dbo.participaciones_concurso
+        WHERE estado = 'activo'
+          AND boleta_valida = 1
+          AND (ganador IS NULL OR ganador = 0)
+        ORDER BY fecha_participacion ASC
+      `);
+
+    return res.json({
+      success: true,
+      total: resultado.recordset.length,
+      participantes: resultado.recordset
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener participantes para sorteo:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener participantes',
+      error: error.message
+    });
+  }
+};
+
+// Marcar ganador del sorteo
+exports.marcarGanador = async (req, res) => {
+  try {
+    const { participante_id, premio } = req.body;
+
+    if (!participante_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de participante requerido'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Actualizar ganador
+    const resultado = await pool.request()
+      .input('id', sql.Int, participante_id)
+      .input('premio', sql.VarChar, premio || 'Gran Premio')
+      .query(`
+        UPDATE dbo.participaciones_concurso
+        SET ganador = 1,
+            premio = @premio,
+            fecha_sorteo = GETDATE()
+        WHERE id = @id
+      `);
+
+    // Obtener datos del ganador
+    const ganador = await pool.request()
+      .input('id', sql.Int, participante_id)
+      .query(`
+        SELECT nombres, apellidos, email, numero_boleta, premio
+        FROM dbo.participaciones_concurso
+        WHERE id = @id
+      `);
+
+    console.log(`🎉 GANADOR REGISTRADO: ${ganador.recordset[0].nombres} ${ganador.recordset[0].apellidos}`);
+
+    return res.json({
+      success: true,
+      message: 'Ganador registrado exitosamente',
+      ganador: ganador.recordset[0]
+    });
+
+  } catch (error) {
+    console.error('❌ Error al marcar ganador:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al marcar ganador',
+      error: error.message
+    });
+  }
+};
+
 // Test endpoint
 exports.testConcurso = (req, res) => {
   res.json({

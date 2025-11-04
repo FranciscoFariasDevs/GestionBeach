@@ -34,10 +34,10 @@ router.get('/estadisticas', concursoPiscinasController.obtenerEstadisticas);
 // Si quieres proteger esta ruta, agrega verifyToken como middleware
 router.get('/participaciones', concursoPiscinasController.obtenerParticipaciones);
 
-// Podrías agregar más rutas administrativas como:
-// - Seleccionar ganadores
-// - Actualizar estado de participaciones
-// - Eliminar participaciones
-// - Exportar datos
+// Obtener participantes para sorteo (activos y válidos)
+router.get('/sorteo/participantes', concursoPiscinasController.obtenerParticipantesSorteo);
+
+// Marcar ganador del sorteo
+router.post('/sorteo/ganador', concursoPiscinasController.marcarGanador);
 
 module.exports = router;
