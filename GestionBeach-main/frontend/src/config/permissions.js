@@ -10,9 +10,6 @@ export const MODULES = {
   INVENTARIO: 'inventario',
   VENTAS: 'ventas',
   PRODUCTOS: 'productos',
-  SUPERMERCADOS: 'productos/supermercados',
-  FERRETERIAS: 'productos/ferreterias',
-  MULTITIENDAS: 'productos/multitiendas',
   COMPRAS: 'compras',
   CENTROS_COSTOS: 'compras/centros-costos',
   FACTURAS_XML: 'compras/facturas-xml',
@@ -71,9 +68,6 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.INVENTARIO,
       MODULES.VENTAS,
       MODULES.PRODUCTOS,
-      MODULES.SUPERMERCADOS,
-      MODULES.FERRETERIAS,
-      MODULES.MULTITIENDAS,
       MODULES.COMPRAS,
       MODULES.CENTROS_COSTOS,
       MODULES.FACTURAS_XML,
@@ -120,9 +114,6 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.VENTAS,
       MODULES.INVENTARIO,
       MODULES.PRODUCTOS,
-      MODULES.SUPERMERCADOS,
-      MODULES.FERRETERIAS,
-      MODULES.MULTITIENDAS,
       MODULES.MONITOREO,
       MODULES.CABANAS,
       MODULES.CORREO
@@ -144,7 +135,6 @@ export const PERMISSIONS_BY_PROFILE = {
     modules: [
       MODULES.VENTAS,
       MODULES.PRODUCTOS,
-      MODULES.SUPERMERCADOS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
@@ -187,6 +177,12 @@ export function defineAbilitiesFor(user) {
 
 // Función auxiliar para verificar si un usuario puede acceder a una ruta
 export function canAccessRoute(ability, route) {
+  // RUTAS PÚBLICAS (accesibles para TODOS los usuarios autenticados)
+  const publicRoutes = ['/welcome'];
+  if (publicRoutes.includes(route)) {
+    return true;
+  }
+
   // Mapear rutas a módulos (CON Y SIN /dashboard/)
   const routeToModule = {
     // Rutas principales
@@ -199,9 +195,7 @@ export function canAccessRoute(ability, route) {
     '/dashboard/remuneraciones': MODULES.REMUNERACIONES,
     '/dashboard/inventario': MODULES.INVENTARIO,
     '/dashboard/ventas': MODULES.VENTAS,
-    '/dashboard/productos/supermercados': MODULES.PRODUCTOS,
-    '/dashboard/productos/ferreterias': MODULES.PRODUCTOS,
-    '/dashboard/productos/multitiendas': MODULES.PRODUCTOS,
+    '/dashboard/productos': MODULES.PRODUCTOS,
     '/dashboard/compras/centros-costos': MODULES.COMPRAS,
     '/dashboard/compras/facturas-xml': MODULES.COMPRAS,
     '/dashboard/compras/registro-compras': MODULES.COMPRAS,
@@ -219,9 +213,7 @@ export function canAccessRoute(ability, route) {
     '/remuneraciones': MODULES.REMUNERACIONES,
     '/inventario': MODULES.INVENTARIO,
     '/ventas': MODULES.VENTAS,
-    '/productos/supermercados': MODULES.PRODUCTOS,
-    '/productos/ferreterias': MODULES.PRODUCTOS,
-    '/productos/multitiendas': MODULES.PRODUCTOS,
+    '/productos': MODULES.PRODUCTOS,
     '/compras/centros-costos': MODULES.COMPRAS,
     '/compras/facturas-xml': MODULES.COMPRAS,
     '/compras/registro-compras': MODULES.COMPRAS,

@@ -158,9 +158,9 @@ const LoginPage = () => {
   };
 
   useEffect(() => {
-    // Si ya está autenticado, redirigir al dashboard
+    // Si ya está autenticado, redirigir a la página de bienvenida
     if (user) {
-      navigate('/dashboard');
+      navigate('/welcome');
     }
 
     // NO inicializamos Tawk.to aquí - esperamos a que el usuario haga clic en soporte
@@ -255,11 +255,11 @@ const LoginPage = () => {
       setError('');
       
       const result = await login(username, password);
-      
+
       if (result.success) {
         setSuccess(true);
         setTimeout(() => {
-          navigate('/dashboard');
+          navigate('/welcome');
         }, 1000);
       } else {
         setError(result.message || 'Error de autenticación');

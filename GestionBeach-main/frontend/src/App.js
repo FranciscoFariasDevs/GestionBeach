@@ -30,6 +30,7 @@ import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema
 // ========================================
 // PAGES - PRIVADAS
 // ========================================
+import WelcomePage from './pages/WelcomePage'; // 🎉 PÁGINA DE BIENVENIDA
 import DashboardPage from './pages/DashboardPage';
 import VentasPage from './pages/VentasPage';
 import TarjetaEmpleadoPage from './pages/TarjetaEmpleadoPage';
@@ -98,6 +99,18 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
+
+                  {/* ========================================== */}
+                  {/* PÁGINA DE BIENVENIDA                       */}
+                  {/* ========================================== */}
+                  <Route
+                    path="/welcome"
+                    element={
+                      <ProtectedRoute>
+                        <WelcomePage />
+                      </ProtectedRoute>
+                    }
+                  />
 
                   {/* ========================================== */}
                   {/* DASHBOARD PRINCIPAL                        */}
@@ -177,9 +190,9 @@ function App() {
                   {/* MÓDULO DE PRODUCTOS                        */}
                   {/* ========================================== */}
                   <Route
-                    path="/productos/supermercados"
+                    path="/productos"
                     element={
-                      <ProtectedRoute requiredRoute="/productos/supermercados">
+                      <ProtectedRoute requiredRoute="/productos">
                         <SupermercadosPage />
                       </ProtectedRoute>
                     }

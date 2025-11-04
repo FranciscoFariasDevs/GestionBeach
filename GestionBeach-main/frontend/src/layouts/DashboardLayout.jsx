@@ -170,7 +170,6 @@ export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [showEmail, setShowEmail] = useState(false);
-  const [productosOpen, setProductosOpen] = useState(false);
   const [comprasOpen, setComprasOpen] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
@@ -230,7 +229,6 @@ export default function DashboardLayout() {
     if (isMobile) handleDrawerClose();
   };
 
-  const toggleProductos = () => setProductosOpen(!productosOpen);
   const toggleCompras = () => setComprasOpen(!comprasOpen);
 
   // Definir todos los elementos del menú (ANTES del filtrado)
@@ -241,19 +239,7 @@ export default function DashboardLayout() {
     { text: 'Remuneraciones', icon: <RemuneracionesIcon />, path: '/remuneraciones', orangeType: 'dark' },
     { text: 'Inventario', icon: <InventoryIcon />, path: '/inventario', orangeType: 'light' },
     { text: 'Ventas', icon: <PointOfSaleIcon />, path: '/ventas', orangeType: 'dark' },
-    {
-      text: 'Productos',
-      icon: <TrendingUpIcon />,
-      isSubmenu: true,
-      orangeType: 'light',
-      isOpen: productosOpen,
-      toggle: toggleProductos,
-      subItems: [
-        { text: 'Supermercados', path: '/productos/supermercados', icon: <StoreIcon /> },
-        { text: 'Ferreterías', path: '/productos/ferreterias', icon: <StoreIcon /> },
-        { text: 'Multitiendas', path: '/productos/multitiendas', icon: <StoreIcon /> },
-      ],
-    },
+    { text: 'Productos', icon: <TrendingUpIcon />, path: '/productos', orangeType: 'light' },
     {
       text: 'Compras',
       icon: <ComprasIcon />,
@@ -295,11 +281,9 @@ export default function DashboardLayout() {
         '/remuneraciones': 'Sistema de Remuneraciones',
         '/inventario': 'Sistema de Gestión de Inventario',
         '/ventas': 'Ventas',
+        '/productos': 'Productos',
         '/compras/centros-costos': 'Gestión de Centros de Costos',
         '/compras/facturas-xml': 'Gestión de Facturas XML',
-        '/productos/supermercados': 'Productos - Supermercados',
-        '/productos/ferreterias': 'Productos - Ferreterías',
-        '/productos/multitiendas': 'Productos - Multitiendas',
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
