@@ -25,13 +25,11 @@ import {
   InputAdornment,
 } from '@mui/material';
 import {
-  CloudUpload as CloudUploadIcon,
   PhotoCamera as PhotoCameraIcon,
   CheckCircle as CheckCircleIcon,
   EmojiEvents as TrophyIcon,
   Pool as PoolIcon,
   Receipt as ReceiptIcon,
-  Cancel as CancelIcon,
   Send as SendIcon,
   Star as StarIcon,
   Whatshot as FireIcon,
@@ -48,6 +46,7 @@ import fondoImage from '../images/aqua.png';
 import logoIntro from '../images/logo.jpg';
 import estrellaIcon from '../images/estrella.png';
 import beachPiscinaImg from '../images/beach piscina.png';
+import ImageCropperUpload from '../components/ImageCropperUpload';
 
 // Animaciones profesionales
 const float = keyframes`
@@ -243,7 +242,6 @@ const waterSplash = keyframes`
 
 const ConcursoPiscinasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
-  const fileInputRef = useRef(null);
 
   // Estados del formulario
   const [numeroBoleta, setNumeroBoleta] = useState('');
@@ -253,8 +251,6 @@ const ConcursoPiscinasPage = () => {
   const [email, setEmail] = useState('');
   const [telefono, setTelefono] = useState('');
   const [direccion, setDireccion] = useState('');
-  const [fechaBoleta, setFechaBoleta] = useState('');
-  const [tipoSucursal, setTipoSucursal] = useState('Supermercado');
 
   // Formatear RUT chileno
   const formatearRUT = (value) => {
@@ -318,7 +314,6 @@ const ConcursoPiscinasPage = () => {
 
   // Estados de la imagen
   const [selectedFile, setSelectedFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
 
   // Estados de control
   const [loading, setLoading] = useState(false);
@@ -354,44 +349,13 @@ const ConcursoPiscinasPage = () => {
   // Actualizar step automáticamente
   const actualizarStep = () => {
     if (nombres && apellidos && rut && email && telefono && direccion) {
-      if (numeroBoleta && fechaBoleta && tipoSucursal) {
-        if (selectedFile) {
-          setActiveStep(3);
-        } else {
-          setActiveStep(2);
-        }
+      if (numeroBoleta && selectedFile) {
+        setActiveStep(2);
       } else {
         setActiveStep(1);
       }
     } else {
       setActiveStep(0);
-    }
-  };
-
-  // Manejar selección de archivo
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        enqueueSnackbar('Por favor selecciona una imagen válida', { variant: 'error' });
-        return;
-      }
-
-      if (file.size > 5 * 1024 * 1024) {
-        enqueueSnackbar('La imagen no debe superar los 5MB', { variant: 'error' });
-        return;
-      }
-
-      setSelectedFile(file);
-      
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewUrl(reader.result);
-      };
-      reader.readAsDataURL(file);
-      
-      enqueueSnackbar('Imagen cargada correctamente', { variant: 'success' });
-      actualizarStep();
     }
   };
 
@@ -443,18 +407,13 @@ const ConcursoPiscinasPage = () => {
       return false;
     }
 
-    if (!numeroBoleta.trim()) {
-      enqueueSnackbar('Por favor ingresa el número de boleta', { variant: 'warning' });
-      return false;
-    }
-
-    if (!fechaBoleta) {
-      enqueueSnackbar('Por favor ingresa la fecha de la boleta', { variant: 'warning' });
+    if (!numeroBoleta || !numeroBoleta.trim()) {
+      enqueueSnackbar('Por favor detecta el número de boleta usando la imagen', { variant: 'warning' });
       return false;
     }
 
     if (!selectedFile) {
-      enqueueSnackbar('Por favor selecciona una imagen de la boleta', { variant: 'warning' });
+      enqueueSnackbar('Por favor carga y procesa la imagen de la boleta', { variant: 'warning' });
       return false;
     }
 
@@ -479,8 +438,6 @@ const ConcursoPiscinasPage = () => {
       formData.append('email', email.trim().toLowerCase());
       formData.append('telefono', telefono.trim());
       formData.append('direccion', direccion.trim());
-      formData.append('fecha_boleta', fechaBoleta);
-      formData.append('tipo_sucursal', tipoSucursal);
       formData.append('imagen_boleta', selectedFile);
 
       setUploadProgress(30);
@@ -531,24 +488,11 @@ const ConcursoPiscinasPage = () => {
     setEmail('');
     setTelefono('');
     setDireccion('');
-    setFechaBoleta('');
-    setTipoSucursal('Supermercado');
     setSelectedFile(null);
-    setPreviewUrl(null);
     setUploadProgress(0);
     setActiveStep(0);
     setParticipacionExitosa(false);
     setDatosExtraidos(null);
-  };
-
-  // Remover imagen seleccionada
-  const handleRemoveImage = () => {
-    setSelectedFile(null);
-    setPreviewUrl(null);
-    actualizarStep();
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
 
   return (
@@ -1039,128 +983,7 @@ const ConcursoPiscinasPage = () => {
                         </Box>
                       </Grow>
 
-                      {/* PASO 2: Datos de la Boleta */}
-                      <Grow in timeout={600}>
-                        <Box sx={{ mb: 2 }}>
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
-                              mb: 1.5,
-                              pb: 0.5,
-                              borderBottom: '2px solid #F5F5F5',
-                            }}
-                          >
-                            <Avatar
-                              sx={{
-                                bgcolor: 'linear-gradient(135deg, #FF6B35 0%, #FF8A50 100%)',
-                                width: 28,
-                                height: 28,
-                                boxShadow: '0 2px 6px rgba(255, 107, 53, 0.3)',
-                              }}
-                            >
-                              <ReceiptIcon sx={{ fontSize: 16 }} />
-                            </Avatar>
-                            <Typography
-                              variant="h6"
-                              sx={{
-                                fontWeight: 700,
-                                color: '#333',
-                                fontSize: { xs: '0.9rem', md: '1rem' },
-                              }}
-                            >
-                              Datos de la Boleta
-                            </Typography>
-                          </Box>
-
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                            <TextField
-                              fullWidth
-                              label="Número de Boleta"
-                              value={numeroBoleta}
-                              onChange={(e) => {
-                                setNumeroBoleta(e.target.value);
-                                actualizarStep();
-                              }}
-                              placeholder="Ej: 123456789"
-                              variant="outlined"
-                              disabled={loading}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  bgcolor: '#F8F9FA',
-                                  fontSize: '1rem',
-                                  fontWeight: 600,
-                                  borderRadius: 2,
-                                  '& fieldset': {
-                                    borderColor: '#E0E0E0',
-                                    borderWidth: 2,
-                                  },
-                                  '&:hover fieldset': {
-                                    borderColor: '#00D4FF',
-                                    borderWidth: 2,
-                                  },
-                                  '&.Mui-focused': {
-                                    bgcolor: 'white',
-                                    boxShadow: '0 0 0 4px rgba(0, 212, 255, 0.1)',
-                                    '& fieldset': {
-                                      borderColor: '#00D4FF',
-                                      borderWidth: 2,
-                                    },
-                                  },
-                                },
-                                '& .MuiInputLabel-root': {
-                                  fontWeight: 600,
-                                  fontSize: '0.95rem',
-                                  color: '#666',
-                                  '&.Mui-focused': {
-                                    color: '#00D4FF',
-                                    fontWeight: 700,
-                                  },
-                                },
-                              }}
-                            />
-
-                            <TextField
-                              fullWidth
-                              label="Fecha de la Boleta"
-                              type="date"
-                              value={fechaBoleta}
-                              onChange={(e) => {
-                                setFechaBoleta(e.target.value);
-                                actualizarStep();
-                              }}
-                              variant="outlined"
-                              disabled={loading}
-                              InputLabelProps={{
-                                shrink: true,
-                              }}
-                              inputProps={{
-                                min: "2025-10-08" // Fecha mínima
-                              }}
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  bgcolor: '#F8F9FA',
-                                  fontSize: '1rem',
-                                  fontWeight: 600,
-                                  borderRadius: 2,
-                                  '&:hover fieldset': {
-                                    borderColor: '#00D4FF',
-                                    borderWidth: 2,
-                                  },
-                                  '&.Mui-focused': {
-                                    bgcolor: 'white',
-                                    boxShadow: '0 0 0 4px rgba(0, 212, 255, 0.1)',
-                                  },
-                                },
-                              }}
-                            />
-
-                          </Box>
-                        </Box>
-                      </Grow>
-
-                      {/* PASO 3: Upload Image */}
+                      {/* PASO 2: Upload Image */}
                       <Grow in timeout={700}>
                         <Box sx={{ mb: 2 }}>
                           <Box
@@ -1195,154 +1018,15 @@ const ConcursoPiscinasPage = () => {
                             </Typography>
                           </Box>
 
-                          {!previewUrl ? (
-                            <Paper
-                              elevation={0}
-                              sx={{
-                                p: 5,
-                                textAlign: 'center',
-                                background: 'linear-gradient(135deg, #F0FBFF 0%, #E3F9FF 100%)',
-                                border: '4px dashed #00D4FF',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                                transition: 'all 0.4s ease',
-                                position: 'relative',
-                                overflow: 'hidden',
-                                '&::before': {
-                                  content: '""',
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: '-100%',
-                                  width: '100%',
-                                  height: '100%',
-                                  background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent)',
-                                  animation: `${shimmer} 3s infinite`,
-                                },
-                                '&:hover': {
-                                  borderColor: '#FF6B35',
-                                  background: 'linear-gradient(135deg, #FFF5F0 0%, #FFE8DD 100%)',
-                                  transform: 'scale(1.02)',
-                                  boxShadow: '0 12px 32px rgba(0, 212, 255, 0.3)',
-                                },
-                              }}
-                              onClick={() => fileInputRef.current?.click()}
-                            >
-                              <CloudUploadIcon 
-                                sx={{ 
-                                  fontSize: 80, 
-                                  color: '#00D4FF',
-                                  mb: 2,
-                                  filter: 'drop-shadow(0 4px 8px rgba(0, 212, 255, 0.3))',
-                                }} 
-                              />
-                              <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: '#333' }}>
-                                Sube tu imagen aquí
-                              </Typography>
-                              <Typography variant="body1" sx={{ color: '#666', mb: 3, fontWeight: 500 }}>
-                                JPG, PNG o JPEG • Máximo 5MB
-                              </Typography>
-                              <Button
-                                variant="contained"
-                                startIcon={<PhotoCameraIcon />}
-                                sx={{
-                                  bgcolor: '#00D4FF',
-                                  color: 'white',
-                                  fontWeight: 800,
-                                  px: 5,
-                                  py: 2,
-                                  borderRadius: 50,
-                                  textTransform: 'none',
-                                  fontSize: '1.1rem',
-                                  boxShadow: '0 6px 20px rgba(0, 212, 255, 0.4)',
-                                  '&:hover': {
-                                    bgcolor: '#0099CC',
-                                    transform: 'translateY(-3px)',
-                                    boxShadow: '0 8px 24px rgba(0, 212, 255, 0.5)',
-                                  },
-                                  transition: 'all 0.3s ease',
-                                }}
-                              >
-                                Seleccionar Archivo
-                              </Button>
-                            </Paper>
-                          ) : (
-                            <Paper
-                              elevation={3}
-                              sx={{
-                                p: 2,
-                                background: 'white',
-                                border: '4px solid #00D4FF',
-                                borderRadius: 4,
-                                boxShadow: '0 8px 24px rgba(0, 212, 255, 0.3)',
-                              }}
-                            >
-                              <Box sx={{ position: 'relative' }}>
-                                <img
-                                  src={previewUrl}
-                                  alt="Preview"
-                                  style={{
-                                    width: '100%',
-                                    height: 'auto',
-                                    maxHeight: '400px',
-                                    objectFit: 'contain',
-                                    borderRadius: '16px',
-                                  }}
-                                />
-                                <IconButton
-                                  onClick={handleRemoveImage}
-                                  sx={{
-                                    position: 'absolute',
-                                    top: 12,
-                                    right: 12,
-                                    bgcolor: 'rgba(255, 0, 0, 0.95)',
-                                    color: 'white',
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
-                                    '&:hover': {
-                                      bgcolor: '#D32F2F',
-                                      transform: 'scale(1.15) rotate(90deg)',
-                                    },
-                                    transition: 'all 0.3s ease',
-                                  }}
-                                  disabled={loading}
-                                >
-                                  <CancelIcon />
-                                </IconButton>
-                              </Box>
-                              <Box
-                                sx={{
-                                  mt: 2,
-                                  p: 2,
-                                  bgcolor: '#E8F5E9',
-                                  borderRadius: 2,
-                                  textAlign: 'center',
-                                  border: '2px solid #4CAF50',
-                                }}
-                              >
-                                <Typography
-                                  variant="h6"
-                                  sx={{ 
-                                    fontWeight: 800, 
-                                    color: '#4CAF50', 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center', 
-                                    gap: 1 
-                                  }}
-                                >
-                                  <CheckCircleIcon fontSize="medium" />
-                                  ¡Imagen lista!
-                                </Typography>
-                              </Box>
-                            </Paper>
-                          )}
-
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            onChange={handleFileSelect}
-                            disabled={loading}
+                          <ImageCropperUpload
+                            onNumeroDetectado={(numero) => {
+                              setNumeroBoleta(numero);
+                              actualizarStep();
+                            }}
+                            onImagenSeleccionada={(file) => {
+                              setSelectedFile(file);
+                              actualizarStep();
+                            }}
                           />
                         </Box>
                       </Grow>
@@ -1421,18 +1105,18 @@ const ConcursoPiscinasPage = () => {
                         variant="contained"
                         size="medium"
                         onClick={handleSubmit}
-                        disabled={loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !fechaBoleta || !selectedFile}
+                        disabled={loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile}
                         startIcon={loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : <SendIcon />}
                         sx={{
                           py: 1.5,
                           fontSize: '1rem',
                           fontWeight: 800,
-                          background: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !fechaBoleta || !selectedFile
+                          background: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile
                             ? '#CCCCCC'
                             : 'linear-gradient(135deg, #FF6B35 0%, #FF8A50 100%)',
                           color: 'white',
                           borderRadius: 50,
-                          boxShadow: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !fechaBoleta || !selectedFile
+                          boxShadow: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile
                             ? 'none'
                             : '0 8px 24px rgba(255, 107, 53, 0.5)',
                           textTransform: 'none',
@@ -1449,8 +1133,8 @@ const ConcursoPiscinasPage = () => {
                             animation: `${shimmer} 2s infinite`,
                           },
                           '&:hover': {
-                            transform: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !fechaBoleta || !selectedFile ? 'none' : 'translateY(-4px)',
-                            boxShadow: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !fechaBoleta || !selectedFile
+                            transform: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile ? 'none' : 'translateY(-4px)',
+                            boxShadow: loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile
                               ? 'none'
                               : '0 12px 32px rgba(255, 107, 53, 0.6)',
                           },

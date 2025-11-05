@@ -13,6 +13,13 @@ const concursoPiscinasController = require('../controllers/concursoPiscinasContr
 // Test de funcionamiento
 router.get('/test', concursoPiscinasController.testConcurso);
 
+// Procesar OCR con coordenadas del crop (NUEVO)
+router.post(
+  '/ocr-crop',
+  concursoPiscinasController.uploadMiddleware,
+  concursoPiscinasController.procesarOCRConCrop
+);
+
 // Registrar nueva participación (con upload de imagen)
 router.post(
   '/participar',
@@ -22,6 +29,9 @@ router.post(
 
 // Verificar si una boleta ya participó
 router.get('/verificar/:numero_boleta', concursoPiscinasController.verificarBoleta);
+
+// Validar boleta sin registrar (solo para verificar existencia en BD)
+router.post('/validar-boleta', concursoPiscinasController.validarBoletaSinRegistrar);
 
 // Obtener estadísticas públicas del concurso
 router.get('/estadisticas', concursoPiscinasController.obtenerEstadisticas);

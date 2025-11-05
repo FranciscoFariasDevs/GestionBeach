@@ -98,36 +98,35 @@ const extraerTextoDeImagen = async (buffer) => {
 const extraerNumeroBoleta = (textoOCR) => {
   try {
     console.log('🔍 Buscando número de boleta en texto OCR...');
-    console.log('Texto completo:', textoOCR.substring(0, 500)); // Mostrar primeros 500 caracteres
+    console.log('Texto original:', textoOCR.substring(0, 500));
 
-    // Limpiar y normalizar el texto
-    const textoLimpio = textoOCR
-      .replace(/\s+/g, ' ') // Normalizar espacios
-      .replace(/[óoO0]/gi, 'O') // Normalizar O's
-      .toUpperCase();
+    // Limpiar texto - eliminar saltos de línea y normalizar espacios
+    let textoLimpio = textoOCR
+      .replace(/[\r\n]+/g, ' ')     // Convertir saltos de línea a espacios
+      .replace(/\s+/g, ' ')         // Normalizar múltiples espacios a uno solo
+      .trim();
 
-    // Patrones a buscar:
-    // 1. "No.:" seguido de números
-    // 2. "N°" seguido de números
-    // 3. "N:" seguido de números
-    // 4. "N" seguido de números
-    // 5. "NO:" seguido de números
+    console.log('Texto limpio:', textoLimpio);
 
+    // Patrones para buscar número de boleta
     const patrones = [
-      /NO\.?\s*:?\s*(\d+)/i,           // No.: 123456 o No: 123456
-      /N\s*°\s*:?\s*(\d+)/i,            // N° 123456 o N°: 123456
-      /N\s*:+\s*(\d+)/i,                // N: 123456 o N:: 123456
-      /BOLETA\s*N[°O]?\s*:?\s*(\d+)/i, // BOLETA N° 123456
-      /FOLIO\s*:?\s*(\d+)/i,            // FOLIO: 123456
-      /NUMERO\s*:?\s*(\d+)/i,           // NUMERO: 123456
+      /(?:NO|N)[°O]?[\s.:]*(\d{4,})/i,    // No 123456, N° 123456, NO: 123456
+      /BOLETA[\s:]*(\d{4,})/i,             // BOLETA 123456
+      /FOLIO[\s:]*(\d{4,})/i,              // FOLIO 123456
+      /NUMERO[\s:]*(\d{4,})/i,             // NUMERO 123456
+      /(\d{6,})/,                          // Fallback: cualquier secuencia de 6+ dígitos
     ];
 
+    // Intentar cada patrón
     for (const patron of patrones) {
       const match = textoLimpio.match(patron);
       if (match && match[1]) {
         const numeroEncontrado = match[1].trim();
-        console.log(`✅ Número de boleta encontrado: ${numeroEncontrado} (patrón: ${patron})`);
-        return numeroEncontrado;
+        // Validar que sea un número válido (solo dígitos)
+        if (/^\d+$/.test(numeroEncontrado)) {
+          console.log(`✅ Número de boleta encontrado: ${numeroEncontrado}`);
+          return numeroEncontrado;
+        }
       }
     }
 
@@ -137,6 +136,52 @@ const extraerNumeroBoleta = (textoOCR) => {
     console.error('❌ Error al extraer número de boleta:', error);
     return null;
   }
+};
+
+// Generar variaciones de un número considerando confusiones comunes del OCR
+const generarVariacionesNumero = (numeroOriginal) => {
+  if (!numeroOriginal || numeroOriginal.length === 0) {
+    return [];
+  }
+
+  console.log(`🔄 Generando variaciones para: ${numeroOriginal}`);
+
+  // Mapeo de caracteres con confusión común en OCR
+  const confusiones = {
+    '5': ['8', '6', 'S'],
+    '8': ['5', '0', 'B'],
+    '0': ['8', 'O'],
+    '1': ['7'],
+    '6': ['5'],
+    '3': ['8'],
+    '7': ['1'],
+  };
+
+  const variaciones = new Set();
+  variaciones.add(numeroOriginal); // Agregar el original
+
+  // Generar variaciones para cada posición
+  for (let i = 0; i < numeroOriginal.length; i++) {
+    const char = numeroOriginal[i];
+    const posiblesReemplazos = confusiones[char];
+
+    if (posiblesReemplazos) {
+      for (const reemplazo of posiblesReemplazos) {
+        // Reemplazar solo ese carácter
+        const variacion = numeroOriginal.substring(0, i) + reemplazo + numeroOriginal.substring(i + 1);
+        // Solo agregar si es numérico
+        if (/^\d+$/.test(variacion)) {
+          variaciones.add(variacion);
+        }
+      }
+    }
+  }
+
+  // Convertir Set a Array y limitar a las 5 más probables
+  const resultado = Array.from(variaciones).slice(0, 5);
+  console.log(`✅ Variaciones generadas (${resultado.length}):`, resultado);
+
+  return resultado;
 };
 
 // Guardar imagen
@@ -373,11 +418,9 @@ exports.registrarParticipacion = async (req, res) => {
       rut,
       email,
       telefono,
-      direccion,
-      fecha_boleta,
-      tipo_sucursal = 'Supermercado' // Por defecto
+      direccion
     } = req.body;
-    
+
     // Validaciones básicas
     if (!numero_boleta || !numero_boleta.trim()) {
       return res.status(400).json({
@@ -386,10 +429,10 @@ exports.registrarParticipacion = async (req, res) => {
       });
     }
 
-    if (!nombres || !apellidos || !rut || !email || !telefono || !direccion || !fecha_boleta) {
+    if (!nombres || !apellidos || !rut || !email || !telefono || !direccion) {
       return res.status(400).json({
         success: false,
-        message: 'Todos los datos son requeridos (nombres, apellidos, RUT, email, teléfono, dirección y fecha de boleta)'
+        message: 'Todos los datos son requeridos (nombres, apellidos, RUT, email, teléfono y dirección)'
       });
     }
     
@@ -406,8 +449,7 @@ exports.registrarParticipacion = async (req, res) => {
     console.log(`👤 Participante: ${nombres} ${apellidos}`);
     console.log(`🆔 RUT: ${rut}`);
     console.log(`📧 Email: ${email}`);
-    console.log(`🏢 Tipo: ${tipo_sucursal}`);
-    
+
     const pool = await poolPromise;
 
     // NOTA: Se permite registrar múltiples boletas con el mismo email
@@ -435,8 +477,9 @@ exports.registrarParticipacion = async (req, res) => {
       });
     }
 
-    // 2. Validar boleta en BD real
-    const validacionBoleta = await validarBoletaEnDB(numero_boleta, tipo_sucursal, fecha_boleta);
+    // 2. Validar boleta en BD real (busca automáticamente en todas las sucursales)
+    console.log('🔍 Buscando boleta en todas las sucursales...');
+    const validacionBoleta = await validarBoletaEnDB(numero_boleta, null, null);
 
     // Verificar que la boleta exista en la BD
     if (!validacionBoleta.existe) {
@@ -507,7 +550,7 @@ exports.registrarParticipacion = async (req, res) => {
       .input('monto_boleta', sql.Decimal(18, 2), validacionBoleta.total)
       .input('fecha_boleta', sql.DateTime, validacionBoleta.fecha)
       .input('tipo_documento', sql.VarChar, validacionBoleta.tipoDocumento)
-      .input('tipo_sucursal', sql.VarChar, validacionBoleta.tipoSucursalBD || tipo_sucursal)
+      .input('tipo_sucursal', sql.VarChar, validacionBoleta.tipoSucursalBD)
       .input('sucursal', sql.VarChar, validacionBoleta.nombreSucursal)
       .input('ruta_imagen', sql.VarChar, archivoGuardado.ruta_relativa)
       .input('nombre_archivo', sql.VarChar, archivoGuardado.nombre_archivo)
@@ -756,6 +799,159 @@ exports.marcarGanador = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al marcar ganador',
+      error: error.message
+    });
+  }
+};
+
+// NUEVO: Procesar OCR con coordenadas del crop
+exports.procesarOCRConCrop = async (req, res) => {
+  try {
+    console.log('\n🔍 === PROCESANDO OCR CON CROP ===');
+
+    // Validar archivo
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se recibió la imagen'
+      });
+    }
+
+    // Obtener coordenadas del crop del body
+    const { cropX, cropY, cropWidth, cropHeight } = req.body;
+
+    console.log(`📐 Coordenadas del crop: x=${cropX}, y=${cropY}, width=${cropWidth}, height=${cropHeight}`);
+
+    let imagenParaOCR = req.file.buffer;
+
+    // Si hay coordenadas, recortar la imagen
+    if (cropX && cropY && cropWidth && cropHeight) {
+      console.log('✂️ Recortando área seleccionada para OCR...');
+
+      imagenParaOCR = await sharp(req.file.buffer)
+        .extract({
+          left: parseInt(cropX),
+          top: parseInt(cropY),
+          width: parseInt(cropWidth),
+          height: parseInt(cropHeight)
+        })
+        // Aumentar contraste y nitidez para mejor OCR
+        .normalize()
+        .sharpen()
+        .toBuffer();
+
+      console.log('✅ Área recortada y optimizada para OCR');
+    }
+
+    // Ejecutar OCR sobre el área seleccionada
+    console.log('🔍 Ejecutando OCR...');
+    const resultadoOCR = await extraerTextoDeImagen(imagenParaOCR);
+
+    console.log('\n========================================');
+    console.log('📄 TEXTO COMPLETO DETECTADO POR OCR:');
+    console.log('========================================');
+    console.log(resultadoOCR.texto);
+    console.log('========================================');
+    console.log(`💯 Confianza OCR: ${resultadoOCR.confianza.toFixed(2)}%`);
+    console.log('========================================\n');
+
+    // Extraer número de boleta
+    const numeroBoleta = extraerNumeroBoleta(resultadoOCR.texto);
+
+    console.log(`🎯 NÚMERO DE BOLETA EXTRAÍDO: ${numeroBoleta || '❌ NO DETECTADO'}`);
+    console.log(`💯 Confianza OCR: ${resultadoOCR.confianza.toFixed(2)}%`);
+    console.log('========================================\n');
+
+    // Si la confianza es baja (< 85%) o no se detectó número, generar variaciones
+    const UMBRAL_CONFIANZA = 85;
+    let variaciones = [];
+    let requiereConfirmacion = false;
+
+    if (numeroBoleta && resultadoOCR.confianza < UMBRAL_CONFIANZA) {
+      console.log(`⚠️ Confianza baja (${resultadoOCR.confianza.toFixed(2)}% < ${UMBRAL_CONFIANZA}%), generando variaciones...`);
+      variaciones = generarVariacionesNumero(numeroBoleta);
+      requiereConfirmacion = true;
+    } else if (numeroBoleta) {
+      // Confianza alta, solo retornar el número detectado
+      variaciones = [numeroBoleta];
+    }
+
+    return res.json({
+      success: true,
+      numero_boleta: numeroBoleta,
+      texto_completo: resultadoOCR.texto,
+      confianza: resultadoOCR.confianza,
+      detectado: numeroBoleta !== null,
+      requiere_confirmacion: requiereConfirmacion,
+      variaciones: variaciones
+    });
+
+  } catch (error) {
+    console.error('❌ Error al procesar OCR:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al procesar OCR',
+      error: error.message
+    });
+  }
+};
+
+// NUEVO: Validar boleta sin registrar (solo para confirmar existencia)
+exports.validarBoletaSinRegistrar = async (req, res) => {
+  try {
+    const { numero_boleta } = req.body;
+
+    if (!numero_boleta || !numero_boleta.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Número de boleta requerido'
+      });
+    }
+
+    console.log(`🔍 Validando boleta ${numero_boleta} (sin registrar)...`);
+
+    // Validar en BD
+    const validacion = await validarBoletaEnDB(numero_boleta.trim(), null, null);
+
+    if (validacion.existe) {
+      console.log(`✅ Boleta encontrada: $${validacion.total} - ${validacion.nombreSucursal}`);
+
+      // Verificar si ya fue registrada en el concurso
+      const pool = await poolPromise;
+      const yaRegistrada = await pool.request()
+        .input('numero_boleta', sql.VarChar, numero_boleta.trim())
+        .query('SELECT id FROM dbo.participaciones_concurso WHERE numero_boleta = @numero_boleta');
+
+      return res.json({
+        success: true,
+        existe: true,
+        ya_registrada: yaRegistrada.recordset.length > 0,
+        datos: {
+          numero: validacion.folio,
+          monto: validacion.total,
+          fecha: validacion.fecha,
+          tipo: validacion.tipoDocumento,
+          sucursal: validacion.nombreSucursal,
+          cumple_monto: validacion.cumpleMonto,
+          cumple_fecha: validacion.cumpleFecha,
+          valida: validacion.cumpleMonto && validacion.cumpleFecha && yaRegistrada.recordset.length === 0
+        }
+      });
+    } else {
+      console.log(`❌ Boleta no encontrada en BD`);
+      return res.json({
+        success: true,
+        existe: false,
+        ya_registrada: false,
+        datos: null
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error al validar boleta:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al validar boleta',
       error: error.message
     });
   }

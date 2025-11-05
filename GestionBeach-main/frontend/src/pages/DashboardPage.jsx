@@ -70,6 +70,8 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import StoreIcon from '@mui/icons-material/Store';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import { SummarizeOutlined } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
@@ -77,10 +79,10 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AutoReport from '../components/AutoReport';
 
-// Componente para mostrar el KPI mejorado con animación
+// Componente KPI modernizado - Diseño elegante y limpio
 const KpiCard = ({ title, value, color, secondaryValue, secondaryLabel }) => {
   const theme = useTheme();
-  
+
   // Seleccionar ícono según título
   let IconComponent;
   switch (title) {
@@ -101,58 +103,128 @@ const KpiCard = ({ title, value, color, secondaryValue, secondaryLabel }) => {
   }
 
   return (
-    <Zoom in={true} style={{ transitionDelay: '100ms' }}>
-      <Card 
-        sx={{ 
-          height: '100%', 
-          position: 'relative', 
-          overflow: 'hidden',
-          transition: 'all 0.3s ease-in-out',
+    <Fade in={true} timeout={600}>
+      <Paper
+        elevation={0}
+        sx={{
+          height: '100%',
+          p: 3,
+          position: 'relative',
           borderRadius: 2,
-          boxShadow: '0 6px 16px rgba(0, 0, 0, 0.08)',
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           '&:hover': {
-            transform: 'translateY(-5px)',
-            boxShadow: '0 12px 24px rgba(0, 0, 0, 0.12)',
-          }
+            borderColor: `${color}.main`,
+            boxShadow: `0 4px 20px ${theme.palette[color].main}15`,
+            transform: 'translateY(-2px)',
+          },
         }}
       >
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            p: 2.5,
-            height: '100%',
+        {/* Barra de color superior - Más corta para no salirse de las esquinas */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 8,
+            right: 8,
+            height: 4,
+            bgcolor: `${color}.main`,
           }}
-        >
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-            <Avatar
+        />
+
+        {/* Contenido */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          {/* Header con ícono y título */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
               sx={{
-                bgcolor: `${color}.main`,
-                width: 48,
-                height: 48,
-                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)'
+                width: 40,
+                height: 40,
+                borderRadius: 1.5,
+                bgcolor: `${color}.lighter` || `${color}.main`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0.15,
               }}
             >
-              <IconComponent />
-            </Avatar>
-          </Box>
-          
-          <Box sx={{ mt: 'auto' }}>
-            <Typography color="textSecondary" variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              <IconComponent sx={{ fontSize: 20, color: `${color}.main` }} />
+            </Box>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 600,
+                color: 'text.secondary',
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                fontSize: '0.75rem',
+              }}
+            >
               {title}
             </Typography>
-            <Typography variant="h4" component="div" sx={{ fontWeight: 'bold' }}>
+          </Box>
+
+          {/* Valor principal */}
+          <Box>
+            <Typography
+              variant="h4"
+              sx={{
+                fontWeight: 700,
+                color: 'text.primary',
+                lineHeight: 1.2,
+                fontSize: { xs: '1.75rem', sm: '2rem' },
+              }}
+            >
               {value}
             </Typography>
-            {secondaryValue && (
-              <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                {secondaryLabel}: <span style={{ fontWeight: 'bold' }}>{secondaryValue}</span>
-              </Typography>
-            )}
           </Box>
+
+          {/* Información secundaria (Margen) */}
+          {secondaryValue && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                pt: 1.5,
+                borderTop: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <Box
+                sx={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  bgcolor: `${color}.main`,
+                }}
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: '0.813rem',
+                }}
+              >
+                {secondaryLabel}:
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 700,
+                  color: `${color}.main`,
+                  fontSize: '0.875rem',
+                }}
+              >
+                {secondaryValue}
+              </Typography>
+            </Box>
+          )}
         </Box>
-      </Card>
-    </Zoom>
+      </Paper>
+    </Fade>
   );
 };
 
@@ -203,7 +275,7 @@ const FullscreenChartModal = ({ open, handleClose, title, children }) => {
 };
 
 // Componente gráfico con animación y botón de ampliación
-const AnimatedChartCard = ({ title, height = 300, children, exportData }) => {
+const AnimatedChartCard = ({ title, height = 380, children, exportData }) => {
   const theme = useTheme();
   const [modalOpen, setModalOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -262,15 +334,35 @@ const AnimatedChartCard = ({ title, height = 300, children, exportData }) => {
   return (
     <>
       <Fade in={true} style={{ transitionDelay: '150ms' }}>
-        <Card 
-          sx={{ 
+        <Paper
+          elevation={0}
+          sx={{
             height: '100%',
-            transition: 'all 0.3s ease-in-out',
+            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
             borderRadius: 2,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-            overflow: 'visible',
+            border: '1px solid',
+            borderColor: 'divider',
+            overflow: 'hidden',
+            position: 'relative',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
             '&:hover': {
-              boxShadow: '0 8px 20px rgba(0, 0, 0, 0.08)',
+              borderColor: 'primary.light',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+              transform: 'translateY(-2px)',
+            },
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: 'linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent)',
+              opacity: 0,
+              transition: 'opacity 0.3s',
+            },
+            '&:hover::before': {
+              opacity: 1,
             }
           }}
         >
@@ -329,7 +421,7 @@ const AnimatedChartCard = ({ title, height = 300, children, exportData }) => {
               {children}
             </Box>
           </CardContent>
-        </Card>
+        </Paper>
       </Fade>
       
       <Menu
@@ -1000,51 +1092,92 @@ const DashboardPage = () => {
           {/* Panel de gráficos */}
           {activeTab === 0 && (
             <>
-              {/* KPIs principales */}
-              <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <KpiCard
-                    title="Supermercados"
-                    value={formatCurrency(data.supermercados.ventas)}
-                    color="primary"
-                    secondaryValue={`${data.supermercados.margen.toFixed(2)}%`}
-                    secondaryLabel="Margen"
+              {/* SECCIÓN 1: RESUMEN EJECUTIVO - KPIs principales */}
+              <Box sx={{ mb: 5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+                  <Box
+                    sx={{
+                      width: 4,
+                      height: 48,
+                      bgcolor: 'primary.main',
+                    }}
                   />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <KpiCard
-                    title="Ferreterías"
-                    value={formatCurrency(data.ferreterias.ventas)}
-                    color="info"
-                    secondaryValue={`${data.ferreterias.margen.toFixed(2)}%`}
-                    secondaryLabel="Margen"
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                      Resumen Ejecutivo
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Indicadores clave de rendimiento por tipo de sucursal
+                    </Typography>
+                  </Box>
+                </Box>
+
+                  <Grid container spacing={4}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <KpiCard
+                        title="Supermercados"
+                        value={formatCurrency(data.supermercados.ventas)}
+                        color="primary"
+                        secondaryValue={`${data.supermercados.margen.toFixed(2)}%`}
+                        secondaryLabel="Margen"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <KpiCard
+                        title="Ferreterías"
+                        value={formatCurrency(data.ferreterias.ventas)}
+                        color="info"
+                        secondaryValue={`${data.ferreterias.margen.toFixed(2)}%`}
+                        secondaryLabel="Margen"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <KpiCard
+                        title="Multitiendas"
+                        value={formatCurrency(data.multitiendas.ventas)}
+                        color="success"
+                        secondaryValue={`${data.multitiendas.margen.toFixed(2)}%`}
+                        secondaryLabel="Margen"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <KpiCard
+                        title="Total"
+                        value={formatCurrency(data.total.ventas)}
+                        color="secondary"
+                        secondaryValue={`${data.total.margen.toFixed(2)}%`}
+                        secondaryLabel="Margen"
+                      />
+                    </Grid>
+                  </Grid>
+              </Box>
+
+              {/* ========================================== */}
+              {/* SECCIÓN 2: ANÁLISIS POR SUCURSAL          */}
+              {/* ========================================== */}
+              <Box sx={{ mb: 5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+                  <Box
+                    sx={{
+                      width: 4,
+                      height: 48,
+                      bgcolor: 'secondary.main',
+                    }}
                   />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <KpiCard
-                    title="Multitiendas"
-                    value={formatCurrency(data.multitiendas.ventas)}
-                    color="success"
-                    secondaryValue={`${data.multitiendas.margen.toFixed(2)}%`}
-                    secondaryLabel="Margen"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <KpiCard
-                    title="Total"
-                    value={formatCurrency(data.total.ventas)}
-                    color="secondary"
-                    secondaryValue={`${data.total.margen.toFixed(2)}%`}
-                    secondaryLabel="Margen"
-                  />
-                </Grid>
-              </Grid>
-              
-              {/* Reorganización de gráficos por solicitud */}
-              <Grid container spacing={3} sx={{ mb: 4 }}>
-                {/* 1. Gráfico de barras para supermercados - Mejorado visualmente */}
-                <Grid item xs={12} md={6}>
-                  <AnimatedChartCard 
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                      Análisis por Sucursal
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      Desempeño individual de cada punto de venta por categoría
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Grid container spacing={4}>
+                  {/* 1. Gráfico de barras para supermercados - Mejorado visualmente */}
+                  <Grid item xs={12}>
+                  <AnimatedChartCard
                     title="Ventas por Supermercado"
                     exportData={data.supermercados.sucursales}
                   >
@@ -1052,21 +1185,21 @@ const DashboardPage = () => {
                       <BarChart
                         data={data.supermercados.sucursales}
                         layout="vertical"
-                        margin={{ top: 15, right: 45, left: 20, bottom: 5 }}
-                        barSize={20}
+                        margin={{ top: 20, right: 60, left: 10, bottom: 10 }}
+                        barSize={22}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
-                        <XAxis 
-                          type="number" 
-                          tickFormatter={(value) => formatCurrency(value)} 
+                        <XAxis
+                          type="number"
+                          tickFormatter={(value) => formatCurrency(value)}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                           domain={[0, 'dataMax + 5000000']}
                         />
-                        <YAxis 
-                          dataKey="nombre" 
-                          type="category" 
-                          width={120} 
+                        <YAxis
+                          dataKey="nombre"
+                          type="category"
+                          width={150}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.primary, fontSize: 12, fontWeight: 500 }}
                         />
@@ -1091,10 +1224,10 @@ const DashboardPage = () => {
                     </ResponsiveContainer>
                   </AnimatedChartCard>
                 </Grid>
-                
+
                 {/* 2. Gráfico de barras para ferreterías y multitiendas - Mejorado visualmente */}
-                <Grid item xs={12} md={6}>
-                  <AnimatedChartCard 
+                <Grid item xs={12}>
+                  <AnimatedChartCard
                     title="Ventas por Ferretería y Multitienda" 
                     exportData={[
                       ...data.ferreterias.sucursales,
@@ -1108,21 +1241,21 @@ const DashboardPage = () => {
                           ...data.multitiendas.sucursales
                         ]}
                         layout="vertical"
-                        margin={{ top: 15, right: 45, left: 20, bottom: 5 }}
-                        barSize={20}
+                        margin={{ top: 20, right: 60, left: 10, bottom: 10 }}
+                        barSize={22}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
-                        <XAxis 
-                          type="number" 
-                          tickFormatter={(value) => formatCurrency(value)} 
+                        <XAxis
+                          type="number"
+                          tickFormatter={(value) => formatCurrency(value)}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                           domain={[0, 'dataMax + 5000000']}
                         />
-                        <YAxis 
-                          dataKey="nombre" 
-                          type="category" 
-                          width={120} 
+                        <YAxis
+                          dataKey="nombre"
+                          type="category"
+                          width={150}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.primary, fontSize: 12, fontWeight: 500 }}
                         />
@@ -1153,7 +1286,32 @@ const DashboardPage = () => {
                     </ResponsiveContainer>
                   </AnimatedChartCard>
                 </Grid>
-                
+              </Grid>
+            </Box>
+
+            {/* ========================================== */}
+            {/* SECCIÓN 3: ANÁLISIS DE RENTABILIDAD       */}
+            {/* ========================================== */}
+            <Box sx={{ mb: 5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+                <Box
+                  sx={{
+                    width: 4,
+                    height: 48,
+                    bgcolor: 'success.main',
+                  }}
+                />
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                    Análisis de Rentabilidad
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Desglose detallado de utilidades y costos por tipo de sucursal
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Grid container spacing={4}>
                 {/* 3. Desglose de Utilidad y Costos por Supermercado */}
                 <Grid item xs={12} md={6}>
                   <AnimatedChartCard 
@@ -1164,21 +1322,21 @@ const DashboardPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={data.supermercados.sucursales}
-                        margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+                        margin={{ top: 20, right: 50, left: 10, bottom: 20 }}
                         layout="vertical"
-                        barSize={20}
+                        barSize={22}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
-                        <XAxis 
-                          type="number" 
-                          tickFormatter={(value) => formatCurrency(value)} 
+                        <XAxis
+                          type="number"
+                          tickFormatter={(value) => formatCurrency(value)}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                         />
-                        <YAxis 
-                          dataKey="nombre" 
-                          type="category" 
-                          width={120} 
+                        <YAxis
+                          dataKey="nombre"
+                          type="category"
+                          width={140}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                         />
@@ -1223,21 +1381,21 @@ const DashboardPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={[...data.ferreterias.sucursales, ...data.multitiendas.sucursales]}
-                        margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+                        margin={{ top: 20, right: 50, left: 10, bottom: 20 }}
                         layout="vertical"
-                        barSize={20}
+                        barSize={22}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
-                        <XAxis 
-                          type="number" 
-                          tickFormatter={(value) => formatCurrency(value)} 
+                        <XAxis
+                          type="number"
+                          tickFormatter={(value) => formatCurrency(value)}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                         />
-                        <YAxis 
-                          dataKey="nombre" 
-                          type="category" 
-                          width={120} 
+                        <YAxis
+                          dataKey="nombre"
+                          type="category"
+                          width={140}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                         />
@@ -1271,7 +1429,32 @@ const DashboardPage = () => {
                     </ResponsiveContainer>
                   </AnimatedChartCard>
                 </Grid>
-                
+              </Grid>
+            </Box>
+
+            {/* ========================================== */}
+            {/* SECCIÓN 4: ANÁLISIS COMPARATIVO           */}
+            {/* ========================================== */}
+            <Box sx={{ mb: 5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+                <Box
+                  sx={{
+                    width: 4,
+                    height: 48,
+                    bgcolor: 'info.main',
+                  }}
+                />
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
+                    Análisis Comparativo
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Comparación consolidada entre tipos de sucursales y márgenes
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Grid container spacing={4}>
                 {/* 5. Comparativa de Ventas, Costos y Utilidad - Mejorado visualmente */}
                 <Grid item xs={12}>
                   <AnimatedChartCard 
@@ -1282,20 +1465,20 @@ const DashboardPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={prepareComparativeData()}
-                        margin={{ top: 30, right: 30, left: 20, bottom: 30 }}
+                        margin={{ top: 30, right: 40, left: 60, bottom: 30 }}
                         barGap={12}
-                        barSize={28}
+                        barSize={32}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.4} vertical={false} />
-                        <XAxis 
-                          dataKey="categoria" 
+                        <XAxis
+                          dataKey="categoria"
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.primary, fontSize: 13, fontWeight: 500 }}
                           tickLine={false}
-                          padding={{ left: 10, right: 10 }}
+                          padding={{ left: 20, right: 20 }}
                         />
-                        <YAxis 
-                          tickFormatter={(value) => formatCurrency(value)} 
+                        <YAxis
+                          tickFormatter={(value) => formatCurrency(value)}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                           tickLine={false}
@@ -1347,19 +1530,19 @@ const DashboardPage = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart
                         data={prepareComparativeData()}
-                        margin={{ top: 30, right: 30, left: 20, bottom: 30 }}
+                        margin={{ top: 30, right: 40, left: 60, bottom: 30 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.4} vertical={false} />
-                        <XAxis 
-                          dataKey="categoria" 
+                        <XAxis
+                          dataKey="categoria"
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.primary, fontSize: 13, fontWeight: 500 }}
                           tickLine={false}
-                          padding={{ left: 20, right: 20 }}
+                          padding={{ left: 30, right: 30 }}
                         />
-                        <YAxis 
-                          tickFormatter={(value) => `${value}%`} 
-                          domain={[0, 'dataMax + 10']} 
+                        <YAxis
+                          tickFormatter={(value) => `${value}%`}
+                          domain={[0, 'dataMax + 10']}
                           axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
                           tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
                           tickLine={false}
@@ -1397,8 +1580,9 @@ const DashboardPage = () => {
                   </AnimatedChartCard>
                 </Grid>
               </Grid>
-            </>
-          )}
+            </Box>
+          </>
+        )}
           
           {/* Panel de Reporte */}
           {activeTab === 1 && (

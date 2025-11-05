@@ -8,7 +8,13 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(del NUL 2)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(npm run dev:*)",
+      "Bash(wc:*)",
+      "Bash(awk:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run start)",
+      "Bash(del package-lock.json)"
     ],
     "deny": [],
     "ask": []

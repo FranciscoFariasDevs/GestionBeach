@@ -27,6 +27,12 @@ import ReservaCabanasPage from './pages/ReservaCabanasPage'; // 🏡 NUEVO - Map
 import NotFoundPage from './pages/NotFoundPage';
 import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema de Cabañas
 import SorteoConcursoPage from './pages/SorteoConcursoPage'; // 🎲 SORTEO DEL CONCURSO
+import MaintenancePage from './pages/MaintenancePage'; // 🔧 PÁGINA DE MANTENIMIENTO
+
+// ========================================
+// CONFIGURACIÓN
+// ========================================
+import maintenanceConfig from './config/maintenanceConfig';
 
 // ========================================
 // PAGES - PRIVADAS
@@ -54,6 +60,32 @@ import InventarioPage from './pages/InventarioPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
+  // 🔧 VERIFICACIÓN DE MODO MANTENIMIENTO
+  // Si el modo mantenimiento está activado, muestra solo la página de mantenimiento
+  // EXCEPTO para rutas permitidas (ej: /admin)
+  const isMaintenanceActive = maintenanceConfig.isMaintenanceMode;
+  const currentPath = window.location.pathname;
+  const isAllowedRoute = maintenanceConfig.allowedRoutes.some(route =>
+    currentPath.startsWith(route)
+  );
+
+  // Si está en mantenimiento y NO es una ruta permitida
+  if (isMaintenanceActive && !isAllowedRoute) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <SnackbarProvider
+          maxSnack={3}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          autoHideDuration={3000}
+        >
+          <MaintenancePage />
+        </SnackbarProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Modo normal - Renderiza todas las rutas
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />

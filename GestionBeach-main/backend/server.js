@@ -24,7 +24,8 @@ const allowedOrigins = [
   'http://192.168.100.150:3000',    
   'http://190.102.248.163',
   'https://intranet.beach.cl',
-  'https://reservas.beach.cl',         
+  'https://reservas.beach.cl', 
+  'https://concurso.beach.cl',       
   'https://api.beach.cl'              // ⬅️ importante: tu nuevo subdominio backend
 ];
 
@@ -134,6 +135,8 @@ const optionalRoutes = [
   { path: './routes/concursoPiscinasRoutes', route: '/api/concurso-piscinas' },
   // 🏡 NUEVA RUTA PARA SISTEMA DE CABAÑAS CON WHATSAPP
   { path: './routes/cabanasRoutes', route: '/api/cabanas' },
+  // 🔧 NUEVA RUTA PARA MANTENIMIENTO
+  { path: './routes/maintenanceRoutes', route: '/api/maintenance' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

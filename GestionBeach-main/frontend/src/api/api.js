@@ -45,6 +45,10 @@ const getBackendURL = () => {
     console.log('🌐 Acceso desde intranet.beach.cl');
     return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
 
+          case 'concurso.beach.cl':
+    console.log('🌐 Acceso desde intranet.beach.cl');
+    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
+
       case 'reservas.beach.cl':
     console.log('🌐 Acceso desde intranet.beach.cl');
     return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
