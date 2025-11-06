@@ -707,7 +707,7 @@ const ConcursoPiscinasPage = () => {
 
         <Grid container spacing={2} justifyContent="flex-start" alignItems="flex-start" sx={{ maxWidth: '100%' }}>
           {/* Formulario principal */}
-          <Grid item xs={12} sm={8} md={8} lg={7.5} xl={7.5} sx={{ order: { xs: 2, sm: 1 } }}>
+          <Grid item xs={12} sm={12} md={8} lg={8} xl={8} sx={{ order: { xs: 2, sm: 2, md: 1 } }}>
             <Zoom in timeout={1000}>
               <Card
                 sx={{
@@ -1284,7 +1284,7 @@ const ConcursoPiscinasPage = () => {
           </Grid>
 
           {/* Panel de Premios e Instrucciones */}
-          <Grid item xs={12} sm={4} md={4} lg={4} xl={4} sx={{ order: { xs: 1, sm: 2 } }}>
+          <Grid item xs={12} sm={12} md={4} lg={4} xl={4} sx={{ order: { xs: 1, sm: 1, md: 2 } }}>
             {/* Card de Premios */}
             <Zoom in timeout={1200}>
               <Card

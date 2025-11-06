@@ -29,23 +29,36 @@ const upload = multer({
 
 exports.uploadMiddleware = upload.single('imagen_boleta');
 
-// Procesar imagen con Sharp
+// Procesar imagen con Sharp - OPTIMIZADO PARA OCR
 const procesarImagen = async (buffer) => {
   try {
-    console.log('📸 Procesando imagen...');
-    
+    console.log('📸 Procesando imagen con optimizaciones AGRESIVAS para OCR...');
+
     const imagenProcesada = await sharp(buffer)
-      .resize(1200, 1200, {
+      .resize(1920, 1920, {
         fit: 'inside',
         withoutEnlargement: true
       })
-      .jpeg({
-        quality: 85,
-        progressive: true
+      // Convertir a escala de grises para mejor OCR
+      .grayscale()
+      // Aumentar contraste dramáticamente
+      .normalize()
+      // Nitidez agresiva
+      .sharpen({ sigma: 2 })
+      // Aumentar brillo ligeramente
+      .modulate({
+        brightness: 1.1,
+        saturation: 0
+      })
+      // Convertir a PNG para máxima calidad
+      .png({
+        quality: 100,
+        compressionLevel: 0
       })
       .toBuffer();
-    
-    console.log(`✅ Imagen procesada: ${buffer.length} bytes -> ${imagenProcesada.length} bytes`);
+
+    console.log(`✅ Imagen OPTIMIZADA: ${buffer.length} bytes -> ${imagenProcesada.length} bytes`);
+    console.log('✅ Aplicado: Escala de grises + Normalización + Nitidez x2 + Brillo +10%');
     return imagenProcesada;
   } catch (error) {
     console.error('❌ Error al procesar imagen:', error);
@@ -53,39 +66,118 @@ const procesarImagen = async (buffer) => {
   }
 };
 
-// Extraer texto de imagen con OCR - Máxima precisión
+// Extraer texto de imagen con OCR - MÚLTIPLES INTENTOS AGRESIVOS
 const extraerTextoDeImagen = async (buffer) => {
   try {
-    console.log('🔍 Iniciando OCR con máxima precisión...');
+    console.log('🔍🔍🔍 Iniciando OCR AGRESIVO con múltiples configuraciones...');
 
-    const { data } = await Tesseract.recognize(
-      buffer,
-      'spa', // Español
-      {
-        logger: info => {
-          if (info.status === 'recognizing text') {
-            console.log(`OCR Progreso: ${Math.round(info.progress * 100)}%`);
-          }
-        },
-        // Configuración para máxima precisión
-        tessedit_pageseg_mode: Tesseract.PSM.AUTO, // Detección automática de layout
-        tessedit_char_whitelist: '0123456789NnoO.:- ', // Solo números y caracteres relevantes
-        tessjs_create_hocr: '0',
-        tessjs_create_tsv: '0',
-        // Mejor calidad de procesamiento
-        tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY, // Motor LSTM más preciso
-      }
+    const resultados = [];
+
+    // INTENTO 1: Modo números agresivo
+    console.log('📋 INTENTO 1: Modo SINGLE_LINE para números');
+    try {
+      const { data: data1 } = await Tesseract.recognize(
+        buffer,
+        'spa',
+        {
+          logger: info => {
+            if (info.status === 'recognizing text') {
+              console.log(`OCR-1 Progreso: ${Math.round(info.progress * 100)}%`);
+            }
+          },
+          tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+          tessedit_char_whitelist: '0123456789NnoOBbLlEeTtAaFfIi.:- °#',
+          tessedit_ocr_engine_mode: Tesseract.OEM.DEFAULT,
+        }
+      );
+      resultados.push({ texto: data1.text, confianza: data1.confidence, modo: 'SINGLE_LINE' });
+      console.log(`📝 RESULTADO 1: "${data1.text}" (Confianza: ${data1.confidence.toFixed(2)}%)`);
+    } catch (e) {
+      console.error('❌ Error en intento 1:', e.message);
+    }
+
+    // INTENTO 2: Modo bloque
+    console.log('📋 INTENTO 2: Modo SINGLE_BLOCK');
+    try {
+      const { data: data2 } = await Tesseract.recognize(
+        buffer,
+        'spa',
+        {
+          tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+          tessedit_char_whitelist: '0123456789NnoOBbLlEeTtAaFfIi.:- °#',
+          tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+        }
+      );
+      resultados.push({ texto: data2.text, confianza: data2.confidence, modo: 'SINGLE_BLOCK' });
+      console.log(`📝 RESULTADO 2: "${data2.text}" (Confianza: ${data2.confidence.toFixed(2)}%)`);
+    } catch (e) {
+      console.error('❌ Error en intento 2:', e.message);
+    }
+
+    // INTENTO 3: Auto sin restricciones
+    console.log('📋 INTENTO 3: Modo AUTO sin whitelist');
+    try {
+      const { data: data3 } = await Tesseract.recognize(
+        buffer,
+        'spa',
+        {
+          tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+          tessedit_ocr_engine_mode: Tesseract.OEM.DEFAULT,
+        }
+      );
+      resultados.push({ texto: data3.text, confianza: data3.confidence, modo: 'AUTO' });
+      console.log(`📝 RESULTADO 3: "${data3.text}" (Confianza: ${data3.confidence.toFixed(2)}%)`);
+    } catch (e) {
+      console.error('❌ Error en intento 3:', e.message);
+    }
+
+    // INTENTO 4: Modo sparse text (texto disperso)
+    console.log('📋 INTENTO 4: Modo SPARSE_TEXT');
+    try {
+      const { data: data4 } = await Tesseract.recognize(
+        buffer,
+        'spa',
+        {
+          tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
+          tessedit_char_whitelist: '0123456789NnoO.:- ',
+        }
+      );
+      resultados.push({ texto: data4.text, confianza: data4.confidence, modo: 'SPARSE_TEXT' });
+      console.log(`📝 RESULTADO 4: "${data4.text}" (Confianza: ${data4.confidence.toFixed(2)}%)`);
+    } catch (e) {
+      console.error('❌ Error en intento 4:', e.message);
+    }
+
+    if (resultados.length === 0) {
+      console.error('❌ TODOS LOS INTENTOS FALLARON');
+      return { texto: '', confianza: 0, textoCompleto: '' };
+    }
+
+    // Combinar todos los textos
+    const textoCompleto = resultados.map(r => r.texto).join('\n');
+    const confianzaPromedio = resultados.reduce((sum, r) => sum + r.confianza, 0) / resultados.length;
+
+    console.log('========================================');
+    console.log('📝 TEXTO COMBINADO DE TODOS LOS INTENTOS:');
+    console.log(textoCompleto);
+    console.log('========================================');
+    console.log(`💯 Confianza promedio: ${confianzaPromedio.toFixed(2)}%`);
+
+    // Usar el resultado con mayor confianza como principal
+    const mejorResultado = resultados.reduce((best, current) =>
+      current.confianza > best.confianza ? current : best
     );
 
-    console.log(`✅ OCR completado - Confianza: ${data.confidence.toFixed(2)}%`);
+    console.log(`🏆 MEJOR RESULTADO: Modo ${mejorResultado.modo} con ${mejorResultado.confianza.toFixed(2)}%`);
 
     return {
-      texto: data.text,
-      confianza: data.confidence,
-      textoCompleto: data.text
+      texto: textoCompleto,
+      confianza: confianzaPromedio,
+      textoCompleto: textoCompleto,
+      mejorTexto: mejorResultado.texto
     };
   } catch (error) {
-    console.error('❌ Error en OCR:', error);
+    console.error('❌ Error CRÍTICO en OCR:', error);
     return {
       texto: '',
       confianza: 0,
@@ -94,43 +186,77 @@ const extraerTextoDeImagen = async (buffer) => {
   }
 };
 
-// Extraer número de boleta del texto OCR
+// Extraer número de boleta del texto OCR - MODO AGRESIVO
 const extraerNumeroBoleta = (textoOCR) => {
   try {
-    console.log('🔍 Buscando número de boleta en texto OCR...');
-    console.log('Texto original:', textoOCR.substring(0, 500));
+    console.log('🔍🔍🔍 Buscando número de boleta AGRESIVAMENTE...');
+    console.log('Texto original completo:', textoOCR);
 
-    // Limpiar texto - eliminar saltos de línea y normalizar espacios
+    // Limpiar texto
     let textoLimpio = textoOCR
-      .replace(/[\r\n]+/g, ' ')     // Convertir saltos de línea a espacios
-      .replace(/\s+/g, ' ')         // Normalizar múltiples espacios a uno solo
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
 
     console.log('Texto limpio:', textoLimpio);
 
-    // Patrones para buscar número de boleta
+    // PATRONES EN ORDEN DE PRIORIDAD (de más específico a más general)
     const patrones = [
-      /(?:NO|N)[°O]?[\s.:]*(\d{4,})/i,    // No 123456, N° 123456, NO: 123456
-      /BOLETA[\s:]*(\d{4,})/i,             // BOLETA 123456
-      /FOLIO[\s:]*(\d{4,})/i,              // FOLIO 123456
-      /NUMERO[\s:]*(\d{4,})/i,             // NUMERO 123456
-      /(\d{6,})/,                          // Fallback: cualquier secuencia de 6+ dígitos
+      // Patrones muy específicos primero
+      /(?:NO|N|n|no)[°O\s.:_-]*(\d{5,})/i,           // No 123456, N° 123456, NO: 123456
+      /(?:BOLETA|boleta)[\s:]*(\d{5,})/i,            // BOLETA 123456
+      /(?:FOLIO|folio)[\s:]*(\d{5,})/i,              // FOLIO 123456
+      /(?:NUMERO|numero|NUM|num)[\s:]*(\d{5,})/i,    // NUMERO 123456
+
+      // Patrones más flexibles
+      /[Nn][°oO\s.:-]{0,3}(\d{5,})/,                 // N 123456, n°123456
+      /(\d{7,})/,                                     // 7 o más dígitos
+      /(\d{6})/,                                      // Exactamente 6 dígitos
+      /(\d{5})/,                                      // Exactamente 5 dígitos (más arriesgado)
+
+      // FALLBACK ULTRA AGRESIVO: cualquier secuencia de números
+      /(\d{4,})/,                                     // 4 o más dígitos (última opción)
     ];
 
+    console.log(`📋 Probando ${patrones.length} patrones diferentes...`);
+
     // Intentar cada patrón
-    for (const patron of patrones) {
+    for (let i = 0; i < patrones.length; i++) {
+      const patron = patrones[i];
       const match = textoLimpio.match(patron);
+
       if (match && match[1]) {
         const numeroEncontrado = match[1].trim();
-        // Validar que sea un número válido (solo dígitos)
+
+        // Validar que sea solo dígitos
         if (/^\d+$/.test(numeroEncontrado)) {
-          console.log(`✅ Número de boleta encontrado: ${numeroEncontrado}`);
+          console.log(`✅ ÉXITO con patrón ${i + 1}: "${numeroEncontrado}"`);
+          console.log(`📝 Patrón usado: ${patron}`);
           return numeroEncontrado;
         }
       }
     }
 
-    console.log('⚠️ No se encontró número de boleta en el texto OCR');
+    // Si no se encontró con patrones, buscar TODOS los números en el texto
+    console.log('⚠️ Patrones fallaron, buscando TODOS los números en el texto...');
+    const todosLosNumeros = textoLimpio.match(/\d+/g);
+
+    if (todosLosNumeros && todosLosNumeros.length > 0) {
+      console.log('📊 Números encontrados:', todosLosNumeros);
+
+      // Priorizar números más largos
+      const numeroMasLargo = todosLosNumeros.reduce((longest, current) =>
+        current.length > longest.length ? current : longest
+      );
+
+      if (numeroMasLargo && numeroMasLargo.length >= 4) {
+        console.log(`✅ Usando número más largo encontrado: "${numeroMasLargo}"`);
+        return numeroMasLargo;
+      }
+    }
+
+    console.log('❌ NO SE ENCONTRÓ NINGÚN NÚMERO DE BOLETA');
+    console.log('💡 Texto recibido:', textoOCR);
     return null;
   } catch (error) {
     console.error('❌ Error al extraer número de boleta:', error);
@@ -824,8 +950,9 @@ exports.procesarOCRConCrop = async (req, res) => {
 
     let imagenParaOCR = req.file.buffer;
 
-    // Si hay coordenadas, recortar la imagen
-    if (cropX && cropY && cropWidth && cropHeight) {
+    // Si cropX > 0, entonces hay coordenadas válidas para recortar
+    // Si cropX = 0, la imagen ya viene recortada del frontend
+    if (cropX && parseInt(cropX) > 0 && cropY && cropWidth && cropHeight) {
       console.log('✂️ Recortando área seleccionada para OCR...');
 
       imagenParaOCR = await sharp(req.file.buffer)
@@ -835,12 +962,42 @@ exports.procesarOCRConCrop = async (req, res) => {
           width: parseInt(cropWidth),
           height: parseInt(cropHeight)
         })
-        // Aumentar contraste y nitidez para mejor OCR
-        .normalize()
-        .sharpen()
+        // PREPROCESAMIENTO AGRESIVO PARA OCR
+        .resize(1920, 1920, {
+          fit: 'inside',
+          withoutEnlargement: true
+        })
+        .grayscale()              // Escala de grises
+        .normalize()              // Normalizar contraste
+        .sharpen({ sigma: 2 })    // Nitidez agresiva
+        .modulate({
+          brightness: 1.1,        // Aumentar brillo 10%
+          saturation: 0
+        })
+        .png({ quality: 100, compressionLevel: 0 })
         .toBuffer();
 
-      console.log('✅ Área recortada y optimizada para OCR');
+      console.log('✅ Área recortada + preprocesamiento AGRESIVO aplicado');
+    } else {
+      console.log('📸 Imagen ya viene recortada, aplicando preprocesamiento AGRESIVO...');
+
+      // Preprocesamiento completo en imagen ya recortada
+      imagenParaOCR = await sharp(req.file.buffer)
+        .resize(1920, 1920, {
+          fit: 'inside',
+          withoutEnlargement: true
+        })
+        .grayscale()              // Escala de grises
+        .normalize()              // Normalizar contraste
+        .sharpen({ sigma: 2 })    // Nitidez agresiva
+        .modulate({
+          brightness: 1.1,        // Aumentar brillo 10%
+          saturation: 0
+        })
+        .png({ quality: 100, compressionLevel: 0 })
+        .toBuffer();
+
+      console.log('✅ Preprocesamiento AGRESIVO aplicado: Grises + Normalize + Sharpen x2 + Brillo');
     }
 
     // Ejecutar OCR sobre el área seleccionada
@@ -862,28 +1019,17 @@ exports.procesarOCRConCrop = async (req, res) => {
     console.log(`💯 Confianza OCR: ${resultadoOCR.confianza.toFixed(2)}%`);
     console.log('========================================\n');
 
-    // Si la confianza es baja (< 85%) o no se detectó número, generar variaciones
-    const UMBRAL_CONFIANZA = 85;
-    let variaciones = [];
-    let requiereConfirmacion = false;
-
-    if (numeroBoleta && resultadoOCR.confianza < UMBRAL_CONFIANZA) {
-      console.log(`⚠️ Confianza baja (${resultadoOCR.confianza.toFixed(2)}% < ${UMBRAL_CONFIANZA}%), generando variaciones...`);
-      variaciones = generarVariacionesNumero(numeroBoleta);
-      requiereConfirmacion = true;
-    } else if (numeroBoleta) {
-      // Confianza alta, solo retornar el número detectado
-      variaciones = [numeroBoleta];
-    }
-
+    // Simplemente retornar el número con mejor confianza
+    // Sin variaciones ni confirmación - experiencia transparente para el usuario
     return res.json({
       success: true,
       numero_boleta: numeroBoleta,
-      texto_completo: resultadoOCR.texto,
-      confianza: resultadoOCR.confianza,
       detectado: numeroBoleta !== null,
-      requiere_confirmacion: requiereConfirmacion,
-      variaciones: variaciones
+      // Datos técnicos solo para logs internos, no se mostrarán al usuario
+      _internal: {
+        texto_completo: resultadoOCR.texto,
+        confianza: resultadoOCR.confianza
+      }
     });
 
   } catch (error) {

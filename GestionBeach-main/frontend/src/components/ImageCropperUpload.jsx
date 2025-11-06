@@ -1,5 +1,5 @@
 // frontend/src/components/ImageCropperUpload.jsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -7,33 +7,49 @@ import {
   Paper,
   CircularProgress,
   Alert,
-  TextField,
   Stack,
   IconButton,
   Fade,
+  ToggleButtonGroup,
+  ToggleButton,
+  Slider,
 } from '@mui/material';
 import {
-  CloudUpload as UploadIcon,
   PhotoCamera as CameraIcon,
   Check as CheckIcon,
   Close as CloseIcon,
   Refresh as RefreshIcon,
-  CropFree as CropIcon,
+  CameraAlt as CameraAltIcon,
+  FlipCameraAndroid as FlipCameraIcon,
+  Crop as CropIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
 } from '@mui/icons-material';
-import ReactCrop from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
 import api from '../api/api';
 
 const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
-  const [imagenSrc, setImagenSrc] = useState(null);
-  const [crop, setCrop] = useState({
-    unit: 'px',
-    x: 50,
-    y: 50,
-    width: 300,
-    height: 100,
-  });
+  // Estados de cámara
+  const [modoCaptura, setModoCaptura] = useState('archivo'); // 'archivo' o 'camara'
+  const [stream, setStream] = useState(null);
+  const [camaraActiva, setCamaraActiva] = useState(false);
+  const [camaraDisponible, setCamaraDisponible] = useState([]);
+  const [camaraSeleccionada, setCamaraSeleccionada] = useState(null);
+  const [facingMode, setFacingMode] = useState('environment'); // 'user' (frontal) o 'environment' (trasera)
+
+  // Estados de imagen
+  const [imagenCapturada, setImagenCapturada] = useState(null);
   const [archivoImagen, setArchivoImagen] = useState(null);
+  const [imagenOriginal, setImagenOriginal] = useState(null); // Para guardar la imagen original antes de crop
+
+  // Estados para imagen manual con rectángulo
+  const [imagenManualCargada, setImagenManualCargada] = useState(false);
+  const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  const [imageScale, setImageScale] = useState(1);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+
+  // Estados de procesamiento
   const [procesandoOCR, setProcesandoOCR] = useState(false);
   const [numeroBoleta, setNumeroBoleta] = useState('');
   const [confianzaOCR, setConfianzaOCR] = useState(null);
@@ -46,8 +62,153 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
   const [validandoVariaciones, setValidandoVariaciones] = useState(false);
   const [variacionesValidadas, setVariacionesValidadas] = useState({});
 
-  const imagenRef = useRef(null);
+  // Referencias
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const inputFileRef = useRef(null);
+  const imageContainerRef = useRef(null);
+  const imageRef = useRef(null);
+
+  // Dimensiones del rectángulo guía (proporción horizontal para boletas)
+  const RECT_WIDTH_PERCENT = 0.85; // 85% del ancho
+  const RECT_HEIGHT_PERCENT = 0.25; // 25% del alto
+
+  // Limpiar stream al desmontar
+  useEffect(() => {
+    return () => {
+      detenerCamara();
+    };
+  }, []);
+
+  // Obtener lista de cámaras disponibles
+  const obtenerCamarasDisponibles = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoCameras = devices.filter(device => device.kind === 'videoinput');
+      setCamaraDisponible(videoCameras);
+      console.log('📷 Cámaras disponibles:', videoCameras);
+      return videoCameras;
+    } catch (error) {
+      console.error('❌ Error obteniendo cámaras:', error);
+      return [];
+    }
+  };
+
+  // Iniciar cámara
+  const iniciarCamara = async (usarFacingMode = true) => {
+    try {
+      console.log('📷 Iniciando cámara...');
+
+      // Detener stream anterior si existe
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+
+      // Configuración de constraints
+      const constraints = {
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          facingMode: usarFacingMode ? facingMode : undefined,
+          deviceId: !usarFacingMode && camaraSeleccionada ? { exact: camaraSeleccionada } : undefined
+        }
+      };
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setStream(mediaStream);
+      setCamaraActiva(true);
+      setError('');
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+
+      // Obtener cámaras disponibles después de obtener permisos
+      await obtenerCamarasDisponibles();
+
+      console.log('✅ Cámara iniciada correctamente');
+    } catch (error) {
+      console.error('❌ Error al iniciar cámara:', error);
+      setError('No se pudo acceder a la cámara. Por favor verifica los permisos.');
+      setCamaraActiva(false);
+    }
+  };
+
+  // Detener cámara
+  const detenerCamara = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+      setCamaraActiva(false);
+      console.log('📷 Cámara detenida');
+    }
+  };
+
+  // Cambiar entre cámara frontal y trasera
+  const cambiarCamara = () => {
+    const nuevoFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nuevoFacingMode);
+
+    // Reiniciar cámara con el nuevo facing mode
+    if (camaraActiva) {
+      iniciarCamara(true);
+    }
+  };
+
+  // Capturar foto de la cámara
+  const capturarFoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    // Configurar canvas con las dimensiones del video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext('2d');
+
+    // Dibujar el frame actual del video
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Calcular dimensiones del rectángulo en píxeles
+    const rectWidth = canvas.width * RECT_WIDTH_PERCENT;
+    const rectHeight = canvas.height * RECT_HEIGHT_PERCENT;
+    const rectX = (canvas.width - rectWidth) / 2;
+    const rectY = (canvas.height - rectHeight) / 2;
+
+    // Crear un nuevo canvas solo con el área recortada
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = rectWidth;
+    croppedCanvas.height = rectHeight;
+    const croppedCtx = croppedCanvas.getContext('2d');
+
+    // Copiar solo el área del rectángulo
+    croppedCtx.drawImage(
+      canvas,
+      rectX, rectY, rectWidth, rectHeight,
+      0, 0, rectWidth, rectHeight
+    );
+
+    // Convertir a blob y luego a File
+    croppedCanvas.toBlob((blob) => {
+      const file = new File([blob], `boleta_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const imageUrl = URL.createObjectURL(blob);
+
+      setImagenCapturada(imageUrl);
+      setArchivoImagen(file);
+      detenerCamara();
+      setModoCaptura('archivo');
+      setImagenManualCargada(false);
+
+      // Notificar al componente padre
+      if (onImagenSeleccionada) {
+        onImagenSeleccionada(file);
+      }
+
+      console.log('✅ Foto capturada y recortada');
+    }, 'image/jpeg', 0.95);
+  };
 
   // Manejar selección de archivo
   const handleFileSelect = (event) => {
@@ -55,14 +216,14 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     if (!file) return;
 
     // Validar tipo de archivo
-    if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
-      setError('Solo se permiten imágenes JPG, JPEG o PNG');
+    if (!file.type.startsWith('image/')) {
+      setError('Solo se permiten imágenes');
       return;
     }
 
-    // Validar tamaño (5MB máximo)
-    if (file.size > 5 * 1024 * 1024) {
-      setError('La imagen no debe superar los 5MB');
+    // Validar tamaño (10MB máximo)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('La imagen no debe superar los 10MB');
       return;
     }
 
@@ -71,11 +232,22 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     setNumeroBoleta('');
     setNumeroConfirmado(false);
     setConfianzaOCR(null);
+    setImagenManualCargada(true);
+
+    // Resetear posición y escala
+    setImagePosition({ x: 0, y: 0 });
+    setImageScale(1);
 
     // Mostrar preview
     const reader = new FileReader();
-    reader.onload = () => {
-      setImagenSrc(reader.result);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        setImageDimensions({ width: img.width, height: img.height });
+        setImagenCapturada(e.target.result);
+        setImagenOriginal(e.target.result);
+      };
+      img.src = e.target.result;
     };
     reader.readAsDataURL(file);
 
@@ -85,80 +257,159 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     }
   };
 
-  // Procesar OCR con las coordenadas del crop
+  // Manejo de arrastre de imagen
+  const handleMouseDown = (e) => {
+    if (!imagenManualCargada) return;
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX || e.touches?.[0]?.clientX,
+      y: e.clientY || e.touches?.[0]?.clientY
+    });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || !imagenManualCargada) return;
+
+    const clientX = e.clientX || e.touches?.[0]?.clientX;
+    const clientY = e.clientY || e.touches?.[0]?.clientY;
+
+    const deltaX = clientX - dragStart.x;
+    const deltaY = clientY - dragStart.y;
+
+    setImagePosition(prev => ({
+      x: prev.x + deltaX,
+      y: prev.y + deltaY
+    }));
+
+    setDragStart({ x: clientX, y: clientY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Manejo de zoom con rueda del mouse
+  const handleWheel = (e) => {
+    if (!imagenManualCargada) return;
+    e.preventDefault();
+
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setImageScale(prev => Math.max(0.5, Math.min(3, prev + delta)));
+  };
+
+  // Capturar área del rectángulo desde imagen manual
+  const capturarAreaRectangulo = () => {
+    if (!imageRef.current || !imageContainerRef.current || !imagenOriginal) return;
+
+    const container = imageContainerRef.current;
+    const img = imageRef.current;
+
+    // Obtener dimensiones del contenedor y la imagen mostrada
+    const containerRect = container.getBoundingClientRect();
+    const imgRect = img.getBoundingClientRect();
+
+    // Calcular posición y dimensiones del rectángulo en píxeles del contenedor
+    const rectWidth = containerRect.width * RECT_WIDTH_PERCENT;
+    const rectHeight = containerRect.height * RECT_HEIGHT_PERCENT;
+    const rectX = (containerRect.width - rectWidth) / 2;
+    const rectY = (containerRect.height - rectHeight) / 2;
+
+    // Calcular la escala de la imagen original vs la imagen mostrada
+    const scaleX = imageDimensions.width / img.offsetWidth;
+    const scaleY = imageDimensions.height / img.offsetHeight;
+
+    // Calcular posición del rectángulo relativa a la imagen (considerando offset y escala)
+    const relativeX = (rectX - (imgRect.left - containerRect.left)) * scaleX / imageScale;
+    const relativeY = (rectY - (imgRect.top - containerRect.top)) * scaleY / imageScale;
+    const relativeWidth = rectWidth * scaleX / imageScale;
+    const relativeHeight = rectHeight * scaleY / imageScale;
+
+    console.log('📐 Recortando área:', { relativeX, relativeY, relativeWidth, relativeHeight });
+
+    // Crear canvas temporal para recortar
+    const canvas = document.createElement('canvas');
+    canvas.width = relativeWidth;
+    canvas.height = relativeHeight;
+    const ctx = canvas.getContext('2d');
+
+    // Cargar imagen original
+    const imgElement = new Image();
+    imgElement.onload = () => {
+      // Dibujar solo el área del rectángulo
+      ctx.drawImage(
+        imgElement,
+        Math.max(0, relativeX),
+        Math.max(0, relativeY),
+        relativeWidth,
+        relativeHeight,
+        0,
+        0,
+        relativeWidth,
+        relativeHeight
+      );
+
+      // Convertir a blob
+      canvas.toBlob((blob) => {
+        const file = new File([blob], `boleta_crop_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const imageUrl = URL.createObjectURL(blob);
+
+        setImagenCapturada(imageUrl);
+        setArchivoImagen(file);
+        setImagenManualCargada(false);
+
+        console.log('✅ Área recortada correctamente');
+      }, 'image/jpeg', 0.95);
+    };
+    imgElement.src = imagenOriginal;
+  };
+
+  // Procesar OCR (sin crop, ya viene recortada)
   const procesarOCR = async () => {
-    if (!archivoImagen || !imagenRef.current) {
-      setError('Selecciona una imagen primero');
+    if (!archivoImagen) {
+      setError('No hay imagen para procesar');
       return;
     }
 
     setProcesandoOCR(true);
     setError('');
-    setNumeroBoleta(''); // Limpiar número anterior si existe
+    setNumeroBoleta('');
 
     try {
-      // Obtener dimensiones reales de la imagen
-      const img = imagenRef.current;
-      const scaleX = img.naturalWidth / img.width;
-      const scaleY = img.naturalHeight / img.height;
-
-      // Calcular coordenadas reales del crop
-      const cropX = Math.round(crop.x * scaleX);
-      const cropY = Math.round(crop.y * scaleY);
-      const cropWidth = Math.round(crop.width * scaleX);
-      const cropHeight = Math.round(crop.height * scaleY);
-
-      console.log('📐 Coordenadas del crop:', { cropX, cropY, cropWidth, cropHeight });
-      console.log('📐 Dimensiones imagen:', {
-        display: { width: img.width, height: img.height },
-        natural: { width: img.naturalWidth, height: img.naturalHeight },
-      });
-
-      // Crear FormData
       const formData = new FormData();
       formData.append('imagen_boleta', archivoImagen);
-      formData.append('cropX', cropX.toString());
-      formData.append('cropY', cropY.toString());
-      formData.append('cropWidth', cropWidth.toString());
-      formData.append('cropHeight', cropHeight.toString());
 
-      // Enviar al backend
+      // Sin coordenadas porque ya viene recortada
+      formData.append('cropX', '0');
+      formData.append('cropY', '0');
+      formData.append('cropWidth', '0');
+      formData.append('cropHeight', '0');
+
       const response = await api.post('/concurso-piscinas/ocr-crop', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
 
-      console.log('✅ Respuesta OCR:', response.data);
+      console.log('✅ Respuesta:', response.data);
 
       if (response.data.success && response.data.numero_boleta) {
-        setNumeroBoleta(response.data.numero_boleta);
-        setConfianzaOCR(response.data.confianza);
+        const numeroDetectado = response.data.numero_boleta;
 
-        // Verificar si requiere confirmación (confianza baja)
-        if (response.data.requiere_confirmacion && response.data.variaciones && response.data.variaciones.length > 1) {
-          console.log('⚠️ Confianza baja, mostrando variaciones:', response.data.variaciones);
-          setVariaciones(response.data.variaciones);
-          setRequiereConfirmacion(true);
+        // Proceso transparente: simplemente usar el número detectado
+        setNumeroBoleta(numeroDetectado);
+        setRequiereConfirmacion(false);
+        setVariaciones([]);
 
-          // Validar todas las variaciones automáticamente
-          validarTodasLasVariaciones(response.data.variaciones);
-        } else {
-          // Confianza alta, confirmar automáticamente
-          setRequiereConfirmacion(false);
-          setVariaciones([]);
-
-          // Notificar al componente padre
-          if (onNumeroDetectado) {
-            onNumeroDetectado(response.data.numero_boleta);
-          }
+        // Notificar al componente padre inmediatamente
+        if (onNumeroDetectado) {
+          onNumeroDetectado(numeroDetectado);
         }
       } else {
-        setError('No fue encontrado el número. Por favor intente con una foto legible.');
+        setError('No se pudo detectar el número de boleta. Por favor intenta nuevamente.');
       }
     } catch (error) {
       console.error('❌ Error al procesar OCR:', error);
-      setError('No fue encontrado el número. Por favor intente con una foto legible.');
+      setError('Error al procesar la imagen. Por favor intenta nuevamente.');
     } finally {
       setProcesandoOCR(false);
     }
@@ -170,7 +421,6 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     const resultados = {};
 
     try {
-      // Validar cada variación en paralelo
       const promesas = variacionesArray.map(async (variacion) => {
         try {
           const response = await api.post('/concurso-piscinas/validar-boleta', {
@@ -192,7 +442,6 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
 
       const resultadosArray = await Promise.all(promesas);
 
-      // Convertir array a objeto
       resultadosArray.forEach((resultado) => {
         resultados[resultado.numero] = resultado.data;
       });
@@ -213,7 +462,6 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     setNumeroConfirmado(true);
     setError('');
 
-    // Notificar al componente padre
     if (onNumeroDetectado) {
       onNumeroDetectado(numero);
     }
@@ -222,14 +470,13 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
   // Confirmar número de boleta
   const confirmarNumero = () => {
     if (!numeroBoleta || numeroBoleta.trim().length === 0) {
-      setError('No fue encontrado el número. Por favor intente con una foto legible.');
+      setError('Número de boleta no válido');
       return;
     }
 
     setNumeroConfirmado(true);
     setError('');
 
-    // Notificar al componente padre
     if (onNumeroDetectado) {
       onNumeroDetectado(numeroBoleta);
     }
@@ -237,8 +484,10 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
 
   // Resetear todo
   const resetear = () => {
-    setImagenSrc(null);
+    detenerCamara();
+    setImagenCapturada(null);
     setArchivoImagen(null);
+    setImagenOriginal(null);
     setNumeroBoleta('');
     setNumeroConfirmado(false);
     setConfianzaOCR(null);
@@ -246,13 +495,10 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     setVariaciones([]);
     setRequiereConfirmacion(false);
     setVariacionesValidadas({});
-    setCrop({
-      unit: 'px',
-      x: 50,
-      y: 50,
-      width: 300,
-      height: 100,
-    });
+    setModoCaptura('archivo');
+    setImagenManualCargada(false);
+    setImagePosition({ x: 0, y: 0 });
+    setImageScale(1);
 
     if (onImagenSeleccionada) {
       onImagenSeleccionada(null);
@@ -274,44 +520,441 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     >
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <CameraIcon color="primary" />
-        Cargar Imagen de la Boleta
+        Capturar Boleta
       </Typography>
 
-      {/* Botón de selección de archivo */}
-      {!imagenSrc && (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
-          <input
-            type="file"
-            accept="image/jpeg,image/jpg,image/png"
-            onChange={handleFileSelect}
-            ref={inputFileRef}
-            style={{ display: 'none' }}
-          />
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<UploadIcon />}
-            onClick={() => inputFileRef.current?.click()}
-            sx={{ px: 4, py: 1.5 }}
+      {/* Selector de modo de captura */}
+      {!imagenCapturada && !camaraActiva && !imagenManualCargada && (
+        <Box sx={{ mb: 3, textAlign: 'center' }}>
+          <ToggleButtonGroup
+            value={modoCaptura}
+            exclusive
+            onChange={(e, newMode) => {
+              if (newMode !== null) {
+                setModoCaptura(newMode);
+                if (newMode === 'camara') {
+                  iniciarCamara();
+                }
+              }
+            }}
+            fullWidth
+            sx={{ mb: 2 }}
           >
-            Seleccionar Imagen
-          </Button>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Formatos: JPG, JPEG, PNG (máximo 5MB)
-          </Typography>
+            <ToggleButton value="archivo" sx={{ py: 1.5 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <CropIcon />
+                <Typography variant="caption">Subir Imagen</Typography>
+              </Box>
+            </ToggleButton>
+            <ToggleButton value="camara" sx={{ py: 1.5 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <CameraAltIcon />
+                <Typography variant="caption">Usar Cámara</Typography>
+              </Box>
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          {modoCaptura === 'archivo' && (
+            <>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileSelect}
+                ref={inputFileRef}
+                style={{ display: 'none' }}
+              />
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<CameraAltIcon />}
+                onClick={() => inputFileRef.current?.click()}
+                fullWidth
+                sx={{ py: 1.5 }}
+              >
+                Seleccionar o Tomar Foto
+              </Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Asegúrate de que el número de boleta sea legible
+              </Typography>
+            </>
+          )}
         </Box>
       )}
 
-      {/* Imagen con cropper */}
-      {imagenSrc && !numeroConfirmado && (
+      {/* Vista de cámara en vivo */}
+      {camaraActiva && !imagenCapturada && (
         <Fade in>
           <Box>
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2" fontWeight="bold">
-                Ajusta el recuadro sobre el número de boleta
+                Coloca el número de boleta dentro del rectángulo
               </Typography>
               <Typography variant="caption">
-                Mueve y redimensiona el recuadro para enfocar exactamente el número de la boleta
+                Asegúrate de tener buena iluminación y que el número esté enfocado
+              </Typography>
+            </Alert>
+
+            <Box
+              sx={{
+                position: 'relative',
+                width: '100%',
+                maxWidth: '600px',
+                mx: 'auto',
+                bgcolor: '#000',
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}
+            >
+              {/* Video de la cámara */}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  display: 'block',
+                }}
+              />
+
+              {/* Overlay del rectángulo guía */}
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  pointerEvents: 'none',
+                }}
+              >
+                {/* Fondo oscuro con recorte */}
+                <svg
+                  width="100%"
+                  height="100%"
+                  style={{ position: 'absolute', top: 0, left: 0 }}
+                >
+                  <defs>
+                    <mask id="hole">
+                      <rect width="100%" height="100%" fill="white" />
+                      <rect
+                        x={`${(1 - RECT_WIDTH_PERCENT) * 50}%`}
+                        y={`${(1 - RECT_HEIGHT_PERCENT) * 50}%`}
+                        width={`${RECT_WIDTH_PERCENT * 100}%`}
+                        height={`${RECT_HEIGHT_PERCENT * 100}%`}
+                        rx="8"
+                        fill="black"
+                      />
+                    </mask>
+                  </defs>
+                  <rect width="100%" height="100%" fill="rgba(0, 0, 0, 0.5)" mask="url(#hole)" />
+                </svg>
+
+                {/* Rectángulo guía con bordes */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: `${(1 - RECT_WIDTH_PERCENT) * 50}%`,
+                    top: `${(1 - RECT_HEIGHT_PERCENT) * 50}%`,
+                    width: `${RECT_WIDTH_PERCENT * 100}%`,
+                    height: `${RECT_HEIGHT_PERCENT * 100}%`,
+                    border: '3px solid #00FF00',
+                    borderRadius: 1,
+                    boxShadow: '0 0 0 2px rgba(0, 0, 0, 0.5), inset 0 0 0 2px rgba(0, 0, 0, 0.5)',
+                  }}
+                >
+                  {/* Esquinas del rectángulo */}
+                  {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((corner) => (
+                    <Box
+                      key={corner}
+                      sx={{
+                        position: 'absolute',
+                        width: '20px',
+                        height: '20px',
+                        border: '3px solid #00FF00',
+                        ...(corner.includes('top') ? { top: -3 } : { bottom: -3 }),
+                        ...(corner.includes('left') ? { left: -3 } : { right: -3 }),
+                        ...(corner.includes('top') && corner.includes('left') && {
+                          borderRight: 'none',
+                          borderBottom: 'none',
+                        }),
+                        ...(corner.includes('top') && corner.includes('right') && {
+                          borderLeft: 'none',
+                          borderBottom: 'none',
+                        }),
+                        ...(corner.includes('bottom') && corner.includes('left') && {
+                          borderRight: 'none',
+                          borderTop: 'none',
+                        }),
+                        ...(corner.includes('bottom') && corner.includes('right') && {
+                          borderLeft: 'none',
+                          borderTop: 'none',
+                        }),
+                      }}
+                    />
+                  ))}
+                </Box>
+
+                {/* Texto de ayuda */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 20,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    bgcolor: 'rgba(0, 0, 0, 0.7)',
+                    color: 'white',
+                    px: 2,
+                    py: 1,
+                    borderRadius: 1,
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="bold" textAlign="center">
+                    Alinea el número de boleta dentro del rectángulo
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Controles de la cámara */}
+            <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<FlipCameraIcon />}
+                onClick={cambiarCamara}
+                sx={{ flex: 1 }}
+              >
+                Cambiar Cámara
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<CameraAltIcon />}
+                onClick={capturarFoto}
+                size="large"
+                sx={{ flex: 2 }}
+              >
+                Capturar Foto
+              </Button>
+              <IconButton
+                color="error"
+                onClick={() => {
+                  detenerCamara();
+                  setModoCaptura('archivo');
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Stack>
+          </Box>
+        </Fade>
+      )}
+
+      {/* Canvas oculto para procesar la captura */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* Vista de imagen manual con rectángulo guía */}
+      {imagenManualCargada && imagenCapturada && (
+        <Fade in>
+          <Box>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold">
+                Arrastra la imagen para alinear el número dentro del rectángulo
+              </Typography>
+              <Typography variant="caption">
+                Usa el slider o la rueda del mouse para hacer zoom
+              </Typography>
+            </Alert>
+
+            <Box
+              ref={imageContainerRef}
+              sx={{
+                position: 'relative',
+                width: '100%',
+                maxWidth: '600px',
+                height: '400px',
+                mx: 'auto',
+                bgcolor: '#000',
+                borderRadius: 2,
+                overflow: 'hidden',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                touchAction: 'none',
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleMouseDown}
+              onTouchMove={handleMouseMove}
+              onTouchEnd={handleMouseUp}
+              onWheel={handleWheel}
+            >
+              {/* Imagen */}
+              <img
+                ref={imageRef}
+                src={imagenCapturada}
+                alt="Boleta"
+                style={{
+                  maxWidth: 'none',
+                  height: '100%',
+                  transform: `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${imageScale})`,
+                  transformOrigin: 'center',
+                  userSelect: 'none',
+                  pointerEvents: 'none',
+                }}
+              />
+
+              {/* Overlay del rectángulo guía (igual que la cámara) */}
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  pointerEvents: 'none',
+                }}
+              >
+                <svg
+                  width="100%"
+                  height="100%"
+                  style={{ position: 'absolute', top: 0, left: 0 }}
+                >
+                  <defs>
+                    <mask id="hole-manual">
+                      <rect width="100%" height="100%" fill="white" />
+                      <rect
+                        x={`${(1 - RECT_WIDTH_PERCENT) * 50}%`}
+                        y={`${(1 - RECT_HEIGHT_PERCENT) * 50}%`}
+                        width={`${RECT_WIDTH_PERCENT * 100}%`}
+                        height={`${RECT_HEIGHT_PERCENT * 100}%`}
+                        rx="8"
+                        fill="black"
+                      />
+                    </mask>
+                  </defs>
+                  <rect width="100%" height="100%" fill="rgba(0, 0, 0, 0.5)" mask="url(#hole-manual)" />
+                </svg>
+
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    left: `${(1 - RECT_WIDTH_PERCENT) * 50}%`,
+                    top: `${(1 - RECT_HEIGHT_PERCENT) * 50}%`,
+                    width: `${RECT_WIDTH_PERCENT * 100}%`,
+                    height: `${RECT_HEIGHT_PERCENT * 100}%`,
+                    border: '3px solid #00FF00',
+                    borderRadius: 1,
+                    boxShadow: '0 0 0 2px rgba(0, 0, 0, 0.5), inset 0 0 0 2px rgba(0, 0, 0, 0.5)',
+                  }}
+                >
+                  {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((corner) => (
+                    <Box
+                      key={corner}
+                      sx={{
+                        position: 'absolute',
+                        width: '20px',
+                        height: '20px',
+                        border: '3px solid #00FF00',
+                        ...(corner.includes('top') ? { top: -3 } : { bottom: -3 }),
+                        ...(corner.includes('left') ? { left: -3 } : { right: -3 }),
+                        ...(corner.includes('top') && corner.includes('left') && {
+                          borderRight: 'none',
+                          borderBottom: 'none',
+                        }),
+                        ...(corner.includes('top') && corner.includes('right') && {
+                          borderLeft: 'none',
+                          borderBottom: 'none',
+                        }),
+                        ...(corner.includes('bottom') && corner.includes('left') && {
+                          borderRight: 'none',
+                          borderTop: 'none',
+                        }),
+                        ...(corner.includes('bottom') && corner.includes('right') && {
+                          borderLeft: 'none',
+                          borderTop: 'none',
+                        }),
+                      }}
+                    />
+                  ))}
+                </Box>
+
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 20,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    bgcolor: 'rgba(0, 0, 0, 0.7)',
+                    color: 'white',
+                    px: 2,
+                    py: 1,
+                    borderRadius: 1,
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="bold" textAlign="center">
+                    Arrastra para posicionar • Zoom: {(imageScale * 100).toFixed(0)}%
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Control de zoom con slider */}
+            <Box sx={{ mt: 2, px: 2 }}>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <ZoomOutIcon color="action" />
+                <Slider
+                  value={imageScale}
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  onChange={(e, value) => setImageScale(value)}
+                  sx={{ flex: 1 }}
+                />
+                <ZoomInIcon color="action" />
+                <Typography variant="caption" sx={{ minWidth: '45px', textAlign: 'right' }}>
+                  {(imageScale * 100).toFixed(0)}%
+                </Typography>
+              </Stack>
+            </Box>
+
+            <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={resetear}
+                startIcon={<RefreshIcon />}
+                sx={{ flex: 1 }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={capturarAreaRectangulo}
+                startIcon={<CheckIcon />}
+                size="large"
+                sx={{ flex: 2 }}
+              >
+                Detectar Número
+              </Button>
+            </Stack>
+          </Box>
+        </Fade>
+      )}
+
+      {/* Imagen capturada - Vista previa antes de procesar OCR */}
+      {imagenCapturada && !imagenManualCargada && !numeroConfirmado && !procesandoOCR && (
+        <Fade in>
+          <Box>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold">
+                Imagen capturada correctamente
+              </Typography>
+              <Typography variant="caption">
+                Presiona el botón para detectar el número de boleta
               </Typography>
             </Alert>
 
@@ -320,201 +963,68 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                 position: 'relative',
                 maxWidth: '100%',
                 mx: 'auto',
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 1,
+                borderRadius: 2,
                 overflow: 'hidden',
-                bgcolor: '#000',
+                border: '2px solid',
+                borderColor: 'primary.main',
               }}
             >
-              <ReactCrop
-                crop={crop}
-                onChange={(newCrop) => setCrop(newCrop)}
-                aspect={undefined}
-                minWidth={50}
-                minHeight={30}
-              >
-                <img
-                  ref={imagenRef}
-                  src={imagenSrc}
-                  alt="Boleta"
-                  style={{
-                    maxWidth: '100%',
-                    height: 'auto',
-                    display: 'block',
-                  }}
-                />
-              </ReactCrop>
+              <img
+                src={imagenCapturada}
+                alt="Boleta capturada"
+                style={{
+                  width: '100%',
+                  height: 'auto',
+                  display: 'block',
+                }}
+              />
             </Box>
 
             <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={procesarOCR}
-                disabled={procesandoOCR}
-                startIcon={procesandoOCR ? <CircularProgress size={20} /> : <CropIcon />}
-                fullWidth
-              >
-                {procesandoOCR ? 'Detectando Número...' : 'Detectar Número'}
-              </Button>
               <Button
                 variant="outlined"
                 color="secondary"
                 onClick={resetear}
                 startIcon={<RefreshIcon />}
+                sx={{ flex: 1 }}
               >
-                Cambiar Imagen
+                Tomar Otra
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={procesarOCR}
+                startIcon={<CheckIcon />}
+                size="large"
+                sx={{ flex: 2 }}
+              >
+                Detectar Número
               </Button>
             </Stack>
           </Box>
         </Fade>
       )}
 
-      {/* Número detectado con múltiples opciones (confianza baja) */}
-      {numeroBoleta && !numeroConfirmado && requiereConfirmacion && variaciones.length > 0 && (
-        <Fade in>
-          <Box sx={{ mt: 3 }}>
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
-                ⚠️ Confianza Baja: {confianzaOCR?.toFixed(1)}%
-              </Typography>
-              <Typography variant="body2">
-                El OCR detectó "{numeroBoleta}", pero no está completamente seguro.
-              </Typography>
-              <Typography variant="body2" fontWeight="bold" sx={{ mt: 1 }}>
-                Selecciona el número correcto de las opciones:
-              </Typography>
-            </Alert>
-
-            {validandoVariaciones && (
-              <Box sx={{ mb: 2, textAlign: 'center' }}>
-                <CircularProgress size={24} />
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  Verificando números en la base de datos...
-                </Typography>
-              </Box>
-            )}
-
-            <Stack spacing={2} sx={{ mb: 2 }}>
-              {variaciones.map((variacion, index) => {
-                const validacion = variacionesValidadas[variacion];
-                const existe = validacion?.existe || false;
-                const yaRegistrada = validacion?.ya_registrada || false;
-                const esValida = validacion?.datos?.valida || false;
-
-                return (
-                  <Paper
-                    key={index}
-                    elevation={2}
-                    sx={{
-                      p: 2,
-                      border: '2px solid',
-                      borderColor: existe
-                        ? esValida
-                          ? 'success.main'
-                          : yaRegistrada
-                          ? 'error.main'
-                          : 'warning.main'
-                        : 'grey.300',
-                      bgcolor: existe
-                        ? esValida
-                          ? 'success.light'
-                          : 'error.light'
-                        : 'background.paper',
-                      cursor: esValida ? 'pointer' : 'not-allowed',
-                      opacity: esValida ? 1 : 0.6,
-                      transition: 'all 0.3s ease',
-                      '&:hover': esValida
-                        ? {
-                            transform: 'translateY(-2px)',
-                            boxShadow: 4,
-                          }
-                        : {},
-                    }}
-                    onClick={() => esValida && seleccionarVariacion(variacion)}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="h5" fontWeight="bold" sx={{ mb: 0.5 }}>
-                          {variacion}
-                          {index === 0 && ' (Detectado)'}
-                        </Typography>
-
-                        {validandoVariaciones ? (
-                          <Typography variant="body2" color="text.secondary">
-                            Verificando...
-                          </Typography>
-                        ) : existe ? (
-                          <>
-                            <Typography variant="body2" fontWeight="bold" color={esValida ? 'success.dark' : 'error.dark'}>
-                              {esValida
-                                ? '✅ Existe en BD y es válida'
-                                : yaRegistrada
-                                ? '❌ Ya fue registrada en el concurso'
-                                : '⚠️ No cumple requisitos del concurso'}
-                            </Typography>
-                            {validacion.datos && (
-                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                                Monto: ${validacion.datos.monto?.toLocaleString('es-CL')} | Sucursal: {validacion.datos.sucursal}
-                              </Typography>
-                            )}
-                          </>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            ❌ No existe en la base de datos
-                          </Typography>
-                        )}
-                      </Box>
-
-                      {esValida && (
-                        <Button
-                          variant="contained"
-                          color="success"
-                          startIcon={<CheckIcon />}
-                          onClick={() => seleccionarVariacion(variacion)}
-                        >
-                          Seleccionar
-                        </Button>
-                      )}
-                    </Box>
-                  </Paper>
-                );
-              })}
-            </Stack>
-
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={() => {
-                setNumeroBoleta('');
-                setConfianzaOCR(null);
-                setVariaciones([]);
-                setRequiereConfirmacion(false);
-                setVariacionesValidadas({});
-              }}
-              startIcon={<RefreshIcon />}
-              fullWidth
-            >
-              Volver a Detectar
-            </Button>
-          </Box>
-        </Fade>
+      {/* Procesando */}
+      {procesandoOCR && (
+        <Box sx={{ textAlign: 'center', py: 4 }}>
+          <CircularProgress size={60} />
+          <Typography variant="body1" sx={{ mt: 2 }}>
+            Procesando imagen...
+          </Typography>
+        </Box>
       )}
 
-      {/* Número detectado con alta confianza */}
-      {numeroBoleta && !numeroConfirmado && !requiereConfirmacion && (
+      {/* Número detectado - Versión simplificada sin información técnica */}
+      {numeroBoleta && !numeroConfirmado && (
         <Fade in>
           <Box sx={{ mt: 3 }}>
             <Alert severity="success" sx={{ mb: 2 }}>
-              <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
-                ✅ Número de Boleta: {numeroBoleta}
+              <Typography variant="h6" fontWeight="bold">
+                Número detectado: {numeroBoleta}
               </Typography>
-              <Typography variant="body2">
-                Confianza: {confianzaOCR?.toFixed(1)}%
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                Si no es correcto, ajusta el recuadro y vuelve a detectar
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                Si no es correcto, puedes tomar otra foto
               </Typography>
             </Alert>
 
@@ -522,14 +1032,11 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
               <Button
                 variant="outlined"
                 color="primary"
-                onClick={() => {
-                  setNumeroBoleta('');
-                  setConfianzaOCR(null);
-                }}
+                onClick={resetear}
                 startIcon={<RefreshIcon />}
                 sx={{ flex: 1 }}
               >
-                Volver a Detectar
+                Tomar Otra
               </Button>
               <Button
                 variant="contained"
@@ -539,7 +1046,7 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                 size="large"
                 sx={{ flex: 2 }}
               >
-                Confirmar Número
+                Confirmar
               </Button>
             </Stack>
           </Box>
@@ -552,12 +1059,33 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
           <Box sx={{ mt: 3 }}>
             <Alert severity="success" icon={<CheckIcon />}>
               <Typography variant="body1" fontWeight="bold">
-                Número de boleta confirmado: {numeroBoleta}
-              </Typography>
-              <Typography variant="body2">
-                Imagen cargada correctamente
+                Número confirmado: {numeroBoleta}
               </Typography>
             </Alert>
+
+            {imagenCapturada && (
+              <Box
+                sx={{
+                  mt: 2,
+                  maxWidth: '300px',
+                  mx: 'auto',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: '2px solid',
+                  borderColor: 'success.main',
+                }}
+              >
+                <img
+                  src={imagenCapturada}
+                  alt="Boleta confirmada"
+                  style={{
+                    width: '100%',
+                    height: 'auto',
+                    display: 'block',
+                  }}
+                />
+              </Box>
+            )}
 
             <Button
               variant="outlined"
