@@ -68,6 +68,10 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
   const inputFileRef = useRef(null);
   const imageContainerRef = useRef(null);
   const imageRef = useRef(null);
+  // Timer para auto-flip
+  const autoFlipTimerRef = useRef(null);
+  // Ref al botón físico de cambiar cámara para poder "clickearlo" programáticamente
+  const flipButtonRef = useRef(null);
 
   // Dimensiones del rectángulo guía (proporción horizontal para boletas)
   const RECT_WIDTH_PERCENT = 0.85; // 85% del ancho
@@ -87,6 +91,12 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
       const videoCameras = devices.filter(device => device.kind === 'videoinput');
       setCamaraDisponible(videoCameras);
       console.log('📷 Cámaras disponibles:', videoCameras);
+      // Enviar lista de cámaras al backend para debugging
+      try {
+        api.post('/client-logs', { level: 'info', message: 'camaras_disponibles', meta: { videoCameras } }).catch(() => {});
+      } catch (e) {
+        // ignore
+      }
       return videoCameras;
     } catch (error) {
       console.error('❌ Error obteniendo cámaras:', error);
@@ -94,8 +104,18 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     }
   };
 
+  // Helper para enviar logs al backend (no bloquear la UI)
+  const sendBackendLog = async (level, message, meta = {}) => {
+    try {
+      // endpoint '/client-logs' debe existir en tu backend; si no, adapta
+      await api.post('/client-logs', { level, message, meta }).catch(() => {});
+    } catch (err) {
+      // no hacer nada si falla
+    }
+  };
+
   // Iniciar cámara
-  const iniciarCamara = async (usarFacingMode = true) => {
+  const iniciarCamara = async (usarFacingMode = true, desiredFacingMode = null) => {
     try {
       console.log('📷 Iniciando cámara...');
 
@@ -104,38 +124,132 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
         stream.getTracks().forEach(track => track.stop());
       }
 
-      // Configuración de constraints
-      const constraints = {
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          facingMode: usarFacingMode ? facingMode : undefined,
-          deviceId: !usarFacingMode && camaraSeleccionada ? { exact: camaraSeleccionada } : undefined
-        }
-      };
+      // Intentar obtener cámaras disponibles y elegir un deviceId que NO sea la frontal
+      const videoCameras = await obtenerCamarasDisponibles();
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
-      setCamaraActiva(true);
-      setError('');
+      const frontRegex = /front|face|user|frontal|delantera|selfie/i;
+      const rearRegex = /back|rear|environment|trasera|posterior/i;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+      // Preferir cámaras con etiqueta y que no coincidan con frontRegex
+      let selectedCamera = videoCameras.find(d => d.label && !frontRegex.test(d.label));
+
+      // Si no encontramos así, intentar buscar etiquetas que indiquen trasera
+      if (!selectedCamera) {
+        selectedCamera = videoCameras.find(d => d.label && rearRegex.test(d.label));
       }
 
-      // Obtener cámaras disponibles después de obtener permisos
-      await obtenerCamarasDisponibles();
+      // Si aún no hay etiquetas (posible antes de permiso) o no se encontró, usar heurística: la última cámara
+      if (!selectedCamera && videoCameras.length > 0) {
+        selectedCamera = videoCameras[videoCameras.length - 1];
+      }
 
-      console.log('✅ Cámara iniciada correctamente');
+      let constraints;
+
+      if (selectedCamera) {
+        console.log('📷 Intentando iniciar con deviceId seleccionado:', selectedCamera.deviceId, 'label:', selectedCamera.label);
+        setCamaraSeleccionada(selectedCamera.deviceId);
+        // Usar deviceId directamente para preferir trasera
+        constraints = {
+          video: {
+            deviceId: { exact: selectedCamera.deviceId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
+
+        try {
+          const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+          setStream(mediaStream);
+          setCamaraActiva(true);
+          // Si se usó deviceId, asumimos intentamos la trasera (mejorar si se conoce otra heurística)
+          setFacingMode('environment');
+          setError('');
+
+          if (videoRef.current) videoRef.current.srcObject = mediaStream;
+
+          const activeDeviceId = mediaStream.getVideoTracks()?.[0]?.getSettings?.()?.deviceId || null;
+          console.log('✅ Cámara iniciada con deviceId:', activeDeviceId);
+          sendBackendLog('info', 'camera_started', { deviceId: activeDeviceId, chosenDeviceId: selectedCamera.deviceId, label: selectedCamera.label });
+
+          // Actualizar lista de cámaras (labels aparecen después de permisos)
+          await obtenerCamarasDisponibles();
+
+          return mediaStream;
+        } catch (err) {
+          console.warn('⚠️ Falló getUserMedia con deviceId seleccionado, fallback a facingMode. Error:', err?.message || err);
+          sendBackendLog('warn', 'camera_deviceid_failed', { deviceId: selectedCamera.deviceId, error: err?.message || String(err) });
+        }
+      }
+
+      // Si no hay cámara seleccionada o el intento falló, usar facingMode como respaldo
+      // Usar desiredFacingMode si se proporcionó (evita race con setState)
+      const fm = desiredFacingMode ?? facingMode;
+
+      if (usarFacingMode && fm) {
+        constraints = {
+          video: {
+            facingMode: { exact: fm },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
+      } else if (camaraSeleccionada) {
+        constraints = {
+          video: {
+            deviceId: { exact: camaraSeleccionada },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
+      } else {
+        constraints = {
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
+      }
+
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        setStream(mediaStream);
+        setCamaraActiva(true);
+        setError('');
+
+        if (videoRef.current) videoRef.current.srcObject = mediaStream;
+
+        const activeDeviceId = mediaStream.getVideoTracks()?.[0]?.getSettings?.()?.deviceId || null;
+        console.log('✅ Cámara iniciada (fallback), deviceId:', activeDeviceId, 'facingMode:', fm);
+        sendBackendLog('info', 'camera_started_fallback', { deviceId: activeDeviceId, facingMode: fm, constraints });
+
+        await obtenerCamarasDisponibles();
+
+        return mediaStream;
+      } catch (error) {
+        console.error('❌ Error al iniciar cámara en fallback:', error);
+        sendBackendLog('error', 'camera_start_error', { error: error?.message || String(error) });
+        setError('No se pudo acceder a la cámara. Por favor verifica los permisos.');
+        setCamaraActiva(false);
+        return null;
+      }
+
     } catch (error) {
-      console.error('❌ Error al iniciar cámara:', error);
+      console.error('❌ Error inesperado al iniciar cámara:', error);
+      sendBackendLog('error', 'camera_start_unexpected_error', { error: error?.message || String(error) });
       setError('No se pudo acceder a la cámara. Por favor verifica los permisos.');
       setCamaraActiva(false);
+      return null;
     }
   };
 
   // Detener cámara
   const detenerCamara = () => {
+    // Limpiar timer de auto-flip si existe
+    if (autoFlipTimerRef.current) {
+      clearTimeout(autoFlipTimerRef.current);
+      autoFlipTimerRef.current = null;
+    }
+
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
@@ -145,13 +259,24 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
   };
 
   // Cambiar entre cámara frontal y trasera
-  const cambiarCamara = () => {
+  const cambiarCamara = async () => {
+    // Si hay timer automático pendiente, limpiarlo para evitar duplicados
+    if (autoFlipTimerRef.current) {
+      clearTimeout(autoFlipTimerRef.current);
+      autoFlipTimerRef.current = null;
+    }
+
     const nuevoFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    // Actualizar el estado para reflejar la intención (no confiar en leerlo inmediatamente)
     setFacingMode(nuevoFacingMode);
 
-    // Reiniciar cámara con el nuevo facing mode
+    // Reiniciar cámara con el nuevo facing mode y reportar deviceId al backend
     if (camaraActiva) {
-      iniciarCamara(true);
+      // Pasar explícitamente el nuevoFacingMode para evitar condiciones de carrera con setFacingMode
+      const mediaStream = await iniciarCamara(true, nuevoFacingMode);
+      const activeDeviceId = mediaStream?.getVideoTracks()?.[0]?.getSettings?.()?.deviceId || null;
+      console.log('🔁 Cámara cambiada a', nuevoFacingMode, 'deviceId:', activeDeviceId);
+      sendBackendLog('info', 'camera_changed', { deviceId: activeDeviceId, facingMode: nuevoFacingMode });
     }
   };
 
@@ -508,6 +633,75 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
     }
   };
 
+  // Helper: solicitar permisos, elegir la trasera por deviceId y abrir el stream final
+  const startCameraSelectingRear = async () => {
+    try {
+      // 1) Pedir permisos con un stream temporal para que aparezcan las labels
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) videoRef.current.srcObject = tempStream;
+
+      // Esperar a que el video esté listo (loadedmetadata o playing) o timeout
+      await new Promise((resolve) => {
+        let resolved = false;
+        const onReady = () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
+        }, 3500);
+
+        videoRef.current?.addEventListener('loadedmetadata', onReady, { once: true });
+        videoRef.current?.addEventListener('playing', onReady, { once: true });
+      });
+
+      // 2) Enumerar dispositivos y elegir la trasera por etiqueta si existe
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoCameras = devices.filter(d => d.kind === 'videoinput');
+      const frontRegex = /front|face|user|frontal|delantera|selfie/i;
+      const rearRegex = /back|rear|environment|trasera|posterior/i;
+
+      // Preferir una con etiqueta que no sea frontal, luego una que indique trasera, luego la última
+      let rear = videoCameras.find(d => d.label && !frontRegex.test(d.label));
+      if (!rear) rear = videoCameras.find(d => d.label && rearRegex.test(d.label));
+      if (!rear && videoCameras.length > 0) rear = videoCameras[videoCameras.length - 1];
+
+      // 3) Detener el stream temporal
+      try { tempStream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+
+      // 4) Iniciar el stream final con deviceId seleccionado si existe
+      if (rear?.deviceId) {
+        setCamaraSeleccionada(rear.deviceId);
+        const finalStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: rear.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+
+        setStream(finalStream);
+        setCamaraActiva(true);
+        setFacingMode('environment');
+        if (videoRef.current) videoRef.current.srcObject = finalStream;
+
+        const activeDeviceId = finalStream.getVideoTracks()?.[0]?.getSettings?.()?.deviceId || null;
+        console.log('✅ Cámara iniciada con deviceId (final):', activeDeviceId);
+        sendBackendLog('info', 'camera_started_with_deviceid', { deviceId: activeDeviceId, chosenDeviceId: rear.deviceId, label: rear.label });
+
+        await obtenerCamarasDisponibles();
+        return finalStream;
+      }
+
+      // Si no se pudo elegir deviceId, usar el flujo existente como fallback
+      return iniciarCamara(true);
+    } catch (err) {
+      console.warn('startCameraSelectingRear error:', err);
+      return iniciarCamara(true);
+    }
+  };
+
   return (
     <Paper
       elevation={3}
@@ -529,11 +723,67 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
           <ToggleButtonGroup
             value={modoCaptura}
             exclusive
-            onChange={(e, newMode) => {
+            onChange={async (e, newMode) => {
               if (newMode !== null) {
                 setModoCaptura(newMode);
                 if (newMode === 'camara') {
-                  iniciarCamara();
+                  try {
+                    // Iniciar cámara normalmente
+                    const mediaStream = await iniciarCamara();
+
+                    // Si se inició correctamente, programar auto-flip tras 2000ms o cuando el video esté listo
+                    if (mediaStream) {
+                      // limpiar timer previo si existe
+                      if (autoFlipTimerRef.current) {
+                        clearTimeout(autoFlipTimerRef.current);
+                        autoFlipTimerRef.current = null;
+                      }
+
+                      const videoEl = videoRef.current;
+
+                      const triggerFlip = () => {
+                        try {
+                          if (flipButtonRef.current) {
+                            // dispatch click al botón (equivalente a que el usuario lo presione)
+                            flipButtonRef.current.click();
+                          } else {
+                            // fallback: llamar a la función directamente
+                            cambiarCamara();
+                          }
+                        } catch (e) {
+                          console.warn('Auto-flip programático falló:', e);
+                        }
+                      };
+
+                      if (videoEl) {
+                        const onReady = () => {
+                          // asegurar que se dispara una sola vez
+                          try { videoEl.removeEventListener('playing', onReady); videoEl.removeEventListener('loadedmetadata', onReady); } catch (e) {}
+                          // dar un pequeño margen antes de activar flip
+                          setTimeout(triggerFlip, 2000);
+                        };
+
+                        videoEl.addEventListener('loadedmetadata', onReady, { once: true });
+                        videoEl.addEventListener('playing', onReady, { once: true });
+
+                        // Fallback: si no llega evento, ejecutar tras 2000ms
+                        autoFlipTimerRef.current = setTimeout(() => {
+                          triggerFlip();
+                          autoFlipTimerRef.current = null;
+                        }, 1000);
+                      } else {
+                        // Si no hay elemento video referenciado, usar timeout simple
+                        autoFlipTimerRef.current = setTimeout(async () => {
+                          try {
+                            if (flipButtonRef.current) flipButtonRef.current.click(); else await cambiarCamara();
+                          } catch (e) { console.warn('Auto flip falló:', e); }
+                          autoFlipTimerRef.current = null;
+                        }, 1000);
+                      }
+                    }
+                  } catch (err) {
+                    console.warn('Error iniciando cámara automáticamente:', err);
+                  }
                 }
               }
             }}
@@ -721,14 +971,6 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
             {/* Controles de la cámara */}
             <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
               <Button
-                variant="outlined"
-                startIcon={<FlipCameraIcon />}
-                onClick={cambiarCamara}
-                sx={{ flex: 1 }}
-              >
-                Cambiar Cámara
-              </Button>
-              <Button
                 variant="contained"
                 color="primary"
                 startIcon={<CameraAltIcon />}
@@ -738,6 +980,22 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
               >
                 Capturar Foto
               </Button>
+
+              <IconButton
+                color="primary"
+                aria-label="Cambiar cámara"
+                ref={flipButtonRef}
+                onClick={async () => {
+                  try {
+                    await cambiarCamara();
+                  } catch (e) {
+                    console.warn('Error al cambiar cámara manualmente:', e);
+                  }
+                }}
+              >
+                <FlipCameraIcon />
+              </IconButton>
+
               <IconButton
                 color="error"
                 onClick={() => {
@@ -1089,9 +1347,9 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
 
             <Button
               variant="outlined"
+              color="primary"
               onClick={resetear}
               startIcon={<RefreshIcon />}
-              fullWidth
               sx={{ mt: 2 }}
             >
               Cambiar Imagen o Número

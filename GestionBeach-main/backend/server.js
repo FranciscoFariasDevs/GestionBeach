@@ -344,6 +344,27 @@ app.get('/api/test-cabanas', (req, res) => {
   });
 });
 
+// 📨 Ruta para recibir logs del cliente (frontend) y mostrarlos en la terminal del backend
+app.post('/client-logs', (req, res) => {
+  try {
+    const { level = 'info', message = '', meta = {} } = req.body || {};
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress || null;
+    const timestamp = new Date().toISOString();
+
+    // Formatear salida clara en consola
+    console.log(`\n📣 CLIENT LOG - ${level.toUpperCase()} - ${timestamp}`);
+    console.log(`🔹 Message: ${message}`);
+    console.log('🔹 Meta:', JSON.stringify(meta, null, 2));
+    console.log(`🔹 From IP: ${clientIP}\n`);
+
+    // Retornar success para que el frontend no falle
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('❌ Error procesando client log:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 🔍 RUTA DE DIAGNÓSTICO - Ver todas las rutas registradas
 app.get('/api/routes', (req, res) => {
   const routes = [];
