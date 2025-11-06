@@ -1451,7 +1451,7 @@ const ConcursoPiscinasPage = () => {
                         display: 'block',
                       }}
                     >
-                      ✨ Valor: $1.500.000 ✨
+                      ✨ Valor: $1.300.000 ✨
                     </Typography>
                     <Typography
                       variant="body2"
@@ -1463,7 +1463,7 @@ const ConcursoPiscinasPage = () => {
                         lineHeight: 1.3,
                       }}
                     >
-                      Incluye bomba, escalera y cubierta
+                      Incluye bomba, escalera, cubierta y filtro
                     </Typography>
                   </Box>
                 </CardContent>
@@ -1511,8 +1511,10 @@ const ConcursoPiscinasPage = () => {
                     <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
                     <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>
                       <Typography variant="caption" sx={{ color: '#333', fontWeight: 600, fontSize: { xs: '0.75rem', sm: '0.65rem', md: '0.68rem' } }}>
-                        ✓ Desde <strong style={{ color: '#00D4FF' }}>08-10-25</strong>
+                        ✓ Desde <strong style={{ color: '#00D4FF' }}>07-11-25</strong>
+                         -  Hasta <strong style={{ color: '#00D4FF' }}>24-12-25</strong>
                       </Typography>
+                      
                     </ListItem>
                     <Divider sx={{ my: { xs: 0.3, sm: 0.1 } }} />
                     <ListItem sx={{ px: 0, py: { xs: 0.3, sm: 0.1 }, minHeight: 'auto' }}>

@@ -20,7 +20,9 @@ import {
   Divider,
   Avatar,
   useMediaQuery,
-  useTheme
+  useTheme,
+  ToggleButtonGroup,
+  ToggleButton
 } from '@mui/material';
 import {
   EmojiEvents,
@@ -291,7 +293,11 @@ const SorteoConcursoPage = () => {
   const [showWinnerDialog, setShowWinnerDialog] = useState(false);
   const [spinSpeed, setSpinSpeed] = useState(0.5);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [comunaSeleccionada, setComunaSeleccionada] = useState('TOMÉ');
   const audioRef = useRef(null);
+
+  // Comunas disponibles para filtrar (sin "TODAS")
+  const comunas = ['TOMÉ', 'COELEMU', 'QUIRIHUE', 'CHILLÁN'];
 
   // Colores para confeti
   const confettiColors = ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#95E1D3', '#F38181', '#AA96DA', '#FCBAD3'];
@@ -299,16 +305,18 @@ const SorteoConcursoPage = () => {
   // Cargar participantes
   useEffect(() => {
     loadParticipantes();
-  }, []);
+  }, [comunaSeleccionada]);
 
   const loadParticipantes = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/concurso-piscinas/sorteo/participantes');
+      const params = { comuna: comunaSeleccionada };
+      const response = await api.get('/concurso-piscinas/sorteo/participantes', { params });
 
       if (response.data.success) {
         setParticipantes(response.data.participantes);
-        console.log(`✅ ${response.data.total} participantes cargados`);
+        console.log(`✅ ${response.data.total} participantes cargados (Comuna: ${comunaSeleccionada})`);
+        enqueueSnackbar(`${response.data.total} participantes de ${comunaSeleccionada}`, { variant: 'success' });
       }
     } catch (error) {
       console.error('Error al cargar participantes:', error);
@@ -391,8 +399,8 @@ const SorteoConcursoPage = () => {
     }
   };
 
-  // Duplicar lista para efecto de scroll infinito
-  const displayList = [...participantes, ...participantes];
+  // Lista de participantes SIN duplicación - cada participante aparece solo UNA vez
+  const displayList = participantes;
 
   if (loading) {
     return (
@@ -522,6 +530,62 @@ const SorteoConcursoPage = () => {
                 </Stack>
 
                 <Divider sx={{ width: '60%', borderColor: '#e5e7eb', borderWidth: 1 }} />
+
+                {/* Selector de Comuna */}
+                <Box sx={{ width: '100%', mt: 2 }}>
+                  <Typography variant="body1" sx={{ mb: 1.5, fontWeight: 600, textAlign: 'center', color: '#475569' }}>
+                    🏆 Selecciona la Comuna para el Sorteo:
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={comunaSeleccionada}
+                    exclusive
+                    onChange={(e, newComuna) => {
+                      if (newComuna !== null) {
+                        setComunaSeleccionada(newComuna);
+                        setWinner(null);
+                      }
+                    }}
+                    fullWidth
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 1,
+                      justifyContent: 'center'
+                    }}
+                  >
+                    {comunas.map((comuna) => (
+                      <ToggleButton
+                        key={comuna}
+                        value={comuna}
+                        sx={{
+                          flex: { xs: '1 1 45%', sm: '0 1 auto' },
+                          py: 1.5,
+                          px: 3,
+                          fontWeight: 600,
+                          fontSize: { xs: '0.875rem', sm: '1rem' },
+                          borderRadius: '8px !important',
+                          border: '2px solid',
+                          borderColor: comunaSeleccionada === comuna ? '#7e22ce' : '#e2e8f0',
+                          bgcolor: comunaSeleccionada === comuna ? '#7e22ce' : 'white',
+                          color: comunaSeleccionada === comuna ? 'white' : '#475569',
+                          '&:hover': {
+                            bgcolor: comunaSeleccionada === comuna ? '#6b21a8' : '#f1f5f9',
+                            borderColor: '#7e22ce'
+                          },
+                          '&.Mui-selected': {
+                            bgcolor: '#7e22ce',
+                            color: 'white',
+                            '&:hover': {
+                              bgcolor: '#6b21a8'
+                            }
+                          }
+                        }}
+                      >
+                        {comuna}
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
+                </Box>
 
                 <Stack
                   direction={{ xs: 'column', sm: 'row' }}

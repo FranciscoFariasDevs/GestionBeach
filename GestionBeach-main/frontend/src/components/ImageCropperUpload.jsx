@@ -72,6 +72,8 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
   const autoFlipTimerRef = useRef(null);
   // Ref al botón físico de cambiar cámara para poder "clickearlo" programáticamente
   const flipButtonRef = useRef(null);
+  // Bandera para controlar que el auto-flip solo se ejecute una vez
+  const autoFlipExecutedRef = useRef(false);
 
   // Dimensiones del rectángulo guía (proporción horizontal para boletas)
   const RECT_WIDTH_PERCENT = 0.85; // 85% del ancho
@@ -728,57 +730,26 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                 setModoCaptura(newMode);
                 if (newMode === 'camara') {
                   try {
+                    // Resetear la bandera de auto-flip al iniciar nueva sesión de cámara
+                    autoFlipExecutedRef.current = false;
+
                     // Iniciar cámara normalmente
                     const mediaStream = await iniciarCamara();
 
-                    // Si se inició correctamente, programar auto-flip tras 2000ms o cuando el video esté listo
-                    if (mediaStream) {
-                      // limpiar timer previo si existe
-                      if (autoFlipTimerRef.current) {
-                        clearTimeout(autoFlipTimerRef.current);
-                        autoFlipTimerRef.current = null;
-                      }
+                    // INMEDIATAMENTE hacer el flip sin esperar, antes de que el usuario vea nada
+                    if (mediaStream && !autoFlipExecutedRef.current) {
+                      console.log('🔄 Ejecutando auto-flip inmediato...');
+                      autoFlipExecutedRef.current = true;
 
-                      const videoEl = videoRef.current;
-
-                      const triggerFlip = () => {
-                        try {
-                          if (flipButtonRef.current) {
-                            // dispatch click al botón (equivalente a que el usuario lo presione)
-                            flipButtonRef.current.click();
-                          } else {
-                            // fallback: llamar a la función directamente
-                            cambiarCamara();
-                          }
-                        } catch (e) {
-                          console.warn('Auto-flip programático falló:', e);
+                      // Hacer el flip de inmediato
+                      try {
+                        if (flipButtonRef.current) {
+                          flipButtonRef.current.click();
+                        } else {
+                          await cambiarCamara();
                         }
-                      };
-
-                      if (videoEl) {
-                        const onReady = () => {
-                          // asegurar que se dispara una sola vez
-                          try { videoEl.removeEventListener('playing', onReady); videoEl.removeEventListener('loadedmetadata', onReady); } catch (e) {}
-                          // dar un pequeño margen antes de activar flip
-                          setTimeout(triggerFlip, 2000);
-                        };
-
-                        videoEl.addEventListener('loadedmetadata', onReady, { once: true });
-                        videoEl.addEventListener('playing', onReady, { once: true });
-
-                        // Fallback: si no llega evento, ejecutar tras 2000ms
-                        autoFlipTimerRef.current = setTimeout(() => {
-                          triggerFlip();
-                          autoFlipTimerRef.current = null;
-                        }, 1000);
-                      } else {
-                        // Si no hay elemento video referenciado, usar timeout simple
-                        autoFlipTimerRef.current = setTimeout(async () => {
-                          try {
-                            if (flipButtonRef.current) flipButtonRef.current.click(); else await cambiarCamara();
-                          } catch (e) { console.warn('Auto flip falló:', e); }
-                          autoFlipTimerRef.current = null;
-                        }, 1000);
+                      } catch (e) {
+                        console.warn('Auto-flip inmediato falló:', e);
                       }
                     }
                   } catch (err) {
@@ -954,15 +925,19 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                     bottom: 20,
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    bgcolor: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                    px: 2,
-                    py: 1,
+                    bgcolor: 'rgba(0, 0, 0, 0.8)',
+                    color: '#00FF00',
+                    px: 3,
+                    py: 1.5,
                     borderRadius: 1,
+                    border: '2px solid #00FF00',
                   }}
                 >
-                  <Typography variant="body2" fontWeight="bold" textAlign="center">
-                    Alinea el número de boleta dentro del rectángulo
+                  <Typography variant="body1" fontWeight="bold" textAlign="center">
+                    Apunte el número de boleta
+                  </Typography>
+                  <Typography variant="caption" textAlign="center" sx={{ color: 'white', display: 'block' }}>
+                    (Luego de "Boleta Electrónica")
                   </Typography>
                 </Box>
               </Box>
@@ -1241,21 +1216,12 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
 
             <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
               <Button
-                variant="outlined"
-                color="secondary"
-                onClick={resetear}
-                startIcon={<RefreshIcon />}
-                sx={{ flex: 1 }}
-              >
-                Tomar Otra
-              </Button>
-              <Button
                 variant="contained"
                 color="primary"
                 onClick={procesarOCR}
                 startIcon={<CheckIcon />}
                 size="large"
-                sx={{ flex: 2 }}
+                fullWidth
               >
                 Detectar Número
               </Button>

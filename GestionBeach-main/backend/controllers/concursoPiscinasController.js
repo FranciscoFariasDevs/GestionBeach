@@ -417,7 +417,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
               END AS Doc
             FROM tb_documentos_encabezado
             WHERE dc_codigo_centralizacion IN ('0033', '0039')
-              AND df_fecha_emision >= '08/10/2025'
+              AND df_fecha_emision >= '07/11/2025'
               AND dn_numero_documento = @folio
             ORDER BY df_fecha_emision DESC
           `;
@@ -433,7 +433,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
                 RBO_FECHA_INGRESO AS Fecha,
                 'Boleta' AS Doc
               FROM ERP_FACT_RES_BOLETAS
-              WHERE RBO_FECHA_INGRESO >= '10/08/2025'
+              WHERE RBO_FECHA_INGRESO >= '11/07/2025'
               UNION ALL
               SELECT
                 RFC_NUMERO_FACTURA_CLI AS Folio,
@@ -441,7 +441,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
                 RFC_FECHA_INGRESO AS Fecha,
                 'Factura' AS Doc
               FROM ERP_FACT_RES_FACTURA_CLIENTES
-              WHERE RFC_FECHA_INGRESO >= '10/08/2025'
+              WHERE RFC_FECHA_INGRESO >= '11/07/2025'
             ) T
             WHERE T.Folio = @folio
             ORDER BY T.Fecha DESC
@@ -646,7 +646,7 @@ exports.registrarParticipacion = async (req, res) => {
       await pool.request()
         .input('numero_boleta', sql.VarChar, numero_boleta.trim())
         .input('email', sql.VarChar, email)
-        .input('motivo', sql.VarChar, 'Boleta anterior al 08-10-2025')
+        .input('motivo', sql.VarChar, 'Boleta anterior al 07-11-2025')
         .query(`
           INSERT INTO dbo.concurso_log_intentos (numero_boleta, email, motivo_rechazo)
           VALUES (@numero_boleta, @email, @motivo)
@@ -841,30 +841,115 @@ exports.verificarBoleta = async (req, res) => {
 // Obtener participantes para sorteo (solo activos y válidos)
 exports.obtenerParticipantesSorteo = async (req, res) => {
   try {
-    const pool = await poolPromise;
+    const { comuna } = req.query; // Filtro OBLIGATORIO por comuna
 
-    const resultado = await pool.request()
-      .query(`
-        SELECT
-          id,
-          nombres,
-          apellidos,
-          rut,
-          email,
-          telefono,
-          numero_boleta,
-          fecha_participacion
-        FROM dbo.participaciones_concurso
-        WHERE estado = 'activo'
-          AND boleta_valida = 1
-          AND (ganador IS NULL OR ganador = 0)
-        ORDER BY fecha_participacion ASC
-      `);
+    // Definir las direcciones/comunas de cada sucursal (exactamente como aparecen en BD)
+    const direccionesPorComuna = {
+      'TOMÉ': [
+        'LORD COCHRANE 1127,TOME',
+        'ENRIQUE96, TOME',
+        'DANIEL VERA 890, DICHATO',
+        'DANIEL VERA 891, DICHATO',
+        'VICENTE PALACIOS 2908, TOME',
+        'VICENTE PALACIOS 3088, TOME',
+        'LAS CAMELIAS 39, TOME',
+        'DANIEL VERA 876, DICHATO'
+      ],
+      'COELEMU': [
+        'LOS CIPRESES 77, RANGUELMO',
+        'TRES ESQUINAS S/N, COELEMU FE',
+        'TRES ESQUINAS S/N, COELEMU MU',
+        'TRES ESQUINAS S/N, COELEMU SU'
+      ],
+      'QUIRIHUE': [
+        'RUTA EL CONQUISTADOR 1002, QUIRIHUE'
+      ],
+      'CHILLÁN': [
+        'RIO VIEJO 999, CHILLAN'
+      ]
+    };
+
+    // Validar que se proporcionó una comuna
+    if (!comuna || !direccionesPorComuna[comuna]) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe seleccionar una comuna válida (TOMÉ, COELEMU, QUIRIHUE, CHILLÁN)',
+        total: 0,
+        participantes: []
+      });
+    }
+
+    const pool = await poolPromise;
+    const direcciones = direccionesPorComuna[comuna];
+
+    // Primero obtener los IDs de las sucursales que coinciden con las direcciones
+    const condicionesSucursales = direcciones.map((dir, index) =>
+      `nombre LIKE @direccion${index}`
+    ).join(' OR ');
+
+    // Crear la query para obtener IDs de sucursales
+    const querySucursales = `
+      SELECT id FROM dbo.sucursales
+      WHERE ${condicionesSucursales}
+    `;
+
+    const requestSucursales = pool.request();
+    direcciones.forEach((dir, index) => {
+      requestSucursales.input(`direccion${index}`, sql.VarChar, `%${dir.trim()}%`);
+    });
+
+    const resultadoSucursales = await requestSucursales.query(querySucursales);
+    const idsSucursales = resultadoSucursales.recordset.map(s => s.id);
+
+    console.log(`🎯 Filtrando participantes por comuna: ${comuna} (${idsSucursales.length} sucursales encontradas: ${idsSucursales.join(', ')})`);
+
+    if (idsSucursales.length === 0) {
+      console.log(`⚠️ No se encontraron sucursales para la comuna: ${comuna}`);
+      return res.json({
+        success: true,
+        total: 0,
+        participantes: [],
+        comuna_filtro: comuna
+      });
+    }
+
+    // Construir condiciones para filtrar por IDs de sucursales
+    const condicionesIds = idsSucursales.map((id, index) => `p.sucursal = @sucId${index}`).join(' OR ');
+
+    const query = `
+      SELECT
+        p.id,
+        p.nombres,
+        p.apellidos,
+        p.rut,
+        p.email,
+        p.telefono,
+        p.numero_boleta,
+        p.fecha_participacion,
+        s.nombre AS nombre_sucursal
+      FROM dbo.participaciones_concurso p
+      LEFT JOIN dbo.sucursales s ON p.sucursal = s.id
+      WHERE p.estado = 'activo'
+        AND p.boleta_valida = 1
+        AND (p.ganador IS NULL OR p.ganador = 0)
+        AND (${condicionesIds})
+      ORDER BY p.fecha_participacion ASC
+    `;
+
+    const requestParticipantes = pool.request();
+    idsSucursales.forEach((id, index) => {
+      requestParticipantes.input(`sucId${index}`, sql.Int, id);
+    });
+
+    const resultado = await requestParticipantes.query(query);
+
+    console.log(`📊 Total participantes para sorteo: ${resultado.recordset.length} (Comuna: ${comuna})`);
 
     return res.json({
       success: true,
       total: resultado.recordset.length,
-      participantes: resultado.recordset
+      participantes: resultado.recordset,
+      comuna_filtro: comuna
     });
 
   } catch (error) {
@@ -1110,14 +1195,14 @@ exports.testConcurso = (req, res) => {
     message: 'Controlador de concurso funcionando correctamente',
     timestamp: new Date().toISOString(),
     validaciones: {
-      fecha_minima: '08-10-2025',
+      fecha_minima: '07-11-2025',
       monto_minimo: 5000,
       restricciones: [
         'Boleta debe existir en DocumentoFinal',
         'Una boleta por participación (único registro)',
         'Múltiples boletas por RUT/email permitidas',
         'Monto mínimo $5.000 (consultado en BD)',
-        'Fecha desde 08-10-2025 (consultada en BD)',
+        'Fecha desde 07-11-2025 (consultada en BD)',
         'Imagen debe ser legible (validado por OCR)'
       ]
     }
