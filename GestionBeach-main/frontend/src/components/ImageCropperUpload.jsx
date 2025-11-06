@@ -992,6 +992,7 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                     console.warn('Error al cambiar cámara manualmente:', e);
                   }
                 }}
+                sx={{ opacity: 0, pointerEvents: 'none' }}
               >
                 <FlipCameraIcon />
               </IconButton>
