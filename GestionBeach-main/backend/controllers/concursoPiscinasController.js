@@ -364,7 +364,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
     // 1. Obtener todas las sucursales con sus bases de datos
     const sucursales = await pool.request()
       .query(`
-        SELECT id, nombre, tipo_sucursal, ip, base_datos, usuario, contrasena
+        SELECT id, nombre, tipo_sucursal, ip, base_datos, usuario, contrasena, puerto
         FROM sucursales
         WHERE base_datos IS NOT NULL
         ORDER BY nombre
@@ -372,7 +372,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
 
     console.log(`📊 Buscando en ${sucursales.recordset.length} sucursales...`);
 
-    const fechaMinima = new Date('2025-10-08');
+    const fechaMinima = new Date('2025-11-07'); // 07/11/2025
 
     // 2. Buscar la boleta en cada sucursal
     for (const sucursal of sucursales.recordset) {
@@ -387,6 +387,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
           server: sucursal.ip || 'SRV_LORD',
           database: sucursal.base_datos,
           user: sucursal.usuario,
+          port: sucursal.puerto,
           password: sucursal.contrasena,
           options: {
             encrypt: false,
@@ -471,7 +472,7 @@ const validarBoletaEnDB = async (numeroBoleta, tipoSucursal, fechaBoleta) => {
           console.log(`🏢 Sucursal: ${sucursal.nombre} (${sucursal.tipo_sucursal})`);
           console.log(`📄 Tipo Doc: ${boleta.Doc}`);
           console.log(`✅ Cumple monto (>=$5000): ${cumpleMonto}`);
-          console.log(`✅ Cumple fecha (>=08-10-2025): ${cumpleFecha}`);
+          console.log(`✅ Cumple fecha (>=07-11-2025): ${cumpleFecha}`);
 
           return {
             existe: true,
@@ -555,16 +556,16 @@ exports.registrarParticipacion = async (req, res) => {
       });
     }
 
-    if (!nombres || !apellidos || !rut || !email || !telefono || !direccion) {
+    if (!nombres || !apellidos || !rut || !telefono || !direccion) {
       return res.status(400).json({
         success: false,
-        message: 'Todos los datos son requeridos (nombres, apellidos, RUT, email, teléfono y dirección)'
+        message: 'Todos los datos son requeridos (nombres, apellidos, RUT, teléfono y dirección)'
       });
     }
-    
-    // Validar formato email
+
+    // Validar formato email (OPCIONAL - solo si se proporciona)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (email && email.trim() && !emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
         message: 'Email inválido'
@@ -843,79 +844,35 @@ exports.obtenerParticipantesSorteo = async (req, res) => {
   try {
     const { comuna } = req.query; // Filtro OBLIGATORIO por comuna
 
-    // Definir las direcciones/comunas de cada sucursal (exactamente como aparecen en BD)
-    const direccionesPorComuna = {
-      'TOMÉ': [
-        'LORD COCHRANE 1127,TOME',
-        'ENRIQUE96, TOME',
-        'DANIEL VERA 890, DICHATO',
-        'DANIEL VERA 891, DICHATO',
-        'VICENTE PALACIOS 2908, TOME',
-        'VICENTE PALACIOS 3088, TOME',
-        'LAS CAMELIAS 39, TOME',
-        'DANIEL VERA 876, DICHATO'
-      ],
-      'COELEMU': [
-        'LOS CIPRESES 77, RANGUELMO',
-        'TRES ESQUINAS S/N, COELEMU FE',
-        'TRES ESQUINAS S/N, COELEMU MU',
-        'TRES ESQUINAS S/N, COELEMU SU'
-      ],
-      'QUIRIHUE': [
-        'RUTA EL CONQUISTADOR 1002, QUIRIHUE'
-      ],
-      'CHILLÁN': [
-        'RIO VIEJO 999, CHILLAN'
-      ]
+    // Palabras clave para buscar DIRECTAMENTE en p.sucursal (SIN TILDES)
+    const palabrasClaveComuna = {
+      'TOME': ['TOME', 'DICHATO'],
+      'COELEMU': ['COELEMU', 'RANGUELMO'],
+      'QUIRIHUE': ['QUIRIHUE'],
+      'CHILLAN': ['CHILLAN']
     };
 
-    // Validar que se proporcionó una comuna
-    if (!comuna || !direccionesPorComuna[comuna]) {
+    // Validar que se proporcionó una comuna válida
+    if (!comuna || !palabrasClaveComuna[comuna]) {
       return res.status(400).json({
         success: false,
-        message: 'Debe seleccionar una comuna válida (TOMÉ, COELEMU, QUIRIHUE, CHILLÁN)',
+        message: 'Debe seleccionar una comuna válida (TOME, COELEMU, QUIRIHUE, CHILLAN)',
         total: 0,
         participantes: []
       });
     }
 
     const pool = await poolPromise;
-    const direcciones = direccionesPorComuna[comuna];
+    const palabrasClave = palabrasClaveComuna[comuna];
 
-    // Primero obtener los IDs de las sucursales que coinciden con las direcciones
-    const condicionesSucursales = direcciones.map((dir, index) =>
-      `nombre LIKE @direccion${index}`
+    console.log(`🎯 Buscando participantes de: ${comuna} con palabras clave: ${palabrasClave.join(', ')}`);
+
+    // Construir condiciones LIKE directamente sobre p.sucursal (que es VARCHAR)
+    const likeConditions = palabrasClave.map((palabra, index) =>
+      `p.sucursal LIKE @palabra${index}`
     ).join(' OR ');
 
-    // Crear la query para obtener IDs de sucursales
-    const querySucursales = `
-      SELECT id FROM dbo.sucursales
-      WHERE ${condicionesSucursales}
-    `;
-
-    const requestSucursales = pool.request();
-    direcciones.forEach((dir, index) => {
-      requestSucursales.input(`direccion${index}`, sql.VarChar, `%${dir.trim()}%`);
-    });
-
-    const resultadoSucursales = await requestSucursales.query(querySucursales);
-    const idsSucursales = resultadoSucursales.recordset.map(s => s.id);
-
-    console.log(`🎯 Filtrando participantes por comuna: ${comuna} (${idsSucursales.length} sucursales encontradas: ${idsSucursales.join(', ')})`);
-
-    if (idsSucursales.length === 0) {
-      console.log(`⚠️ No se encontraron sucursales para la comuna: ${comuna}`);
-      return res.json({
-        success: true,
-        total: 0,
-        participantes: [],
-        comuna_filtro: comuna
-      });
-    }
-
-    // Construir condiciones para filtrar por IDs de sucursales
-    const condicionesIds = idsSucursales.map((id, index) => `p.sucursal = @sucId${index}`).join(' OR ');
-
+    // Query simple SIN JOIN - p.sucursal ya contiene el nombre
     const query = `
       SELECT
         p.id,
@@ -926,22 +883,23 @@ exports.obtenerParticipantesSorteo = async (req, res) => {
         p.telefono,
         p.numero_boleta,
         p.fecha_participacion,
-        s.nombre AS nombre_sucursal
+        p.sucursal AS nombre_sucursal,
+        p.ruta_imagen
       FROM dbo.participaciones_concurso p
-      LEFT JOIN dbo.sucursales s ON p.sucursal = s.id
       WHERE p.estado = 'activo'
         AND p.boleta_valida = 1
         AND (p.ganador IS NULL OR p.ganador = 0)
-        AND (${condicionesIds})
+        AND (${likeConditions})
       ORDER BY p.fecha_participacion ASC
     `;
 
-    const requestParticipantes = pool.request();
-    idsSucursales.forEach((id, index) => {
-      requestParticipantes.input(`sucId${index}`, sql.Int, id);
+    // Crear request y agregar parámetros
+    const request = pool.request();
+    palabrasClave.forEach((palabra, index) => {
+      request.input(`palabra${index}`, sql.NVarChar, `%${palabra}%`);
     });
 
-    const resultado = await requestParticipantes.query(query);
+    const resultado = await request.query(query);
 
     console.log(`📊 Total participantes para sorteo: ${resultado.recordset.length} (Comuna: ${comuna})`);
 

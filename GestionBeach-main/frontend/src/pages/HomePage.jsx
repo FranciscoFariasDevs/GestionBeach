@@ -27,7 +27,8 @@ import {
   useTheme,
   Snackbar,
   Alert,
-  Avatar
+  Avatar,
+  Tooltip
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -50,7 +51,8 @@ import {
   CabinOutlined,
   Build,
   Store,
-  ShoppingCart
+  ShoppingCart,
+  AccountCircle
 } from '@mui/icons-material';
 
 // Import local images
@@ -68,12 +70,8 @@ export default function HomePage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const navigate = useNavigate();
 
-  // Estados para los menús desplegables
-  const [ferreteriasAnchor, setFerreteriasAnchor] = useState(null);
-  const [supermercadosAnchor, setSupermercadosAnchor] = useState(null);
+  // Estados para el drawer móvil
   const [mobileDrawer, setMobileDrawer] = useState(false);
-  const [mobileFerreterias, setMobileFerreterias] = useState(false);
-  const [mobileSupermercados, setMobileSupermercados] = useState(false);
 
   // Estado para el formulario de postulación
   const [formData, setFormData] = useState({
@@ -169,62 +167,27 @@ export default function HomePage() {
         Quiénes Somos
       </Button>
 
-      {/* Ferreterías Dropdown */}
+      {/* Ferreterías - Scroll directo */}
       <Button
         color="inherit"
         startIcon={<Avatar src={naranjaImg} sx={{ width: 24, height: 24 }} />}
-        endIcon={<ExpandMore />}
-        onClick={(e) => setFerreteriasAnchor(e.currentTarget)}
+        onClick={() => scrollToSection('ferreterias')}
         sx={{ '&:hover': { bgcolor: 'rgba(255, 152, 0, 0.08)' } }}
       >
         Ferreterías
       </Button>
-      <Menu
-        anchorEl={ferreteriasAnchor}
-        open={Boolean(ferreteriasAnchor)}
-        onClose={() => setFerreteriasAnchor(null)}
-      >
-        {ferreteriasSucursales.map((sucursal, index) => (
-          <MenuItem
-            key={index}
-            onClick={() => {
-              scrollToSection('ferreterias');
-              setFerreteriasAnchor(null);
-            }}
-          >
-            {sucursal.nombre}
-          </MenuItem>
-        ))}
-      </Menu>
 
-      {/* Supermercados Dropdown */}
+      {/* Supermercados - Scroll directo */}
       <Button
         color="inherit"
         startIcon={<Avatar src={rojoImg} sx={{ width: 24, height: 24 }} />}
-        endIcon={<ExpandMore />}
-        onClick={(e) => setSupermercadosAnchor(e.currentTarget)}
+        onClick={() => scrollToSection('supermercados')}
         sx={{ '&:hover': { bgcolor: 'rgba(255, 152, 0, 0.08)' } }}
       >
         Supermercados
       </Button>
-      <Menu
-        anchorEl={supermercadosAnchor}
-        open={Boolean(supermercadosAnchor)}
-        onClose={() => setSupermercadosAnchor(null)}
-      >
-        {supermercadosSucursales.map((sucursal, index) => (
-          <MenuItem
-            key={index}
-            onClick={() => {
-              scrollToSection('supermercados');
-              setSupermercadosAnchor(null);
-            }}
-          >
-            {sucursal.nombre}
-          </MenuItem>
-        ))}
-      </Menu>
 
+      {/* Multitiendas - Scroll directo */}
       <Button
         color="inherit"
         startIcon={<Avatar src={naranjaImg} sx={{ width: 24, height: 24 }} />}
@@ -252,7 +215,7 @@ export default function HomePage() {
         Contacto
       </Button>
 
-      {/* Cabañas y Login juntos - Destacados */}
+      {/* Cabañas, Tienda y Login - Destacados */}
       <Button
         variant="contained"
         startIcon={<CabinOutlined />}
@@ -278,26 +241,47 @@ export default function HomePage() {
 
       <Button
         variant="contained"
-        startIcon={<Login />}
-        onClick={() => navigate('/login')}
+        startIcon={<ShoppingCart />}
+        onClick={() => window.open('https://www.tiendabeach.cl', '_blank')}
         sx={{
-          bgcolor: '#ff9800',
+          bgcolor: '#4caf50',
           color: '#fff',
           fontWeight: 700,
           px: 3,
           py: 1,
           fontSize: '1rem',
-          boxShadow: '0 4px 12px rgba(255, 152, 0, 0.4)',
+          boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
           '&:hover': {
-            bgcolor: '#f57c00',
-            boxShadow: '0 6px 16px rgba(255, 152, 0, 0.5)',
+            bgcolor: '#45a049',
+            boxShadow: '0 6px 16px rgba(76, 175, 80, 0.5)',
             transform: 'translateY(-2px)'
           },
           transition: 'all 0.3s ease'
         }}
       >
-        Ingresa
+        Tienda
       </Button>
+
+      <Tooltip title="Ingresa" arrow placement="bottom">
+        <IconButton
+          onClick={() => navigate('/login')}
+          sx={{
+            bgcolor: '#2196f3',
+            color: '#fff',
+            width: 48,
+            height: 48,
+            boxShadow: '0 4px 12px rgba(33, 150, 243, 0.4)',
+            '&:hover': {
+              bgcolor: '#1976d2',
+              boxShadow: '0 6px 16px rgba(33, 150, 243, 0.5)',
+              transform: 'translateY(-2px)'
+            },
+            transition: 'all 0.3s ease'
+          }}
+        >
+          <AccountCircle sx={{ fontSize: 28 }} />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 
@@ -319,38 +303,19 @@ export default function HomePage() {
             <ListItemText primary="Quiénes Somos" />
           </ListItem>
 
-          {/* Ferreterías Mobile */}
-          <ListItem button onClick={() => setMobileFerreterias(!mobileFerreterias)}>
+          {/* Ferreterías - Scroll directo */}
+          <ListItem button onClick={() => scrollToSection('ferreterias')}>
             <Avatar src={naranjaImg} sx={{ width: 24, height: 24, mr: 2 }} />
             <ListItemText primary="Ferreterías" />
-            {mobileFerreterias ? <ExpandLess /> : <ExpandMore />}
           </ListItem>
-          <Collapse in={mobileFerreterias}>
-            <List sx={{ pl: 4 }}>
-              {ferreteriasSucursales.map((sucursal, index) => (
-                <ListItem key={index} button onClick={() => scrollToSection('ferreterias')}>
-                  <ListItemText primary={sucursal.nombre} />
-                </ListItem>
-              ))}
-            </List>
-          </Collapse>
 
-          {/* Supermercados Mobile */}
-          <ListItem button onClick={() => setMobileSupermercados(!mobileSupermercados)}>
+          {/* Supermercados - Scroll directo */}
+          <ListItem button onClick={() => scrollToSection('supermercados')}>
             <Avatar src={rojoImg} sx={{ width: 24, height: 24, mr: 2 }} />
             <ListItemText primary="Supermercados" />
-            {mobileSupermercados ? <ExpandLess /> : <ExpandMore />}
           </ListItem>
-          <Collapse in={mobileSupermercados}>
-            <List sx={{ pl: 4 }}>
-              {supermercadosSucursales.map((sucursal, index) => (
-                <ListItem key={index} button onClick={() => scrollToSection('supermercados')}>
-                  <ListItemText primary={sucursal.nombre} />
-                </ListItem>
-              ))}
-            </List>
-          </Collapse>
 
+          {/* Multitiendas - Scroll directo */}
           <ListItem button onClick={() => scrollToSection('multitiendas')}>
             <Avatar src={naranjaImg} sx={{ width: 24, height: 24, mr: 2 }} />
             <ListItemText primary="Multitiendas" />
@@ -371,9 +336,14 @@ export default function HomePage() {
             <ListItemText primary="Cabañas" />
           </ListItem>
 
+          <ListItem button onClick={() => window.open('https://www.tiendabeach.cl', '_blank')}>
+            <ShoppingCart sx={{ mr: 2, color: '#4caf50' }} />
+            <ListItemText primary="Tienda Beach" primaryTypographyProps={{ fontWeight: 600, color: '#4caf50' }} />
+          </ListItem>
+
           <ListItem button onClick={() => navigate('/login')}>
-            <Login sx={{ mr: 2 }} />
-            <ListItemText primary="Ingresa" />
+            <AccountCircle sx={{ mr: 2, color: '#2196f3' }} />
+            <ListItemText primary="Ingresa" primaryTypographyProps={{ fontWeight: 600, color: '#2196f3' }} />
           </ListItem>
         </List>
       </Box>

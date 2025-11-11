@@ -21,7 +21,7 @@ exports.getVentas = async (req, res) => {
     const pool = await poolPromise;
     const sucursalResult = await pool.request()
       .input('sucursalId', sql.Int, sucursal_id)
-      .query('SELECT id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal FROM sucursales WHERE id = @sucursalId');
+      .query('SELECT id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal, puerto FROM sucursales WHERE id = @sucursalId');
 
     if (sucursalResult.recordset.length === 0) {
       console.log('ERROR: Sucursal no encontrada');
@@ -46,6 +46,7 @@ exports.getVentas = async (req, res) => {
       user: sucursal.usuario,
       password: sucursal.contrasena || '',
       server: sucursal.ip,
+      port: sucursal.puerto,
       database: sucursal.base_datos,
       options: {
         encrypt: false,

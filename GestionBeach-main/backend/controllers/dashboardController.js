@@ -17,7 +17,7 @@ exports.getDashboardData = async (req, res) => {
     
     const sucursalesResult = await pool.request()
       .query(`
-        SELECT id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal
+        SELECT id, nombre, ip, base_datos, usuario, contrasena, tipo_sucursal, puerto
         FROM sucursales
         WHERE tipo_sucursal IN ('SUPERMERCADO', 'FERRETERIA', 'MULTITIENDA')
         ORDER BY id
@@ -47,6 +47,7 @@ exports.getDashboardData = async (req, res) => {
           user: sucursal.usuario,
           password: sucursal.contrasena || '',
           server: sucursal.ip,
+          port: sucursal.puerto,
           database: sucursal.base_datos,
           options: {
             encrypt: false,

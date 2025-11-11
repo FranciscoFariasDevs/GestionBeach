@@ -35,7 +35,8 @@ import {
   Email,
   Receipt,
   Stars,
-  LocalActivity
+  LocalActivity,
+  Image as ImageIcon
 } from '@mui/icons-material';
 import { styled, keyframes } from '@mui/material/styles';
 import api from '../api/api';
@@ -293,11 +294,12 @@ const SorteoConcursoPage = () => {
   const [showWinnerDialog, setShowWinnerDialog] = useState(false);
   const [spinSpeed, setSpinSpeed] = useState(0.5);
   const [showConfetti, setShowConfetti] = useState(false);
-  const [comunaSeleccionada, setComunaSeleccionada] = useState('TOMÉ');
+  const [comunaSeleccionada, setComunaSeleccionada] = useState('TOME');
+  const [showImageDialog, setShowImageDialog] = useState(false);
   const audioRef = useRef(null);
 
-  // Comunas disponibles para filtrar (sin "TODAS")
-  const comunas = ['TOMÉ', 'COELEMU', 'QUIRIHUE', 'CHILLÁN'];
+  // Comunas disponibles para filtrar (sin "TODAS" y sin tildes)
+  const comunas = ['TOME', 'COELEMU', 'QUIRIHUE', 'CHILLAN'];
 
   // Colores para confeti
   const confettiColors = ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#95E1D3', '#F38181', '#AA96DA', '#FCBAD3'];
@@ -359,6 +361,9 @@ const SorteoConcursoPage = () => {
     setTimeout(() => {
       const randomIndex = Math.floor(Math.random() * participantes.length);
       const ganadorSeleccionado = participantes[randomIndex];
+
+      console.log('🏆 Ganador seleccionado:', ganadorSeleccionado);
+      console.log('📸 Ruta imagen:', ganadorSeleccionado.ruta_imagen);
 
       setIsSpinning(false);
       setWinner(ganadorSeleccionado);
@@ -1052,36 +1057,180 @@ const SorteoConcursoPage = () => {
                         </Grid>
                       </Grid>
 
-                      {/* Botón de confirmación */}
-                      <Button
-                        variant="contained"
-                        size="large"
-                        onClick={confirmarGanador}
-                        startIcon={<EmojiEvents />}
-                        sx={{
-                          mt: 2,
-                          background: 'linear-gradient(90deg, #FF6B6B 0%, #4ECDC4 100%)',
-                          backgroundSize: '200% auto',
-                          fontSize: { xs: '1rem', md: '1.3rem' },
-                          py: { xs: 1.5, md: 2 },
-                          fontWeight: 800,
-                          borderRadius: 50,
-                          textTransform: 'uppercase',
-                          letterSpacing: 1,
-                          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-                          transition: 'all 0.3s ease',
-                          '&:hover': {
-                            backgroundPosition: '100% 0',
-                            transform: 'translateY(-3px)',
-                            boxShadow: '0 15px 40px rgba(0,0,0,0.4)'
-                          }
-                        }}
-                      >
-                        Confirmar y Registrar Ganador
-                      </Button>
+                      {/* Botones de acción */}
+                      <Stack spacing={2} sx={{ width: '100%' }}>
+                        {/* Botón Comprobar Boleta */}
+                        <Button
+                          variant="outlined"
+                          size="large"
+                          onClick={() => setShowImageDialog(true)}
+                          startIcon={<ImageIcon />}
+                          sx={{
+                            fontSize: { xs: '1rem', md: '1.2rem' },
+                            py: { xs: 1.5, md: 2 },
+                            fontWeight: 700,
+                            borderRadius: 50,
+                            borderWidth: 3,
+                            borderColor: '#7e22ce',
+                            color: '#7e22ce',
+                            textTransform: 'uppercase',
+                            letterSpacing: 1,
+                            boxShadow: '0 8px 20px rgba(126, 34, 206, 0.3)',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              borderWidth: 3,
+                              backgroundColor: 'rgba(126, 34, 206, 0.1)',
+                              borderColor: '#6b21a8',
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 12px 30px rgba(126, 34, 206, 0.4)'
+                            }
+                          }}
+                        >
+                          Comprobar Boleta
+                        </Button>
+
+                        {/* Botón de confirmación */}
+                        <Button
+                          variant="contained"
+                          size="large"
+                          onClick={confirmarGanador}
+                          startIcon={<EmojiEvents />}
+                          sx={{
+                            background: 'linear-gradient(90deg, #FF6B6B 0%, #4ECDC4 100%)',
+                            backgroundSize: '200% auto',
+                            fontSize: { xs: '1rem', md: '1.3rem' },
+                            py: { xs: 1.5, md: 2 },
+                            fontWeight: 800,
+                            borderRadius: 50,
+                            textTransform: 'uppercase',
+                            letterSpacing: 1,
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              backgroundPosition: '100% 0',
+                              transform: 'translateY(-3px)',
+                              boxShadow: '0 15px 40px rgba(0,0,0,0.4)'
+                            }
+                          }}
+                        >
+                          Confirmar y Registrar Ganador
+                        </Button>
+                      </Stack>
                     </Stack>
                   </CardContent>
                 </Card>
+              )}
+            </Stack>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de imagen de la boleta */}
+      <Dialog
+        open={showImageDialog}
+        onClose={() => setShowImageDialog(false)}
+        maxWidth="md"
+        fullWidth
+        TransitionComponent={Zoom}
+        PaperProps={{
+          sx: {
+            borderRadius: { xs: 3, md: 4 },
+            overflow: 'hidden',
+            maxHeight: '90vh'
+          }
+        }}
+      >
+        <DialogContent
+          sx={{
+            p: 0,
+            background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+            position: 'relative'
+          }}
+        >
+          <Box sx={{ position: 'relative', p: { xs: 2, md: 3 } }}>
+            <IconButton
+              onClick={() => setShowImageDialog(false)}
+              sx={{
+                position: 'absolute',
+                top: { xs: 10, md: 15 },
+                right: { xs: 10, md: 15 },
+                color: '#fff',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(10px)',
+                zIndex: 10,
+                '&:hover': {
+                  backgroundColor: 'rgba(0,0,0,0.7)',
+                  transform: 'rotate(90deg)',
+                  transition: 'all 0.3s ease'
+                }
+              }}
+            >
+              <Close />
+            </IconButton>
+
+            <Stack spacing={2} alignItems="center">
+              <Typography
+                variant={isMobile ? 'h5' : 'h4'}
+                sx={{
+                  fontWeight: 800,
+                  color: '#fff',
+                  textAlign: 'center',
+                  textShadow: '2px 2px 4px rgba(0,0,0,0.5)'
+                }}
+              >
+                Boleta Ganadora
+              </Typography>
+
+              {winner && winner.ruta_imagen ? (
+                <Card
+                  sx={{
+                    width: '100%',
+                    background: '#fff',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
+                  }}
+                >
+                  <CardContent sx={{ p: 2 }}>
+                    {/* Debug info */}
+                    <Typography variant="caption" sx={{ display: 'block', mb: 1, color: '#666' }}>
+                      Ruta: {winner.ruta_imagen}
+                    </Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mb: 1, color: '#666' }}>
+                      URL completa: {`${api.defaults.baseURL.replace('/api', '')}${winner.ruta_imagen}`}
+                    </Typography>
+                    <Box
+                      component="img"
+                      src={`${api.defaults.baseURL.replace('/api', '')}${winner.ruta_imagen}`}
+                      alt={`Boleta ${winner.numero_boleta}`}
+                      sx={{
+                        width: '100%',
+                        height: 'auto',
+                        display: 'block',
+                        borderRadius: 1
+                      }}
+                      onError={(e) => {
+                        console.error('Error cargando imagen:', winner.ruta_imagen);
+                        e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="%23f0f0f0"/><text x="50%" y="50%" text-anchor="middle" fill="%23666" font-size="20">Imagen no disponible</text></svg>';
+                      }}
+                    />
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        mt: 2,
+                        textAlign: 'center',
+                        color: '#64748b',
+                        fontWeight: 600
+                      }}
+                    >
+                      Boleta N° {winner.numero_boleta}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Alert severity="warning" sx={{ width: '100%' }}>
+                  No hay imagen disponible para esta boleta
+                </Alert>
               )}
             </Stack>
           </Box>

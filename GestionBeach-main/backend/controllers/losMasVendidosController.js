@@ -56,6 +56,7 @@ const getSucursalConfig = async (sucursal_id) => {
         user: sucursal.usuario,
         password: sucursal.contrasena,
         server: sucursal.ip,
+        port: sucursal.puerto,
         database: sucursal.base_datos,
         options: {
           encrypt: false,
@@ -164,6 +165,7 @@ exports.testConnection = async (req, res) => {
           id: sucursal.id,
           nombre: sucursal.nombre,
           servidor: sucursal.ip,
+          port: sucursal.puerto,
           base_datos: sucursal.base_datos,
           tipo: sucursal.tipo_sucursal
         },
@@ -221,6 +223,7 @@ exports.getFamilias = async (req, res) => {
       user: sucursal.usuario,
       password: sucursal.contrasena,
       server: sucursal.ip,
+      port: sucursal.puerto,
       database: sucursal.base_datos,
       options: {
         encrypt: false,
@@ -240,8 +243,8 @@ exports.getFamilias = async (req, res) => {
       const query = `
         SELECT 
           dn_correlativo AS id,
-          ISNULL(LTRIM(RTRIM(dg_glosa)), 'Sin Nombre') AS nombre,
-          ISNULL(LTRIM(RTRIM(dg_descripcion)), '') AS descripcion
+          ISNULL(LTRIM(RTRIM(dg_glosa)), 'Sin Nombre') AS nombre
+        
         FROM tb_familias
         WHERE dg_glosa IS NOT NULL 
           AND LTRIM(RTRIM(dg_glosa)) != ''

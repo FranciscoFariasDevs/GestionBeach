@@ -391,8 +391,9 @@ const ConcursoPiscinasPage = () => {
       return false;
     }
 
+    // Email es OPCIONAL, pero si se ingresa debe ser válido
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email.trim() || !emailRegex.test(email)) {
+    if (email.trim() && !emailRegex.test(email)) {
       enqueueSnackbar('Por favor ingresa un email válido', { variant: 'warning' });
       return false;
     }
@@ -877,7 +878,7 @@ const ConcursoPiscinasPage = () => {
 
                             <TextField
                               fullWidth
-                              label="Email"
+                              label="Email (Opcional)"
                               type="email"
                               value={email}
                               onChange={(e) => {
@@ -1105,7 +1106,7 @@ const ConcursoPiscinasPage = () => {
                         variant="contained"
                         size="medium"
                         onClick={handleSubmit}
-                        disabled={loading || !nombres || !apellidos || !rut || !email || !telefono || !direccion || !numeroBoleta || !selectedFile}
+                        disabled={loading || !nombres || !apellidos || !rut || !telefono || !direccion || !numeroBoleta || !selectedFile}
                         startIcon={loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : <SendIcon />}
                         sx={{
                           py: 1.5,

@@ -14,7 +14,8 @@ const sucursales = [
   { id: 22, nombre: 'COELEMU - Tres Esquinas FE', direccion: 'TRES ESQUINAS S/N, COELEMU FE', ip: '192.168.4.7', puerto: 1433, host: '192.168.4.7', database: 'SAF20_Produccion', user: 'sa', password: '*1chilemat', tipo: 'FERRETERIA' },
   { id: 23, nombre: 'COELEMU - Tres Esquinas MU', direccion: 'TRES ESQUINAS S/N, COELEMU MU', ip: '192.168.4.9', puerto: 1433, host: '192.168.4.9', database: 'SAF20_Produccion', user: 'sa', password: '*1chilemat', tipo: 'MULTITIENDA' },
   { id: 24, nombre: 'TOME - Las Camelias', direccion: 'LAS CAMELIAS 39, TOME', ip: '192.168.4.5', puerto: 1433, host: '192.168.4.5', database: 'SAF20_Produccion', user: 'sa', password: '*1chilemat', tipo: 'FERRETERIA' },
-  { id: 25, nombre: 'DICHATO - Ferretería Beach', direccion: 'DANIEL VERA 876, DICHATO', ip: '192.168.0.150', puerto: 1433, host: '192.168.0.150', database: 'FERRETERIA_BEACH', user: 'sa', password: '*1beachmarket', tipo: 'FERRETERIA2' }
+  { id: 25, nombre: 'DICHATO - Ferretería Beach', direccion: 'DANIEL VERA 876, DICHATO', ip: '192.168.0.150', puerto: 1433, host: '192.168.0.150', database: 'FERRETERIA_BEACH', user: 'sa', password: '*1beachmarket', tipo: 'FERRETERIA2' },
+  { id: 26, nombre: 'TRES ESQUINAS S/N, COELEMU SU', direccion: 'TRES ESQUINAS S/N, COELEMU SU', ip: '190.102.245.210', puerto: 2686, host: '190.102.245.210', database: 'ERIZ', user: 'sa', password: '*1beachmarket', tipo: 'SUPERMERCADO' }
 ];
 
 async function verificarSucursal(suc) {
@@ -32,45 +33,47 @@ async function verificarSucursal(suc) {
     };
 
     // Verificar base de datos solo si ping es exitoso
-    let dbInfo = {
-      conectado: false,
-      error: 'Host no responde'
-    };
+   let dbInfo = {
+  conectado: false,
+  error: null
+};
 
-    if (pingRes.alive) {
-      try {
-        const config = {
-          user: suc.user,
-          password: suc.password,
-          server: suc.host,
-          database: suc.database,
-          options: {
-            encrypt: false,
-            trustServerCertificate: true,
-            enableArithAbort: true,
-          },
-          connectionTimeout: 5000,
-          requestTimeout: 5000
-        };
+try {
+  const config = {
+    user: suc.user,
+    password: suc.password,
+    server: suc.host,
+    port: suc.puerto,
+    database: suc.database,
+    options: {
+      encrypt: false,
+      trustServerCertificate: true,
+      enableArithAbort: true,
+    },
+    connectionTimeout: 5000,
+    requestTimeout: 5000
+  };
 
-        const pool = new sql.ConnectionPool(config);
-        await pool.connect();
-        
-        const result = await pool.request().query('SELECT 1 as test');
-        
-        dbInfo = {
-          conectado: true,
-          error: null
-        };
-        
-        await pool.close();
-      } catch (dbErr) {
-        dbInfo = {
-          conectado: false,
-          error: dbErr.message.length > 100 ? dbErr.message.substring(0, 100) + '...' : dbErr.message
-        };
-      }
-    }
+  const pool = new sql.ConnectionPool(config);
+  await pool.connect();
+
+  const result = await pool.request().query('SELECT 1 as test');
+
+  dbInfo = {
+    conectado: true,
+    error: null
+  };
+
+  await pool.close();
+} catch (dbErr) {
+  dbInfo = {
+    conectado: false,
+    error:
+      dbErr.message.length > 100
+        ? dbErr.message.substring(0, 100) + '...'
+        : dbErr.message
+  };
+}
 
     return {
       ping: pingInfo,

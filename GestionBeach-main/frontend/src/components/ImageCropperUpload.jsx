@@ -1327,9 +1327,21 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
 
       {/* Errores */}
       {error && (
-        <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
+        <Box sx={{ mt: 2 }}>
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={resetear}
+            startIcon={<RefreshIcon />}
+            fullWidth
+            sx={{ py: 1.5 }}
+          >
+            Tomar Otra Foto
+          </Button>
+        </Box>
       )}
     </Paper>
   );
