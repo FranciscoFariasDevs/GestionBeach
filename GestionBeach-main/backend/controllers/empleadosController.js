@@ -2069,4 +2069,299 @@ exports.updateRazonSocialMasiva = async (req, res) => {
   }
 };
 
+// ✅ FUNCIÓN: Obtener perfil del usuario autenticado
+exports.getMiPerfil = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Obtener información del empleado con su perfil
+    const result = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query(`
+        SELECT
+          e.id,
+          e.rut,
+          e.nombre,
+          e.email,
+          e.telefono,
+          e.cargo,
+          e.foto_perfil,
+          p.nombre as perfil_nombre,
+          e.perfil_id
+        FROM empleados e
+        LEFT JOIN perfiles p ON e.perfil_id = p.id
+        WHERE e.id = @userId
+      `);
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Empleado no encontrado'
+      });
+    }
+
+    const empleado = result.recordset[0];
+
+    // Obtener sucursales asignadas al perfil
+    let sucursales = [];
+    if (empleado.perfil_id) {
+      const sucursalesResult = await pool.request()
+        .input('perfilId', sql.Int, empleado.perfil_id)
+        .query(`
+          SELECT s.id, s.nombre
+          FROM perfiles_sucursales ps
+          INNER JOIN sucursales s ON ps.sucursal_id = s.id
+          WHERE ps.perfil_id = @perfilId
+        `);
+
+      sucursales = sucursalesResult.recordset.map(s => s.nombre);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: empleado.id,
+        rut: empleado.rut,
+        nombre: empleado.nombre,
+        email: empleado.email,
+        telefono: empleado.telefono,
+        cargo: empleado.cargo,
+        foto_perfil: empleado.foto_perfil,
+        perfil_nombre: empleado.perfil_nombre,
+        sucursales: sucursales
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener mi perfil:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener perfil',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
+// ✅ FUNCIÓN: Actualizar perfil del usuario autenticado
+exports.updateMiPerfil = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado'
+      });
+    }
+
+    const { nombre, email, telefono } = req.body;
+
+    // Validaciones
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'El nombre es obligatorio'
+      });
+    }
+
+    const pool = await poolPromise;
+
+    // Actualizar información
+    await pool.request()
+      .input('userId', sql.Int, userId)
+      .input('nombre', sql.NVarChar, nombre.trim())
+      .input('email', sql.NVarChar, email ? email.trim() : null)
+      .input('telefono', sql.NVarChar, telefono ? telefono.trim() : null)
+      .query(`
+        UPDATE empleados
+        SET
+          nombre = @nombre,
+          email = @email,
+          telefono = @telefono
+        WHERE id = @userId
+      `);
+
+    console.log(`✅ Perfil actualizado para usuario ${userId}`);
+
+    return res.json({
+      success: true,
+      message: 'Perfil actualizado correctamente'
+    });
+
+  } catch (error) {
+    console.error('❌ Error al actualizar perfil:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar perfil',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
+// ✅ FUNCIÓN: Subir foto de perfil
+exports.uploadFotoPerfil = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado'
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se ha recibido ninguna imagen'
+      });
+    }
+
+    const filename = req.file.filename;
+    const pool = await poolPromise;
+
+    // Obtener foto anterior para eliminarla
+    const perfilAnterior = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query('SELECT foto_perfil FROM empleados WHERE id = @userId');
+
+    const fotoAnterior = perfilAnterior.recordset[0]?.foto_perfil;
+
+    // Actualizar foto en BD
+    await pool.request()
+      .input('userId', sql.Int, userId)
+      .input('filename', sql.NVarChar, filename)
+      .query(`
+        UPDATE empleados
+        SET foto_perfil = @filename
+        WHERE id = @userId
+      `);
+
+    // Eliminar foto anterior si existe
+    if (fotoAnterior) {
+      const fs = require('fs');
+      const path = require('path');
+      const oldPhotoPath = path.join(__dirname, '../uploads/perfiles', fotoAnterior);
+
+      if (fs.existsSync(oldPhotoPath)) {
+        fs.unlinkSync(oldPhotoPath);
+        console.log(`🗑️ Foto anterior eliminada: ${fotoAnterior}`);
+      }
+    }
+
+    console.log(`✅ Foto de perfil actualizada para usuario ${userId}: ${filename}`);
+
+    return res.json({
+      success: true,
+      message: 'Foto de perfil actualizada',
+      data: {
+        foto_perfil: filename
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error al subir foto de perfil:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al subir la foto',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
+// ✅ FUNCIÓN: Cambiar contraseña
+exports.cambiarPassword = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado'
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Validaciones
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debes proporcionar la contraseña actual y la nueva'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'La contraseña debe tener al menos 6 caracteres'
+      });
+    }
+
+    const pool = await poolPromise;
+    const bcrypt = require('bcryptjs');
+
+    // Obtener contraseña actual
+    const userResult = await pool.request()
+      .input('userId', sql.Int, userId)
+      .query('SELECT password FROM empleados WHERE id = @userId');
+
+    if (userResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+
+    const user = userResult.recordset[0];
+
+    // Verificar contraseña actual
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password);
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'La contraseña actual es incorrecta'
+      });
+    }
+
+    // Hashear nueva contraseña
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Actualizar contraseña
+    await pool.request()
+      .input('userId', sql.Int, userId)
+      .input('password', sql.NVarChar, hashedPassword)
+      .query(`
+        UPDATE empleados
+        SET password = @password
+        WHERE id = @userId
+      `);
+
+    console.log(`✅ Contraseña actualizada para usuario ${userId}`);
+
+    return res.json({
+      success: true,
+      message: 'Contraseña actualizada correctamente'
+    });
+
+  } catch (error) {
+    console.error('❌ Error al cambiar contraseña:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al cambiar la contraseña',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
 module.exports = exports;

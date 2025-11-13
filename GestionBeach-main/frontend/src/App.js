@@ -44,6 +44,7 @@ import TarjetaEmpleadoPage from './pages/TarjetaEmpleadoPage';
 import UsuarioPage from './pages/UsuarioPage';
 import ModuloPage from './pages/ModuloPage';
 import PerfilPage from './pages/PerfilPage';
+import MiPerfilPage from './pages/MiPerfilPage'; // 👤 MI PERFIL PERSONAL
 import SupermercadosPage from './pages/SupermercadosPage';
 import EstadoResultadosPage from './pages/EstadoResultados';
 import MonitoreoPage from './pages/MonitoreoPage';
@@ -144,6 +145,18 @@ function App() {
                     element={
                       <ProtectedRoute>
                         <WelcomePage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* ========================================== */}
+                  {/* MI PERFIL PERSONAL                         */}
+                  {/* ========================================== */}
+                  <Route
+                    path="/mi-perfil"
+                    element={
+                      <ProtectedRoute>
+                        <MiPerfilPage />
                       </ProtectedRoute>
                     }
                   />

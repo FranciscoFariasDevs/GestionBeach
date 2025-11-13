@@ -408,7 +408,14 @@ export default function DashboardLayout() {
               </Typography>
             </MenuItem>
             <Divider />
-            <MenuItem onClick={handleClose}>Perfil</MenuItem>
+            <MenuItem
+              onClick={() => {
+                navigate('/mi-perfil');
+                handleClose();
+              }}
+            >
+              Mi Perfil
+            </MenuItem>
             <MenuItem onClick={handleLogout}>Cerrar Sesión</MenuItem>
           </Menu>
 
