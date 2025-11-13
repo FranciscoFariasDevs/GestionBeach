@@ -14,7 +14,12 @@
       "Bash(awk:*)",
       "Bash(npm install:*)",
       "Bash(npm run start)",
-      "Bash(del package-lock.json)"
+      "Bash(del package-lock.json)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(npm start)",
+      "Bash(tail:*)",
+      "Bash(del \"C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\.git\\index.lock\")"
     ],
     "deny": [],
     "ask": []
