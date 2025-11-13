@@ -950,22 +950,54 @@ static async eliminarProducto(req, res) {
   // Método para crear la tabla automáticamente
   static async crearTablaInventario(req, res) {
     try {
-      console.log('🏗️ Creando tabla inventario_extendido...');
-      
+      console.log('🏗️ Verificando/creando tabla inventario_extendido...');
+
       const pool = await poolPromise;
-      
+
       // Verificar si ya existe
       const checkTable = await pool.request().query(`
-        SELECT COUNT(*) as existe 
-        FROM INFORMATION_SCHEMA.TABLES 
+        SELECT COUNT(*) as existe
+        FROM INFORMATION_SCHEMA.TABLES
         WHERE TABLE_NAME = 'inventario_extendido'
       `);
-      
+
       if (checkTable.recordset[0].existe > 0) {
+        // La tabla existe, verificar si tiene la columna sucursal_id
+        const checkColumn = await pool.request().query(`
+          SELECT COUNT(*) as existe
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_NAME = 'inventario_extendido'
+          AND COLUMN_NAME = 'sucursal_id'
+        `);
+
+        if (checkColumn.recordset[0].existe === 0) {
+          // Agregar la columna sucursal_id
+          console.log('🔧 Agregando columna sucursal_id a inventario_extendido...');
+          await pool.request().query(`
+            ALTER TABLE inventario_extendido
+            ADD sucursal_id INT NULL;
+
+            -- Agregar índice
+            CREATE INDEX IX_inventario_sucursal ON inventario_extendido(sucursal_id);
+
+            -- Agregar foreign key
+            ALTER TABLE inventario_extendido
+            ADD CONSTRAINT FK_inventario_sucursal FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
+          `);
+
+          console.log('✅ Columna sucursal_id agregada exitosamente');
+
+          return res.json({
+            success: true,
+            message: 'Columna sucursal_id agregada a inventario_extendido',
+            data: { action: 'column_added', column: 'sucursal_id' }
+          });
+        }
+
         return res.json({
           success: true,
-          message: 'La tabla inventario_extendido ya existe',
-          data: { action: 'no_action', reason: 'table_exists' }
+          message: 'La tabla inventario_extendido ya existe y está actualizada',
+          data: { action: 'no_action', reason: 'table_up_to_date' }
         });
       }
       
@@ -979,16 +1011,19 @@ static async eliminarProducto(req, res) {
           fecha_vencimiento DATE NOT NULL,
           temperatura NVARCHAR(50),
           observaciones NVARCHAR(MAX),
+          sucursal_id INT,
           promocion BIT DEFAULT 0,
           activo BIT DEFAULT 1,
           fecha_creacion DATETIME DEFAULT GETDATE(),
-          fecha_actualizacion DATETIME DEFAULT GETDATE()
+          fecha_actualizacion DATETIME DEFAULT GETDATE(),
+          CONSTRAINT FK_inventario_sucursal FOREIGN KEY (sucursal_id) REFERENCES sucursales(id)
         );
-        
+
         -- Crear índices para mejorar rendimiento
         CREATE INDEX IX_inventario_codigo ON inventario_extendido(dc_codigo_barra);
         CREATE INDEX IX_inventario_vencimiento ON inventario_extendido(fecha_vencimiento);
         CREATE INDEX IX_inventario_activo ON inventario_extendido(activo);
+        CREATE INDEX IX_inventario_sucursal ON inventario_extendido(sucursal_id);
       `);
       
       console.log('✅ Tabla inventario_extendido creada exitosamente');
