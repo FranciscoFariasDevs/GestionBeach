@@ -225,13 +225,15 @@ class InventarioController {
         productosIds,
         fechaVencimiento,
         temperatura,
-        observaciones
+        observaciones,
+        sucursal_id
       } = req.body;
       
-      console.log('📝 Agregando datos adicionales a productos:', { 
+      console.log('📝 Agregando datos adicionales a productos:', {
         productosCount: productosIds?.length,
         fechaVencimiento,
-        tieneTemperatura: !!temperatura
+        tieneTemperatura: !!temperatura,
+        sucursal_id
       });
       
       // Validaciones mejoradas
@@ -246,6 +248,13 @@ class InventarioController {
         return res.status(400).json({
           success: false,
           message: 'Fecha de vencimiento es obligatoria'
+        });
+      }
+
+      if (!sucursal_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Debe seleccionar una sucursal'
         });
       }
       
@@ -326,31 +335,32 @@ class InventarioController {
             .input('dc_codigo_barra', sql.NVarChar, producto.dc_codigo_barra)
             .input('dg_glosa_producto', sql.NVarChar, producto.dg_glosa_producto)
             .input('df_fecha_precio', sql.DateTime, producto.df_fecha_precio)
-            .input('fecha_vencimiento', sql.Date, fechaVencimiento);
-          
+            .input('fecha_vencimiento', sql.Date, fechaVencimiento)
+            .input('sucursal_id', sql.Int, parseInt(sucursal_id));
+
           // Solo agregar temperatura si se proporciona
           if (temperatura && temperatura.trim() !== '') {
             insertRequest.input('temperatura', sql.NVarChar, temperatura.trim());
           } else {
             insertRequest.input('temperatura', sql.NVarChar, null);
           }
-          
+
           // Solo agregar observaciones si se proporcionan
           if (observaciones && observaciones.trim() !== '') {
             insertRequest.input('observaciones', sql.NVarChar, observaciones.trim());
           } else {
             insertRequest.input('observaciones', sql.NVarChar, null);
           }
-          
+
           const insertResult = await insertRequest.query(`
             INSERT INTO inventario_extendido (
               dc_codigo_barra, dg_glosa_producto, df_fecha_precio,
               fecha_vencimiento, temperatura, observaciones,
-              fecha_creacion, fecha_actualizacion, activo, promocion
+              sucursal_id, fecha_creacion, fecha_actualizacion, activo, promocion
             ) VALUES (
               @dc_codigo_barra, @dg_glosa_producto, @df_fecha_precio,
               @fecha_vencimiento, @temperatura, @observaciones,
-              GETDATE(), GETDATE(), 1, 0
+              @sucursal_id, GETDATE(), GETDATE(), 1, 0
             );
             SELECT SCOPE_IDENTITY() as id_inventario;
           `);

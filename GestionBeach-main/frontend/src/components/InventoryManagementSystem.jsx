@@ -525,6 +525,7 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
         setProductos([]);
         setProductosExtendidos([]);
         setProductosAgrupados({});
+        setSelectedProducts([]);
         setEstadisticas({
           totalProductos: 0,
           productosVenciendo: 0,
@@ -774,6 +775,11 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
 
   // Función para guardar datos
   const handleSaveData = async () => {
+    if (!selectedSucursal) {
+      showSnackbar('Debe seleccionar una sucursal primero', 'error');
+      return;
+    }
+
     if (!newProductData.fechaVencimiento) {
       showSnackbar('Fecha de vencimiento es obligatoria', 'error');
       return;
@@ -786,17 +792,19 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
 
     try {
       setLoading(true);
-      
+
       console.log('💾 Guardando datos adicionales...', {
         productosIds: selectedProducts,
         ...newProductData,
-        temperatura: requiereTemperatura ? newProductData.temperatura : null
+        temperatura: requiereTemperatura ? newProductData.temperatura : null,
+        sucursal_id: selectedSucursal
       });
-      
+
       const response = await api.post('/inventario/agregar-datos', {
         productosIds: selectedProducts,
         ...newProductData,
-        temperatura: requiereTemperatura ? newProductData.temperatura : null
+        temperatura: requiereTemperatura ? newProductData.temperatura : null,
+        sucursal_id: selectedSucursal
       });
       
       if (response.data.success) {
