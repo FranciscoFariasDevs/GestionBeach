@@ -79,6 +79,7 @@ import {
   Close as CloseIcon
 } from '@mui/icons-material';
 import api from '../api/api';
+import SucursalSelect from './SucursalSelect';
 
 const InventoryManagementSystem = () => {
   // Estados principales
@@ -93,6 +94,7 @@ const InventoryManagementSystem = () => {
   const [productosAgrupados, setProductosAgrupados] = useState({});
   
   // Estados para búsqueda y filtros
+  const [selectedSucursal, setSelectedSucursal] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [filterStatus, setFilterStatus] = useState('todos');
@@ -497,18 +499,74 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
     }
   };
 
+  // Efecto para recargar datos cuando cambia la sucursal
+  useEffect(() => {
+    const recargarDatos = async () => {
+      // Solo cargar si hay una sucursal seleccionada
+      if (selectedSucursal) {
+        console.log('🔄 Sucursal cambiada, recargando datos...', selectedSucursal);
+        try {
+          setLoading(true);
+          // Recargar según la pestaña activa
+          if (tabValue === 0) {
+            await cargarProductosSinfowin();
+          } else if (tabValue === 1) {
+            await cargarProductosExtendidos();
+          }
+        } catch (err) {
+          console.error('Error al recargar datos:', err);
+          showSnackbar('Error al cargar datos: ' + err.message, 'error');
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        // Si no hay sucursal seleccionada, limpiar productos
+        console.log('ℹ️ No hay sucursal seleccionada');
+        setProductos([]);
+        setProductosExtendidos([]);
+        setProductosAgrupados({});
+        setEstadisticas({
+          totalProductos: 0,
+          productosVenciendo: 0,
+          productosPendientes: 0,
+          productosProcesados: 0
+        });
+      }
+    };
+
+    recargarDatos();
+  }, [selectedSucursal]);
+
+  // Efecto para recalcular estadísticas cuando cambian los productos
+  useEffect(() => {
+    if (selectedSucursal) {
+      cargarEstadisticas();
+    }
+  }, [productos, productosExtendidos]);
+
   // FUNCIONES DE API
 
   // Cargar productos desde Sinfowin
   const cargarProductosSinfowin = async () => {
     try {
+      // Validar que haya sucursal seleccionada
+      if (!selectedSucursal) {
+        showSnackbar('Por favor seleccione una sucursal primero', 'warning');
+        return;
+      }
+
       setLoading(true);
       setError(null);
-      
-      console.log('📦 Cargando productos desde Sinfowin...');
-      
+
+      console.log('📦 Cargando productos desde Sinfowin...', {
+        sucursal_id: selectedSucursal,
+        search: searchTerm,
+        filterDate
+      });
+
       const response = await api.get('/inventario/productos-recientes', {
         params: {
+          sucursal_id: selectedSucursal,
           limit: 200,
           search: searchTerm,
           fechaDesde: filterDate,
@@ -540,10 +598,16 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
   // Cargar productos extendidos
   const cargarProductosExtendidos = async () => {
     try {
-      console.log('📋 Cargando productos extendidos...');
-      
+      console.log('📋 Cargando productos extendidos...', {
+        sucursal_id: selectedSucursal,
+        search: searchTerm,
+        filterStatus,
+        alertDays
+      });
+
       const response = await api.get('/inventario/productos-extendidos', {
         params: {
+          sucursal_id: selectedSucursal || undefined,
           search: searchTerm,
           diasVencimiento: filterStatus === 'venciendo' ? alertDays : undefined
         }
@@ -562,32 +626,37 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
     }
   };
 
-  // Cargar estadísticas
+  // Cargar estadísticas (calculadas desde los datos actuales)
   const cargarEstadisticas = async () => {
     try {
-      console.log('📊 Cargando estadísticas...');
-      
-      const response = await api.get('/inventario/estadisticas');
-      
-      if (response.data.success) {
-        const stats = response.data.data;
-        
-        const productosPendientes = productos.filter(p => !isProductProcessed(p.id)).length;
-        const productosProcesados = productos.filter(p => isProductProcessed(p.id)).length;
-        
-        setEstadisticas({
-          ...stats,
-          productosPendientes,
-          productosProcesados
-        });
-        
-        console.log('✅ Estadísticas cargadas:', stats);
-      } else {
-        throw new Error(response.data.message || 'Error al cargar estadísticas');
-      }
-      
+      console.log('📊 Calculando estadísticas desde datos locales...');
+
+      // Calcular estadísticas desde los datos que ya tenemos
+      const productosPendientes = productos.filter(p => !isProductProcessed(p.id)).length;
+      const productosProcesados = productos.filter(p => isProductProcessed(p.id)).length;
+
+      // Calcular productos venciendo (próximos 7 días)
+      const productosVenciendo = productosExtendidos.filter(p => {
+        if (!p.diasVencimiento) return false;
+        return p.diasVencimiento <= 7 && p.diasVencimiento >= 0;
+      }).length;
+
+      setEstadisticas({
+        totalProductos: productosExtendidos.length,
+        productosVenciendo: productosVenciendo,
+        productosPendientes: productosPendientes,
+        productosProcesados: productosProcesados
+      });
+
+      console.log('✅ Estadísticas calculadas:', {
+        totalProductos: productosExtendidos.length,
+        productosVenciendo,
+        productosPendientes,
+        productosProcesados
+      });
+
     } catch (err) {
-      console.error('❌ Error al cargar estadísticas:', err);
+      console.error('❌ Error al calcular estadísticas:', err);
     }
   };
 
@@ -1044,7 +1113,16 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
       {/* Controles y filtros */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
+            <SucursalSelect
+              value={selectedSucursal}
+              onChange={(e) => setSelectedSucursal(e.target.value)}
+              label="Filtrar por Sucursal"
+              showAll={true}
+            />
+          </Grid>
+
+          <Grid item xs={12} md={3}>
             <TextField
               fullWidth
               placeholder="Buscar por código o nombre..."
@@ -1059,7 +1137,7 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
               }}
             />
           </Grid>
-          
+
           {tabValue === 0 && (
             <>
               <Grid item xs={12} md={2}>
@@ -1169,7 +1247,17 @@ ${tipo === 'vencimientos' ? 'Alerta de Vencimientos' : 'Estado de Inventario'}
 
       {/* Contenido principal */}
       <Paper sx={{ overflow: 'hidden', minHeight: '400px', borderRadius: 3 }}>
-        {loading ? (
+        {!selectedSucursal ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 6, gap: 2 }}>
+            <BusinessIcon sx={{ fontSize: 80, color: '#667eea', opacity: 0.5 }} />
+            <Typography variant="h5" color="text.secondary" fontWeight="medium">
+              Seleccione una sucursal
+            </Typography>
+            <Typography variant="body1" color="text.secondary" textAlign="center">
+              Para visualizar los productos del inventario, primero debe seleccionar una sucursal en el filtro superior.
+            </Typography>
+          </Box>
+        ) : loading ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', p: 6 }}>
             <CircularProgress size={60} sx={{ mb: 2, color: '#f37d16' }} />
             <Typography variant="h6" color="text.secondary">

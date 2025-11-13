@@ -22,6 +22,10 @@ import {
   useTheme,
   Collapse,
   Chip,
+  Badge,
+  Popover,
+  Paper,
+  Button,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -50,11 +54,14 @@ import {
   Inventory as InventoryIcon,
   Security as SecurityIcon,
   Cottage as CottageIcon,
+  Notifications as NotificationsIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { filterMenuItems } from '../config/permissions';
 import { motion, AnimatePresence } from 'framer-motion';
+import api from '../api/api';
 
 const drawerWidth = 200;
 const miniDrawerWidth = 60;
@@ -173,6 +180,11 @@ export default function DashboardLayout() {
   const [comprasOpen, setComprasOpen] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
+  // Estados para notificaciones de inventario
+  const [notificationsAnchor, setNotificationsAnchor] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationCount, setNotificationCount] = useState(0);
+
   const handleDrawerOpen = () => setOpen(true);
   const handleDrawerClose = () => {
     if (isMobile) {
@@ -230,6 +242,41 @@ export default function DashboardLayout() {
   };
 
   const toggleCompras = () => setComprasOpen(!comprasOpen);
+
+  // Handlers para notificaciones
+  const handleNotificationsClick = (event) => {
+    setNotificationsAnchor(event.currentTarget);
+  };
+
+  const handleNotificationsClose = () => {
+    setNotificationsAnchor(null);
+  };
+
+  const handleNotificationClick = (notification) => {
+    // Navegar a la página de inventario cuando se hace clic en una notificación
+    navigate('/inventario');
+    handleNotificationsClose();
+  };
+
+  // Cargar notificaciones de inventario
+  const fetchInventoryNotifications = async () => {
+    try {
+      const response = await api.get('/inventario/notificaciones');
+      if (response.data.success) {
+        setNotifications(response.data.data);
+        setNotificationCount(response.data.data.length);
+      }
+    } catch (error) {
+      console.error('Error al cargar notificaciones:', error);
+    }
+  };
+
+  // Cargar notificaciones al montar el componente y cada 5 minutos
+  useEffect(() => {
+    fetchInventoryNotifications();
+    const interval = setInterval(fetchInventoryNotifications, 5 * 60 * 1000); // 5 minutos
+    return () => clearInterval(interval);
+  }, []);
 
   // Definir todos los elementos del menú (ANTES del filtrado)
   const allMenuItems = [
@@ -330,7 +377,7 @@ export default function DashboardLayout() {
           
           {/* Mostrar perfil del usuario si es Super User */}
           {isSuperUser() && (
-            <Chip 
+            <Chip
               label={getUserProfileName()}
               icon={<SecurityIcon />}
               size="small"
@@ -338,7 +385,19 @@ export default function DashboardLayout() {
               sx={{ mr: 2, fontSize: '0.75rem' }}
             />
           )}
-          
+
+          {/* Botón de Notificaciones de Inventario */}
+          <IconButton
+            size="large"
+            onClick={handleNotificationsClick}
+            color="inherit"
+            sx={{ mr: 1 }}
+          >
+            <Badge badgeContent={notificationCount} color="error">
+              <NotificationsIcon />
+            </Badge>
+          </IconButton>
+
           <IconButton size="large" onClick={handleMenu} color="inherit">
             <AccountCircle />
           </IconButton>
@@ -352,6 +411,86 @@ export default function DashboardLayout() {
             <MenuItem onClick={handleClose}>Perfil</MenuItem>
             <MenuItem onClick={handleLogout}>Cerrar Sesión</MenuItem>
           </Menu>
+
+          {/* Popover de Notificaciones */}
+          <Popover
+            open={Boolean(notificationsAnchor)}
+            anchorEl={notificationsAnchor}
+            onClose={handleNotificationsClose}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <Paper sx={{ width: 360, maxHeight: 480 }}>
+              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+                <Typography variant="h6" fontWeight="bold">
+                  Notificaciones de Inventario
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {notificationCount} alertas activas
+                </Typography>
+              </Box>
+              <List sx={{ p: 0, maxHeight: 380, overflow: 'auto' }}>
+                {notifications.length === 0 ? (
+                  <Box sx={{ p: 3, textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No hay notificaciones
+                    </Typography>
+                  </Box>
+                ) : (
+                  notifications.map((notification, index) => (
+                    <ListItem
+                      key={index}
+                      button
+                      onClick={() => handleNotificationClick(notification)}
+                      sx={{
+                        borderBottom: 1,
+                        borderColor: 'divider',
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
+                    >
+                      <ListItemIcon>
+                        <WarningIcon color={notification.tipo === 'vencido' ? 'error' : 'warning'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={notification.titulo}
+                        secondary={
+                          <>
+                            <Typography variant="body2" component="span">
+                              {notification.descripcion}
+                            </Typography>
+                            <br />
+                            <Typography variant="caption" color="text.secondary">
+                              Sucursal: {notification.sucursal}
+                            </Typography>
+                          </>
+                        }
+                      />
+                    </ListItem>
+                  ))
+                )}
+              </List>
+              {notifications.length > 0 && (
+                <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}>
+                  <Button
+                    fullWidth
+                    variant="text"
+                    onClick={() => {
+                      navigate('/inventario');
+                      handleNotificationsClose();
+                    }}
+                  >
+                    Ver todos en Inventario
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Popover>
         </Toolbar>
       </AppBarStyled>
 

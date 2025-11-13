@@ -34,7 +34,8 @@ import {
   FormControlLabel,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Divider
 } from '@mui/material';
 import {
   TrendingUp,
@@ -74,6 +75,7 @@ import {
 import api from '../api/api';
 import { useSnackbar } from 'notistack';
 import SucursalSelect from '../components/SucursalSelect';
+import * as XLSX from 'xlsx';
 
 // Colores mejorados para gráficos
 const CHART_COLORS = {
@@ -159,7 +161,7 @@ const SupermercadosPage = () => {
   const [period, setPeriod] = useState('week');
   const [viewType, setViewType] = useState('cards');
   const [metricType, setMetricType] = useState('top');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState(null);
   
@@ -345,6 +347,155 @@ const SupermercadosPage = () => {
   };
 
   const getTotalPages = () => Math.ceil(productsData.length / 20);
+
+  // ✅ FUNCIÓN PARA OBTENER TOP PRODUCTOS POR FAMILIA
+  const getTopProductsByFamily = () => {
+    if (!productsData || productsData.length === 0) {
+      console.log('⚠️ No hay datos de productos para analizar');
+      return [];
+    }
+
+    console.log('📊 Productos disponibles:', productsData.length);
+    console.log('📦 Ejemplo de producto:', productsData[0]);
+
+    const familyMap = {};
+
+    productsData.forEach(product => {
+      const familia = product.category || 'Sin Categoría';
+      if (!familyMap[familia]) {
+        familyMap[familia] = [];
+      }
+      familyMap[familia].push(product);
+    });
+
+    console.log('👨‍👩‍👧‍👦 Familias encontradas:', Object.keys(familyMap));
+
+    // Obtener top 3 productos por cada familia
+    const result = Object.entries(familyMap).map(([familia, products]) => ({
+      familia,
+      productos: products.slice(0, 3).map(p => ({
+        nombre: p.name,
+        cantidad: p.sales,
+        ingresos: p.revenue
+      })),
+      totalVentas: products.reduce((sum, p) => sum + (p.sales || 0), 0)
+    }));
+
+    const topFamilies = result.sort((a, b) => b.totalVentas - a.totalVentas).slice(0, 5);
+    console.log('🏆 Top 5 familias:', topFamilies);
+    return topFamilies;
+  };
+
+  // ✅ FUNCIÓN PARA OBTENER DATOS DE VENTAS POR FAMILIA (PARA GRÁFICO DE BARRAS)
+  const getSalesByFamily = () => {
+    if (!productsData || productsData.length === 0) {
+      console.log('⚠️ getSalesByFamily: No hay datos');
+      return [];
+    }
+
+    const familyMap = {};
+
+    productsData.forEach(product => {
+      const familia = product.category || 'Sin Categoría';
+      if (!familyMap[familia]) {
+        familyMap[familia] = { unidades: 0, ingresos: 0, productos: 0 };
+      }
+      familyMap[familia].unidades += product.sales || 0;
+      familyMap[familia].ingresos += product.revenue || 0;
+      familyMap[familia].productos += 1;
+    });
+
+    const result = Object.entries(familyMap)
+      .map(([familia, data]) => ({
+        familia: familia.length > 20 ? familia.substring(0, 20) + '...' : familia,
+        unidades: data.unidades,
+        ingresos: Math.round(data.ingresos),
+        productos: data.productos
+      }))
+      .sort((a, b) => b.unidades - a.unidades)
+      .slice(0, 8);
+
+    console.log('📊 getSalesByFamily resultado:', result);
+    return result;
+  };
+
+  // ✅ FUNCIÓN PARA OBTENER COMPARATIVA DE INGRESOS VS UNIDADES
+  const getRevenueVsUnitsData = () => {
+    if (!productsData || productsData.length === 0) {
+      console.log('⚠️ getRevenueVsUnitsData: No hay datos');
+      return [];
+    }
+
+    const result = productsData.slice(0, 10).map(product => ({
+      nombre: product.name?.substring(0, 25) + '...' || 'Sin nombre',
+      unidades: product.sales || 0,
+      ingresos: Math.round(product.revenue || 0)
+    }));
+
+    console.log('📊 getRevenueVsUnitsData resultado:', result);
+    return result;
+  };
+
+  // ✅ FUNCIÓN PARA EXPORTAR A EXCEL
+  const exportToExcel = () => {
+    try {
+      const currentMetric = getCurrentMetric();
+      const fileName = `${currentMetric.name}_${period}_${new Date().toLocaleDateString('es-CL').replace(/\//g, '-')}.xlsx`;
+
+      console.log('🔍 Datos a exportar:', productsData);
+      console.log('🔍 Primer producto:', productsData[0]);
+
+      // Preparar datos para exportación usando la estructura real del backend
+      const exportData = productsData.map((product, index) => ({
+        'Ranking': index + 1,
+        'Código': product.code || product.id || '',
+        'Descripción': product.name || '',
+        'Familia/Categoría': product.category || '',
+        'Cantidad Vendida': product.sales || 0,
+        'Ingresos': product.revenue || 0
+      }));
+
+      // Crear hoja de cálculo
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Ajustar anchos de columna
+      const colWidths = [
+        { wch: 10 },  // Ranking
+        { wch: 18 },  // Código de Barra
+        { wch: 40 },  // Descripción
+        { wch: 20 },  // Familia
+        { wch: 18 },  // Cantidad Vendida
+        { wch: 18 },  // Precio de Venta
+        { wch: 22 }   // Rotación
+      ];
+      ws['!cols'] = colWidths;
+
+      // Crear libro de trabajo
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, currentMetric.name.substring(0, 31));
+
+      // Agregar hoja de resumen
+      const summaryExportData = [
+        { 'Métrica': 'Total Productos', 'Valor': summaryData.totalProducts },
+        { 'Métrica': 'Total Ventas (unidades)', 'Valor': summaryData.totalSales },
+        { 'Métrica': 'Total Ingresos', 'Valor': formatCurrency(summaryData.totalRevenue) },
+        { 'Métrica': 'Rotación Promedio', 'Valor': summaryData.avgRotation.toFixed(2) + ' unidades/día' },
+        { 'Métrica': 'Período', 'Valor': periodOptions.find(p => p.id === period)?.name || period },
+        { 'Métrica': 'Fecha de Exportación', 'Valor': new Date().toLocaleString('es-CL') }
+      ];
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryExportData);
+      wsSummary['!cols'] = [{ wch: 30 }, { wch: 40 }];
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
+
+      // Descargar archivo
+      XLSX.writeFile(wb, fileName);
+      enqueueSnackbar('Reporte exportado exitosamente', { variant: 'success' });
+    } catch (error) {
+      console.error('Error al exportar:', error);
+      enqueueSnackbar('Error al exportar el reporte', { variant: 'error' });
+    }
+  };
 
   // ✅ COMPONENTE DE TARJETA DE PRODUCTO
   const ProductCard = ({ product, index, rank }) => (
@@ -644,37 +795,38 @@ const SupermercadosPage = () => {
             </FormControl>
           </Grid>
 
-          {/* Fila 2: Controles de vista */}
+          {/* Fila 2: Controles de vista y acciones */}
           <Grid item xs={12}>
-            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-              <Typography variant="body2" color="text.secondary">
-                Vista:
-              </Typography>
-              {viewTypes.map((view) => (
-                <Tooltip key={view.id} title={view.name}>
-                  <IconButton 
-                    color={viewType === view.id ? 'primary' : 'default'} 
-                    onClick={() => setViewType(view.id)}
-                    size="small"
-                  >
+            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" justifyContent="space-between">
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+                <Typography variant="body2" color="text.secondary">
+                  Vista:
+                </Typography>
+                {viewTypes.map((view) => (
+                  <Tooltip key={view.id} title={view.name}>
+                    <IconButton
+                      color={viewType === view.id ? 'primary' : 'default'}
+                      onClick={() => setViewType(view.id)}
+                      size="small"
+                    >
                     {view.icon}
                   </IconButton>
                 </Tooltip>
               ))}
-              
+
               <Tooltip title="Actualizar datos">
-                <IconButton 
-                  onClick={() => { loadProductsData(); loadAdditionalData(); }} 
+                <IconButton
+                  onClick={() => { loadProductsData(); loadAdditionalData(); }}
                   disabled={isLoading || !selectedSucursal}
                   color="info"
                 >
                   <Refresh />
                 </IconButton>
               </Tooltip>
-              
+
               {selectedSucursal && (
                 <Tooltip title="Probar conexión">
-                  <IconButton 
+                  <IconButton
                     onClick={() => testConnection(selectedSucursal)} 
                     color="success"
                     size="small"
@@ -683,6 +835,27 @@ const SupermercadosPage = () => {
                   </IconButton>
                 </Tooltip>
               )}
+              </Stack>
+
+              {/* Botón de Exportar a Excel */}
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<Download />}
+                onClick={exportToExcel}
+                disabled={!productsData.length}
+                sx={{
+                  fontWeight: 600,
+                  boxShadow: 2,
+                  '&:hover': {
+                    boxShadow: 4,
+                    transform: 'translateY(-2px)',
+                    transition: 'all 0.2s'
+                  }
+                }}
+              >
+                Exportar a Excel
+              </Button>
             </Stack>
           </Grid>
         </Grid>
@@ -1038,29 +1211,56 @@ const SupermercadosPage = () => {
         </Stack>
       </Paper>
 
-      {/* Panel de análisis adicional */}
-      <Accordion>
-        <AccordionSummary expandIcon={<ExpandMore />}>
-          <Typography variant="h6">Análisis y Tendencias</Typography>
+      {/* Panel de Análisis Profesional */}
+      <Accordion defaultExpanded>
+        <AccordionSummary
+          expandIcon={<ExpandMore />}
+          sx={{
+            bgcolor: 'primary.main',
+            color: 'white',
+            '& .MuiAccordionSummary-expandIconWrapper': { color: 'white' }
+          }}
+        >
+          <Stack direction="row" spacing={2} alignItems="center">
+            <EmojiEvents />
+            <Typography variant="h5" fontWeight={700}>
+              Análisis Profesional de Ventas
+            </Typography>
+          </Stack>
         </AccordionSummary>
-        <AccordionDetails>
-          <Grid container spacing={3}>
-            {/* Distribución por familias */}
-            <Grid item xs={12} md={6}>
-              <Card sx={{ height: 350 }}>
-                <CardContent>
-                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-                    <Category sx={{ mr: 1 }} />
-                    Distribución por Familias
+        <AccordionDetails sx={{ p: 3 }}>
+          {productsData.length > 0 && categoryDistribution.length > 0 ? (
+            <Grid container spacing={3}>
+              {/* Familia Dominante */}
+              <Grid item xs={12}>
+                <Alert severity="info" icon={<EmojiEvents />} sx={{ boxShadow: 2 }}>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Familia Dominante: {categoryDistribution[0].name}
                   </Typography>
-                  {categoryDistribution.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={250}>
+                  <Typography variant="body1">
+                    La familia "{categoryDistribution[0].name}" representa el {categoryDistribution[0].value}% de las ventas del período, liderando significativamente sobre las demás categorías.
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic', color: 'text.secondary' }}>
+                    <strong>Recomendación:</strong> Ampliar variedad en esta familia, negociar mejores condiciones con proveedores aprovechando el volumen, y crear promociones cruzadas con familias complementarias.
+                  </Typography>
+                </Alert>
+              </Grid>
+
+              {/* Gráfico: Distribución por Familias (Pie Chart) */}
+              <Grid item xs={12}>
+                <Card sx={{ boxShadow: 3 }}>
+                  <CardContent>
+                    <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                      <Category sx={{ mr: 1, color: 'primary.main' }} />
+                      Distribución Porcentual por Familias
+                    </Typography>
+                    <ResponsiveContainer width="100%" height={400}>
                       <PieChart>
                         <Pie
                           data={categoryDistribution}
                           cx="50%"
                           cy="50%"
-                          outerRadius={80}
+                          outerRadius={120}
                           dataKey="value"
                           label={({ name, value }) => `${name}: ${value}%`}
                         >
@@ -1069,51 +1269,23 @@ const SupermercadosPage = () => {
                           ))}
                         </Pie>
                         <RechartsTooltip formatter={(value) => [`${value}%`]} />
+                        <Legend />
                       </PieChart>
                     </ResponsiveContainer>
-                  ) : (
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 250 }}>
-                      <Typography color="text.secondary">No hay datos de distribución</Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
+          ) : null}
 
-            {/* Tendencia de ventas */}
-            <Grid item xs={12} md={6}>
-              <Card sx={{ height: 350 }}>
-                <CardContent>
-                  <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-                    <ShowChart sx={{ mr: 1 }} />
-                    Tendencia de Ventas
-                  </Typography>
-                  {trendData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={250}>
-                      <LineChart data={trendData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis />
-                        <RechartsTooltip formatter={(value) => [formatCurrency(value), 'Ventas']} />
-                        <Line 
-                          type="monotone" 
-                          dataKey="ventas" 
-                          stroke={CHART_COLORS.primary} 
-                          strokeWidth={3}
-                          dot={{ r: 6 }}
-                          activeDot={{ r: 8 }} 
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 250 }}>
-                      <Typography color="text.secondary">No hay datos de tendencia</Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+          {/* Mensaje cuando no hay datos */}
+          {productsData.length === 0 && (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body1" color="text.secondary">
+                Selecciona una sucursal y un período para ver el análisis profesional
+              </Typography>
+            </Box>
+          )}
         </AccordionDetails>
       </Accordion>
     </Box>

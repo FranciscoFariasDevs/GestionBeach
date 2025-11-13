@@ -17,6 +17,7 @@ router.get('/productos-recientes', InventarioController.obtenerProductosReciente
 router.get('/productos-extendidos', InventarioController.obtenerProductosExtendidos);
 router.get('/estadisticas', InventarioController.obtenerEstadisticas);
 router.get('/producto/:id', InventarioController.obtenerProductoPorId);
+router.get('/notificaciones', InventarioController.obtenerNotificaciones);
 
 // Rutas para modificar datos
 router.post('/agregar-datos', InventarioController.agregarDatosAdicionales);

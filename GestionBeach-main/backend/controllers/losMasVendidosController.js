@@ -281,7 +281,10 @@ exports.getTopProducts = async (req, res) => {
     console.log('🔍 === GET TOP PRODUCTS INICIADO ===');
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
-    console.log('📋 Parámetros recibidos:', { familia, period, sucursal_id, limit });
+    // Asegurar que limit sea un número entero
+    const limitNumber = parseInt(limit) || 50;
+
+    console.log('📋 Parámetros recibidos:', { familia, period, sucursal_id, limit: limitNumber });
 
     if (!sucursal_id) {
       return res.status(400).json({ 
@@ -296,11 +299,11 @@ exports.getTopProducts = async (req, res) => {
     
     console.log('📅 Período calculado:', { startDate, endDate });
     console.log('🏢 Sucursal:', sucursal.nombre);
-    console.log('📊 Límite de productos:', limit);
-    
+    console.log('📊 Límite de productos:', limitNumber);
+
     // ✅ PASO 2: Query con límite dinámico
     let query = `
-      SELECT TOP ${parseInt(limit) || 50}
+      SELECT TOP ${limitNumber}
         ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
         tdd.dc_codigo_barra AS 'Codigo Barra', 
         ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
@@ -322,10 +325,10 @@ exports.getTopProducts = async (req, res) => {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
-    
+
     if (familia && familia !== 'all') {
-      query += ` AND ISNULL(fa.dg_glosa, '') = @familia`;
-      params.familia = { value: familia, type: sql.NVarChar };
+      query += ` AND fa.dn_correlativo = @familia`;
+      params.familia = { value: parseInt(familia), type: sql.Int };
     }
     
     query += `
@@ -360,18 +363,23 @@ exports.getLeastSoldProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
+    // Asegurar que limit sea un número entero
+    const limitNumber = parseInt(limit) || 50;
+
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
-    
+
+    console.log('📊 Límite de productos (menos vendidos):', limitNumber);
+
     let query = `
-      SELECT TOP ${parseInt(limit) || 50}
+      SELECT TOP ${limitNumber}
         ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
         tdd.dc_codigo_barra AS 'Codigo Barra', 
         ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
@@ -393,10 +401,10 @@ exports.getLeastSoldProducts = async (req, res) => {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
-    
+
     if (familia && familia !== 'all') {
-      query += ` AND ISNULL(fa.dg_glosa, '') = @familia`;
-      params.familia = { value: familia, type: sql.NVarChar };
+      query += ` AND fa.dn_correlativo = @familia`;
+      params.familia = { value: parseInt(familia), type: sql.Int };
     }
     
     query += `
@@ -428,20 +436,25 @@ exports.getHighRotationProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
+    // Asegurar que limit sea un número entero
+    const limitNumber = parseInt(limit) || 50;
+
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
-    
+
     const daysDiff = Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
-    
+
+    console.log('📊 Límite de productos (alta rotación):', limitNumber);
+
     let query = `
-      SELECT TOP ${parseInt(limit) || 50}
+      SELECT TOP ${limitNumber}
         ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
         tdd.dc_codigo_barra AS 'Codigo Barra',
         ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
@@ -464,10 +477,10 @@ exports.getHighRotationProducts = async (req, res) => {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
-    
+
     if (familia && familia !== 'all') {
-      query += ` AND ISNULL(fa.dg_glosa, '') = @familia`;
-      params.familia = { value: familia, type: sql.NVarChar };
+      query += ` AND fa.dn_correlativo = @familia`;
+      params.familia = { value: parseInt(familia), type: sql.Int };
     }
     
     query += `
@@ -498,20 +511,25 @@ exports.getLowRotationProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
+    // Asegurar que limit sea un número entero
+    const limitNumber = parseInt(limit) || 50;
+
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
-    
+
     const daysDiff = Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
-    
+
+    console.log('📊 Límite de productos (baja rotación):', limitNumber);
+
     let query = `
-      SELECT TOP ${parseInt(limit) || 50}
+      SELECT TOP ${limitNumber}
         ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
         tdd.dc_codigo_barra AS 'Codigo Barra',
         ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
@@ -534,10 +552,10 @@ exports.getLowRotationProducts = async (req, res) => {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
-    
+
     if (familia && familia !== 'all') {
-      query += ` AND ISNULL(fa.dg_glosa, '') = @familia`;
-      params.familia = { value: familia, type: sql.NVarChar };
+      query += ` AND fa.dn_correlativo = @familia`;
+      params.familia = { value: parseInt(familia), type: sql.Int };
     }
     
     query += `
