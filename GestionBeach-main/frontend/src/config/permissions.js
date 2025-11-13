@@ -179,7 +179,7 @@ export function defineAbilitiesFor(user) {
 // Función auxiliar para verificar si un usuario puede acceder a una ruta
 export function canAccessRoute(ability, route) {
   // RUTAS PÚBLICAS (accesibles para TODOS los usuarios autenticados)
-  const publicRoutes = ['/welcome'];
+  const publicRoutes = ['/welcome', '/mi-perfil'];
   if (publicRoutes.includes(route)) {
     return true;
   }
