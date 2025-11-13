@@ -40,5 +40,10 @@ desktop.ini
 backend/uploads/concurso-piscinas/
 backend/uploads/concurso-piscinas/*
 
-#reportes 
-frontend/public/reports/
+#reportes
+backend/public/reports/
+backend/public/
+
+# Archivos temporales de Windows
+nul
+NUL
