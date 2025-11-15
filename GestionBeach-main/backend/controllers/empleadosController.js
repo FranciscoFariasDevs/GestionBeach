@@ -2096,9 +2096,9 @@ exports.getMiPerfil = async (req, res) => {
           e.cargo,
           e.foto_perfil,
           p.nombre as perfil_nombre,
-          e.perfil_id
+          ISNULL(e.perfil, e.perfil_id) as perfil_id
         FROM empleados e
-        LEFT JOIN perfiles p ON e.perfil_id = p.id
+        LEFT JOIN perfiles p ON ISNULL(e.perfil, e.perfil_id) = p.id
         WHERE e.id = @userId
       `);
 
