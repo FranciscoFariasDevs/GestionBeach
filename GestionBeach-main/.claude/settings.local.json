@@ -19,7 +19,8 @@
       "Bash(findstr:*)",
       "Bash(npm start)",
       "Bash(tail:*)",
-      "Bash(del \"C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\.git\\index.lock\")"
+      "Bash(del \"C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\.git\\index.lock\")",
+      "Bash(node -e:*)"
     ],
     "deny": [],
     "ask": []

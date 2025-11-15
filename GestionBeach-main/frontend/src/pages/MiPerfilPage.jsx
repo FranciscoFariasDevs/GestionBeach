@@ -120,9 +120,7 @@ export default function MiPerfilPage() {
       setSaving(true);
 
       const dataToUpdate = {
-        nombre: editedPerfil.nombre,
-        email: editedPerfil.email,
-        telefono: editedPerfil.telefono
+        nombre: editedPerfil.nombre
       };
 
       const response = await api.put('/empleados/mi-perfil', dataToUpdate);
@@ -419,41 +417,6 @@ export default function MiPerfilPage() {
                       startAdornment: (
                         <InputAdornment position="start">
                           <PersonIcon color={editing ? 'primary' : 'action'} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Email"
-                    type="email"
-                    value={editing ? editedPerfil.email : perfil.email}
-                    onChange={handleInputChange('email')}
-                    disabled={!editing}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <EmailIcon color={editing ? 'primary' : 'action'} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Teléfono"
-                    value={editing ? editedPerfil.telefono : perfil.telefono}
-                    onChange={handleInputChange('telefono')}
-                    disabled={!editing}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <PhoneIcon color={editing ? 'primary' : 'action'} />
                         </InputAdornment>
                       ),
                     }}

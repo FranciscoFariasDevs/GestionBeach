@@ -2083,39 +2083,37 @@ exports.getMiPerfil = async (req, res) => {
 
     const pool = await poolPromise;
 
-    // Obtener información del empleado con su perfil
+    // Obtener información del usuario (tabla usuarios)
     const result = await pool.request()
       .input('userId', sql.Int, userId)
       .query(`
         SELECT
-          e.id,
-          e.rut,
-          e.nombre,
-          e.email,
-          e.telefono,
-          e.cargo,
-          e.foto_perfil,
-          p.nombre as perfil_nombre,
-          ISNULL(e.perfil, e.perfil_id) as perfil_id
-        FROM empleados e
-        LEFT JOIN perfiles p ON ISNULL(e.perfil, e.perfil_id) = p.id
-        WHERE e.id = @userId
+          u.id,
+          u.rut,
+          u.nombre_completo as nombre,
+          u.username,
+          u.perfil_id,
+          u.foto_perfil,
+          p.nombre as perfil_nombre
+        FROM usuarios u
+        LEFT JOIN perfiles p ON u.perfil_id = p.id
+        WHERE u.id = @userId
       `);
 
     if (result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Empleado no encontrado'
+        message: 'Usuario no encontrado'
       });
     }
 
-    const empleado = result.recordset[0];
+    const usuario = result.recordset[0];
 
     // Obtener sucursales asignadas al perfil
     let sucursales = [];
-    if (empleado.perfil_id) {
+    if (usuario.perfil_id) {
       const sucursalesResult = await pool.request()
-        .input('perfilId', sql.Int, empleado.perfil_id)
+        .input('perfilId', sql.Int, usuario.perfil_id)
         .query(`
           SELECT s.id, s.nombre
           FROM perfiles_sucursales ps
@@ -2129,14 +2127,14 @@ exports.getMiPerfil = async (req, res) => {
     return res.json({
       success: true,
       data: {
-        id: empleado.id,
-        rut: empleado.rut,
-        nombre: empleado.nombre,
-        email: empleado.email,
-        telefono: empleado.telefono,
-        cargo: empleado.cargo,
-        foto_perfil: empleado.foto_perfil,
-        perfil_nombre: empleado.perfil_nombre,
+        id: usuario.id,
+        rut: usuario.rut,
+        nombre: usuario.nombre,
+        email: null, // La tabla usuarios no tiene email
+        telefono: null, // La tabla usuarios no tiene telefono
+        cargo: usuario.perfil_nombre, // Usamos el nombre del perfil como cargo
+        foto_perfil: usuario.foto_perfil,
+        perfil_nombre: usuario.perfil_nombre,
         sucursales: sucursales
       }
     });
@@ -2163,7 +2161,7 @@ exports.updateMiPerfil = async (req, res) => {
       });
     }
 
-    const { nombre, email, telefono } = req.body;
+    const { nombre } = req.body;
 
     // Validaciones
     if (!nombre || nombre.trim() === '') {
@@ -2175,18 +2173,13 @@ exports.updateMiPerfil = async (req, res) => {
 
     const pool = await poolPromise;
 
-    // Actualizar información
+    // Actualizar información en tabla usuarios
     await pool.request()
       .input('userId', sql.Int, userId)
       .input('nombre', sql.NVarChar, nombre.trim())
-      .input('email', sql.NVarChar, email ? email.trim() : null)
-      .input('telefono', sql.NVarChar, telefono ? telefono.trim() : null)
       .query(`
-        UPDATE empleados
-        SET
-          nombre = @nombre,
-          email = @email,
-          telefono = @telefono
+        UPDATE usuarios
+        SET nombre_completo = @nombre
         WHERE id = @userId
       `);
 
@@ -2232,7 +2225,7 @@ exports.uploadFotoPerfil = async (req, res) => {
     // Obtener foto anterior para eliminarla
     const perfilAnterior = await pool.request()
       .input('userId', sql.Int, userId)
-      .query('SELECT foto_perfil FROM empleados WHERE id = @userId');
+      .query('SELECT foto_perfil FROM usuarios WHERE id = @userId');
 
     const fotoAnterior = perfilAnterior.recordset[0]?.foto_perfil;
 
@@ -2241,7 +2234,7 @@ exports.uploadFotoPerfil = async (req, res) => {
       .input('userId', sql.Int, userId)
       .input('filename', sql.NVarChar, filename)
       .query(`
-        UPDATE empleados
+        UPDATE usuarios
         SET foto_perfil = @filename
         WHERE id = @userId
       `);
@@ -2313,7 +2306,7 @@ exports.cambiarPassword = async (req, res) => {
     // Obtener contraseña actual
     const userResult = await pool.request()
       .input('userId', sql.Int, userId)
-      .query('SELECT password FROM empleados WHERE id = @userId');
+      .query('SELECT password FROM usuarios WHERE id = @userId');
 
     if (userResult.recordset.length === 0) {
       return res.status(404).json({
@@ -2340,9 +2333,9 @@ exports.cambiarPassword = async (req, res) => {
     // Actualizar contraseña
     await pool.request()
       .input('userId', sql.Int, userId)
-      .input('password', sql.NVarChar, hashedPassword)
+      .input('password', sql.VarChar, hashedPassword)
       .query(`
-        UPDATE empleados
+        UPDATE usuarios
         SET password = @password
         WHERE id = @userId
       `);
