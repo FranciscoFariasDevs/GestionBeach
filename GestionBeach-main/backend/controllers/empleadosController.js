@@ -2116,7 +2116,7 @@ exports.getMiPerfil = async (req, res) => {
         .input('perfilId', sql.Int, usuario.perfil_id)
         .query(`
           SELECT s.id, s.nombre
-          FROM perfiles_sucursales ps
+          FROM perfil_sucursal ps
           INNER JOIN sucursales s ON ps.sucursal_id = s.id
           WHERE ps.perfil_id = @perfilId
         `);
