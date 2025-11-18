@@ -137,6 +137,8 @@ const optionalRoutes = [
   { path: './routes/cabanasRoutes', route: '/api/cabanas' },
   // 🔧 NUEVA RUTA PARA MANTENIMIENTO
   { path: './routes/maintenanceRoutes', route: '/api/maintenance' },
+  // 🎟️ NUEVA RUTA PARA CÓDIGOS DE DESCUENTO
+  { path: './routes/codigosDescuentoRoutes', route: '/api/codigos-descuento' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
