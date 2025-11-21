@@ -73,6 +73,7 @@ import {
   DirectionsCar as DirectionsCarIcon,
   Build as BuildIcon,
   Warning as WarningIcon,
+  ConfirmationNumber as ConfirmationNumberIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -81,6 +82,7 @@ import { PickersDay } from '@mui/x-date-pickers/PickersDay';
 import { es } from 'date-fns/locale';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
+import CodigosDescuentoPage from './CodigosDescuentoPage';
 
 // Colores únicos para cada cabaña
 const COLORES_CABANAS = {
@@ -263,6 +265,11 @@ const AdminCabanasPage = () => {
   // Estados para confirmación de pago
   const [dialogPagoOpen, setDialogPagoOpen] = useState(false);
   const [reservaParaPago, setReservaParaPago] = useState(null);
+
+  // Estados para reembolso/devolución
+  const [dialogReembolsoOpen, setDialogReembolsoOpen] = useState(false);
+  const [reservaParaReembolso, setReservaParaReembolso] = useState(null);
+  const [procesandoReembolso, setProcesandoReembolso] = useState(false);
 
   // Estados de Mantenciones
   const [mantenciones, setMantenciones] = useState([]);
@@ -760,6 +767,99 @@ const AdminCabanasPage = () => {
       cargarReservas();
     } catch (error) {
       enqueueSnackbar('Error al cancelar reserva', { variant: 'error' });
+    }
+  };
+
+  // ============================================
+  // FUNCIONES DE REEMBOLSO/DEVOLUCIÓN
+  // ============================================
+
+  // Calcular porcentaje de reembolso según políticas
+  const calcularPorcentajeReembolso = (fechaInicio) => {
+    const hoy = new Date();
+    const fechaReserva = new Date(fechaInicio);
+    const diffTime = fechaReserva - hoy;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 10) {
+      return { porcentaje: 100, motivo: 'Cancelación con 10+ días de anticipación' };
+    } else if (diffDays >= 5) {
+      return { porcentaje: 50, motivo: 'Cancelación con 5-9 días de anticipación' };
+    } else if (diffDays >= 1) {
+      return { porcentaje: 0, motivo: 'Cancelación con menos de 5 días' };
+    } else {
+      return { porcentaje: 0, motivo: 'Cancelación el mismo día o después del check-in' };
+    }
+  };
+
+  const handleAbrirDialogReembolso = (reserva) => {
+    setReservaParaReembolso(reserva);
+    setDialogReembolsoOpen(true);
+  };
+
+  const handleCerrarDialogReembolso = () => {
+    setDialogReembolsoOpen(false);
+    setReservaParaReembolso(null);
+  };
+
+  const handleProcesarReembolso = async () => {
+    if (!reservaParaReembolso) return;
+
+    try {
+      setProcesandoReembolso(true);
+
+      // Calcular porcentaje de reembolso
+      const { porcentaje, motivo } = calcularPorcentajeReembolso(reservaParaReembolso.fecha_inicio);
+
+      if (porcentaje === 0) {
+        enqueueSnackbar(`❌ ${motivo}. No se puede procesar reembolso`, { variant: 'error' });
+        setProcesandoReembolso(false);
+        return;
+      }
+
+      // Obtener transacciones de la reserva
+      const transaccionesResp = await api.get(`/webpay/reserva/${reservaParaReembolso.id}/transacciones`);
+      const transacciones = transaccionesResp.data.data || [];
+
+      // Filtrar solo las aprobadas y no reembolsadas
+      const transaccionesAprobadas = transacciones.filter(t => t.estado === 'APROBADO');
+
+      if (transaccionesAprobadas.length === 0) {
+        enqueueSnackbar('No hay transacciones aprobadas para reembolsar', { variant: 'warning' });
+        setProcesandoReembolso(false);
+        return;
+      }
+
+      // Procesar reembolso para cada transacción
+      for (const transaccion of transaccionesAprobadas) {
+        const montoOriginal = parseFloat(transaccion.monto);
+        const montoReembolso = Math.round(montoOriginal * (porcentaje / 100));
+
+        await api.post('/webpay/reembolsar', {
+          token: transaccion.token,
+          monto: montoReembolso,
+          motivo: motivo
+        });
+      }
+
+      // Cancelar la reserva
+      await api.delete(`/cabanas/reservas/${reservaParaReembolso.id}/cancelar`);
+
+      enqueueSnackbar(`✅ Reembolso procesado: ${porcentaje}% devuelto. ${motivo}`, {
+        variant: 'success',
+        autoHideDuration: 6000
+      });
+
+      handleCerrarDialogReembolso();
+      cargarReservas();
+
+    } catch (error) {
+      console.error('Error al procesar reembolso:', error);
+      enqueueSnackbar(`Error al procesar reembolso: ${error.response?.data?.message || error.message}`, {
+        variant: 'error'
+      });
+    } finally {
+      setProcesandoReembolso(false);
     }
   };
 
@@ -1632,26 +1732,26 @@ const AdminCabanasPage = () => {
         <Box>
           {/* Header del Timeline */}
           <Paper
-            elevation={6}
+            elevation={3}
             sx={{
-              p: 4,
-              borderRadius: 4,
+              p: 2,
+              borderRadius: 2,
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               color: 'white',
-              mb: 4,
-              boxShadow: '0 12px 40px rgba(102, 126, 234, 0.4)'
+              mb: 2,
+              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 72, height: 72 }}>
-                <EventIcon sx={{ fontSize: 42 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 40, height: 40 }}>
+                <EventIcon sx={{ fontSize: 24 }} />
               </Avatar>
               <Box>
-                <Typography variant="h3" fontWeight={900}>
+                <Typography variant="h5" fontWeight={700}>
                   Timeline de Reservas
                 </Typography>
-                <Typography variant="h6" sx={{ opacity: 0.95, mt: 1 }}>
-                  Vista detallada de todas las cabanas y sus reservas activas con acciones completas
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                  Vista detallada de todas las cabañas y sus reservas activas
                 </Typography>
               </Box>
             </Box>
@@ -1743,37 +1843,27 @@ const AdminCabanasPage = () => {
                         <Box
                           sx={{
                             background: `linear-gradient(135deg, ${colorCabana} 0%, ${colorCabana}DD 100%)`,
-                            p: 3.5,
+                            p: 1.5,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            position: 'relative',
-                            '&::before': {
-                              content: '""',
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              background: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\'/%3E%3Cpath d=\'M10 0L0 10l10 10 10-10z\' fill=\'%23ffffff\' opacity=\'0.05\'/%3E%3C/svg%3E")',
-                              opacity: 0.1
-                            }
+                            position: 'relative'
                           }}
                         >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
                             <Avatar sx={{
                               bgcolor: 'rgba(255,255,255,0.25)',
-                              width: 72,
-                              height: 72,
-                              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                              width: 36,
+                              height: 36,
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
                             }}>
-                              <CottageIcon sx={{ fontSize: 40, color: 'white' }} />
+                              <CottageIcon sx={{ fontSize: 20, color: 'white' }} />
                             </Avatar>
                             <Box>
-                              <Typography variant="h3" fontWeight={900} sx={{ color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                              <Typography variant="h6" fontWeight={700} sx={{ color: 'white', textShadow: '0 1px 4px rgba(0,0,0,0.2)' }}>
                                 {cabana.nombre}
                               </Typography>
-                              <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.95)', mt: 0.5 }}>
+                              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
                                 Capacidad: {cabana.capacidad_personas} personas • {cabana.numero_habitaciones} habitacion{cabana.numero_habitaciones !== 1 ? 'es' : ''}
                               </Typography>
                             </Box>
@@ -1798,9 +1888,9 @@ const AdminCabanasPage = () => {
                         </Box>
 
                         {/* Contenido: Reservas en cards mejoradas */}
-                        <CardContent sx={{ p: 4, bgcolor: alpha(colorCabana, 0.04) }}>
+                        <CardContent sx={{ p: 2, bgcolor: alpha(colorCabana, 0.04) }}>
                           {reservasCabana.length > 0 ? (
-                            <Grid container spacing={3}>
+                            <Grid container spacing={2}>
                               {reservasCabana.map((reserva, rIdx) => (
                                 <Grid item xs={12} sm={6} md={4} key={reserva.id}>
                                   <Fade in timeout={400 + rIdx * 100}>
@@ -1827,44 +1917,44 @@ const AdminCabanasPage = () => {
                                           background:
                                             reserva.estado_pago === 'pagado'
                                               ? 'linear-gradient(135deg, #4CAF50 0%, #45A049 100%)'
-                                              : reserva.estado_pago === 'parcial'
+                                              : reserva.estado_pago === 'pago_parcial'
                                               ? 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)'
                                               : 'linear-gradient(135deg, #FFC107 0%, #FFB300 100%)',
-                                          p: 2.5,
+                                          p: 1,
                                           display: 'flex',
                                           justifyContent: 'space-between',
                                           alignItems: 'center'
                                         }}
                                       >
-                                        <Typography variant="h5" fontWeight={900} sx={{ color: 'white' }}>
+                                        <Typography variant="subtitle1" fontWeight={700} sx={{ color: 'white' }}>
                                           Reserva #{reserva.id}
                                         </Typography>
-                                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 48, height: 48 }}>
-                                          <PersonIcon sx={{ color: 'white', fontSize: 28 }} />
+                                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.3)', width: 32, height: 32 }}>
+                                          <PersonIcon sx={{ color: 'white', fontSize: 18 }} />
                                         </Avatar>
                                       </Box>
 
                                       {/* Informacion de reserva */}
-                                      <CardContent sx={{ p: 3 }}>
-                                        <Typography variant="h6" fontWeight={700} gutterBottom sx={{ color: 'text.primary' }}>
+                                      <CardContent sx={{ p: 1.5 }}>
+                                        <Typography variant="subtitle2" fontWeight={600} gutterBottom sx={{ color: 'text.primary' }}>
                                           {reserva.cliente_nombre} {reserva.cliente_apellido}
                                         </Typography>
-                                        <Divider sx={{ my: 2 }} />
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                                          <CalendarIcon fontSize="small" color="action" />
-                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
-                                            Check-in: {formatDateLong(reserva.fecha_inicio)}
+                                        <Divider sx={{ my: 1 }} />
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                          <CalendarIcon fontSize="small" color="action" sx={{ fontSize: 16 }} />
+                                          <Typography variant="caption" color="text.secondary">
+                                            In: {formatDateLong(reserva.fecha_inicio)}
                                           </Typography>
                                         </Box>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                                          <CalendarIcon fontSize="small" color="action" />
-                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
-                                            Check-out: {formatDateLong(reserva.fecha_fin)}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                          <CalendarIcon fontSize="small" color="action" sx={{ fontSize: 16 }} />
+                                          <Typography variant="caption" color="text.secondary">
+                                            Out: {formatDateLong(reserva.fecha_fin)}
                                           </Typography>
                                         </Box>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                                          <PeopleIcon fontSize="small" color="action" />
-                                          <Typography variant="body1" color="text.secondary" fontWeight={500}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                          <PeopleIcon fontSize="small" color="action" sx={{ fontSize: 16 }} />
+                                          <Typography variant="caption" color="text.secondary">
                                             {reserva.cantidad_personas} persona{reserva.cantidad_personas !== 1 ? 's' : ''}
                                           </Typography>
                                         </Box>
@@ -1872,21 +1962,21 @@ const AdminCabanasPage = () => {
                                         {/* Estado de pago */}
                                         <Chip
                                           label={
-                                            reserva.estado_pago === 'pagado' ? 'PAGADO COMPLETO' :
-                                            reserva.estado_pago === 'parcial' ? `PAGO PARCIAL (${reserva.monto_pagado ? `$${reserva.monto_pagado.toLocaleString('es-CL')}` : '50%'})` :
-                                            'PENDIENTE DE PAGO'
+                                            reserva.estado_pago === 'pagado' ? 'PAGADO' :
+                                            reserva.estado_pago === 'pago_parcial' ? `PARCIAL $${(reserva.monto_pagado || 0).toLocaleString('es-CL')}` :
+                                            'PENDIENTE'
                                           }
-                                          size="medium"
+                                          size="small"
                                           sx={{
                                             width: '100%',
-                                            fontWeight: 900,
+                                            fontWeight: 700,
                                             bgcolor:
                                               reserva.estado_pago === 'pagado' ? '#4CAF50' :
-                                              reserva.estado_pago === 'parcial' ? '#2196F3' : '#FFC107',
+                                              reserva.estado_pago === 'pago_parcial' ? '#2196F3' : '#FFC107',
                                             color: 'white',
-                                            fontSize: '0.9rem',
-                                            py: 2,
-                                            mb: 1.5
+                                            fontSize: '0.7rem',
+                                            py: 0.5,
+                                            mb: 1
                                           }}
                                         />
 
@@ -1998,6 +2088,35 @@ const AdminCabanasPage = () => {
                                                 }}
                                               >
                                                 Check-Out
+                                              </Button>
+                                            </Grow>
+                                          )}
+
+                                          {/* Botón Devolver Dinero - Solo si hay pago (completo o parcial) */}
+                                          {(reserva.estado_pago === 'pagado' || reserva.estado_pago === 'pago_parcial') && (
+                                            <Grow in timeout={550}>
+                                              <Button
+                                                fullWidth
+                                                size="small"
+                                                variant="contained"
+                                                startIcon={<MoneyIcon sx={{ fontSize: 18 }} />}
+                                                onClick={() => handleAbrirDialogReembolso(reserva)}
+                                                sx={{
+                                                  borderRadius: 2,
+                                                  py: 1,
+                                                  fontWeight: 700,
+                                                  fontSize: '0.75rem',
+                                                  background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                                                  boxShadow: '0 3px 12px rgba(156, 39, 176, 0.4)',
+                                                  transition: 'all 0.3s ease',
+                                                  '&:hover': {
+                                                    boxShadow: '0 4px 18px rgba(156, 39, 176, 0.6)',
+                                                    transform: 'scale(1.02)',
+                                                    background: 'linear-gradient(135deg, #7B1FA2 0%, #6A1B9A 100%)',
+                                                  }
+                                                }}
+                                              >
+                                                Devolver Dinero
                                               </Button>
                                             </Grow>
                                           )}
@@ -2317,6 +2436,11 @@ const AdminCabanasPage = () => {
             label="Timeline"
             iconPosition="start"
           />
+          <Tab
+            icon={<ConfirmationNumberIcon />}
+            label="Códigos Descuento"
+            iconPosition="start"
+          />
         </Tabs>
       </Paper>
 
@@ -2325,6 +2449,7 @@ const AdminCabanasPage = () => {
         {tabValue === 0 && renderTabCabanas()}
         {tabValue === 1 && renderTabReservas()}
         {tabValue === 2 && renderTabTimeline()}
+        {tabValue === 3 && <CodigosDescuentoPage />}
       </Box>
 
       {/* Input oculto para seleccionar archivos */}
@@ -3128,6 +3253,149 @@ const AdminCabanasPage = () => {
             sx={{ borderRadius: 2 }}
           >
             Programar Mantención
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ============================================ */}
+      {/* DIALOG DE REEMBOLSO/DEVOLUCIÓN */}
+      {/* ============================================ */}
+      <Dialog
+        open={dialogReembolsoOpen}
+        onClose={handleCerrarDialogReembolso}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            boxShadow: '0 12px 48px rgba(156, 39, 176, 0.3)'
+          }
+        }}
+      >
+        <DialogTitle sx={{
+          background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+          color: 'white',
+          p: 3
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <MoneyIcon sx={{ fontSize: 32 }} />
+            <Box>
+              <Typography variant="h5" fontWeight={700}>
+                Procesar Devolución
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                {reservaParaReembolso && `Reserva #${reservaParaReembolso.id}`}
+              </Typography>
+            </Box>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 3, mt: 2 }}>
+          {reservaParaReembolso && (
+            <>
+              {/* Información de la reserva */}
+              <Paper elevation={2} sx={{ p: 2, mb: 3, bgcolor: '#F5F5F5', borderRadius: 2 }}>
+                <Typography variant="subtitle2" gutterBottom fontWeight={600}>
+                  Cliente: {reservaParaReembolso.cliente_nombre} {reservaParaReembolso.cliente_apellido}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Check-in: {formatDateLong(reservaParaReembolso.fecha_inicio)}
+                </Typography>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="h6" fontWeight={700} color="primary">
+                  Monto Pagado: ${(reservaParaReembolso.monto_pagado || 0).toLocaleString('es-CL')}
+                </Typography>
+              </Paper>
+
+              {/* Políticas de devolución */}
+              <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                  📋 POLÍTICAS DE CANCELACIÓN
+                </Typography>
+                <Typography variant="caption" component="div">
+                  • Cancelación con <strong>10+ días</strong>: reembolso 100%<br/>
+                  • Cancelación con <strong>5-9 días</strong>: reembolso 50%<br/>
+                  • Cancelación con <strong>1-4 días</strong>: sin reembolso<br/>
+                  • Salida anticipada: sin devolución
+                </Typography>
+              </Alert>
+
+              {/* Cálculo del reembolso */}
+              {(() => {
+                const { porcentaje, motivo } = calcularPorcentajeReembolso(reservaParaReembolso.fecha_inicio);
+                const montoReembolso = Math.round((reservaParaReembolso.monto_pagado || 0) * (porcentaje / 100));
+
+                return (
+                  <Paper
+                    elevation={3}
+                    sx={{
+                      p: 2,
+                      bgcolor: porcentaje === 0 ? '#FFEBEE' : porcentaje === 50 ? '#FFF3E0' : '#E8F5E9',
+                      borderRadius: 2,
+                      border: `2px solid ${porcentaje === 0 ? '#EF5350' : porcentaje === 50 ? '#FF9800' : '#4CAF50'}`
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                      Análisis de Reembolso:
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      {motivo}
+                    </Typography>
+                    <Divider sx={{ my: 1 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" fontWeight={600}>
+                        Porcentaje a devolver:
+                      </Typography>
+                      <Chip
+                        label={`${porcentaje}%`}
+                        color={porcentaje === 0 ? 'error' : porcentaje === 50 ? 'warning' : 'success'}
+                        sx={{ fontWeight: 700, fontSize: '0.9rem' }}
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                      <Typography variant="body2" fontWeight={600}>
+                        Monto a reembolsar:
+                      </Typography>
+                      <Typography variant="h6" fontWeight={900} color={porcentaje === 0 ? 'error.main' : porcentaje === 50 ? 'warning.main' : 'success.main'}>
+                        ${montoReembolso.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                );
+              })()}
+
+              {calcularPorcentajeReembolso(reservaParaReembolso.fecha_inicio).porcentaje === 0 && (
+                <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
+                  ⚠️ No se puede procesar el reembolso según las políticas de cancelación.
+                </Alert>
+              )}
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ p: 3, gap: 1 }}>
+          <Button
+            onClick={handleCerrarDialogReembolso}
+            variant="outlined"
+            sx={{ borderRadius: 2 }}
+            disabled={procesandoReembolso}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleProcesarReembolso}
+            variant="contained"
+            startIcon={procesandoReembolso ? <CircularProgress size={20} color="inherit" /> : <MoneyIcon />}
+            disabled={procesandoReembolso || (reservaParaReembolso && calcularPorcentajeReembolso(reservaParaReembolso.fecha_inicio).porcentaje === 0)}
+            sx={{
+              borderRadius: 2,
+              background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #7B1FA2 0%, #6A1B9A 100%)',
+              }
+            }}
+          >
+            {procesandoReembolso ? 'Procesando...' : 'Confirmar Devolución'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -28,6 +28,8 @@ import NotFoundPage from './pages/NotFoundPage';
 import AdminCabanasPage from './pages/AdminCabanasPage'; // 🏡 NUEVO - Sistema de Cabañas
 import SorteoConcursoPage from './pages/SorteoConcursoPage'; // 🎲 SORTEO DEL CONCURSO
 import MaintenancePage from './pages/MaintenancePage'; // 🔧 PÁGINA DE MANTENIMIENTO
+import PagoExitosoPage from './pages/PagoExitosoPage'; // 💳 PÁGINA DE PAGO EXITOSO
+import PagoErrorPage from './pages/PagoErrorPage'; // 💳 PÁGINA DE ERROR EN PAGO
 
 // ========================================
 // CONFIGURACIÓN
@@ -54,6 +56,7 @@ import CentrosCostosPage from './pages/CentrosCostosPage';
 import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
 import InventarioPage from './pages/InventarioPage';
+import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
 
 // ========================================
 // COMPONENTS
@@ -120,6 +123,10 @@ function App() {
 
                 {/* 🎲 SORTEO DEL CONCURSO - RUTA PÚBLICA */}
                 <Route path="/sorteo-concurso" element={<SorteoConcursoPage />} />
+
+                {/* 💳 PÁGINAS DE PAGO - RUTAS PÚBLICAS */}
+                <Route path="/pago-exitoso" element={<PagoExitosoPage />} />
+                <Route path="/pago-error" element={<PagoErrorPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS - INTRANET                  */}
@@ -362,6 +369,19 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/admin/cabanas">
                         <AdminCabanasPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* ========================================== */}
+                  {/* CÓDIGOS DE DESCUENTO                       */}
+                  {/* Solo Admin y Super Admin                   */}
+                  {/* ========================================== */}
+                  <Route
+                    path="/codigos-descuento"
+                    element={
+                      <ProtectedRoute requiredRoute="/codigos-descuento">
+                        <CodigosDescuentoPage />
                       </ProtectedRoute>
                     }
                   />

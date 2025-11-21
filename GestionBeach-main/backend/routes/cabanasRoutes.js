@@ -41,7 +41,10 @@ router.delete('/mantenciones/:id/cancelar', mantencionesController.cancelarMante
 // RUTAS DE RESERVAS
 // ============================================
 
-// CRUD de reservas
+// 🌐 RUTA PÚBLICA - Crear reserva desde frontend público (sin autenticación)
+router.post('/reservas/publico', reservasController.crearReserva);
+
+// CRUD de reservas (requiere autenticación)
 router.get('/reservas', reservasController.obtenerReservas);
 router.get('/reservas/:id', reservasController.obtenerReservaPorId);
 router.post('/reservas', reservasController.crearReserva);

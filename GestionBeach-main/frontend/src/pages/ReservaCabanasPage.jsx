@@ -30,6 +30,8 @@ import {
   Divider,
   Stack,
   ButtonGroup,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -60,6 +62,7 @@ import {
   LocationOn as LocationIcon,
   ContentCopy as CopyIcon,
   AccountBalance as BankIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
@@ -150,12 +153,22 @@ const ReservaCabanasPage = () => {
     estado_pago: 'pendiente',
     monto_pagado: 0,
     notas: '',
+    codigo_descuento: '',
   });
 
   // Estado para carousel de imágenes
   const [carouselImages, setCarouselImages] = useState([]);
   // Estado para imágenes del carrusel hero
   const [heroCarouselImages, setHeroCarouselImages] = useState([]);
+
+  // Estados para código de descuento
+  const [codigoValidado, setCodigoValidado] = useState(null);
+  const [validandoCodigo, setValidandoCodigo] = useState(false);
+  const [errorCodigo, setErrorCodigo] = useState('');
+
+  // Estado para método de pago seleccionado
+  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState(null); // 'transferencia' o 'webpay'
+  const [procesandoPago, setProcesandoPago] = useState(false);
 
   // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
@@ -1219,6 +1232,48 @@ const ReservaCabanasPage = () => {
     return formData.tipo_pago === 'mitad' ? total / 2 : total;
   };
 
+  // Función para validar código de descuento
+  const validarCodigoDescuento = async () => {
+    if (!formData.codigo_descuento || formData.codigo_descuento.trim() === '') {
+      setErrorCodigo('Ingresa un código');
+      return;
+    }
+
+    setValidandoCodigo(true);
+    setErrorCodigo('');
+
+    try {
+      const response = await api.post('/codigos-descuento/validar', {
+        codigo: formData.codigo_descuento.trim()
+      });
+
+      if (response.data.success && response.data.valido) {
+        setCodigoValidado(response.data.data);
+        enqueueSnackbar(`✅ Código aplicado: ${response.data.data.descripcion}`, { variant: 'success' });
+      } else {
+        setErrorCodigo('Código no válido');
+        setCodigoValidado(null);
+      }
+    } catch (error) {
+      console.error('Error al validar código:', error);
+      setErrorCodigo(error.response?.data?.message || 'Código no válido');
+      setCodigoValidado(null);
+    } finally {
+      setValidandoCodigo(false);
+    }
+  };
+
+  // Función para calcular descuento
+  const calcularDescuento = (subtotal) => {
+    if (!codigoValidado) return 0;
+
+    if (codigoValidado.tipo_descuento === 'porcentaje') {
+      return subtotal * (codigoValidado.valor_descuento / 100);
+    } else {
+      return codigoValidado.valor_descuento;
+    }
+  };
+
   // Función para formatear RUT chileno mientras el usuario escribe
   const formatearRUT = (rut) => {
     // Eliminar caracteres no válidos
@@ -1438,6 +1493,206 @@ const ReservaCabanasPage = () => {
     setActiveStep((prev) => prev - 1);
   };
 
+  // ============================================
+  // MANEJO DE PAGO CON TRANSFERENCIA
+  // ============================================
+  const handlePagoTransferencia = async () => {
+    try {
+      setProcesandoPago(true);
+
+      const fechaInicio = new Date(formData.fecha_inicio);
+      const fechaFin = new Date(formData.fecha_fin);
+      const diffTime = Math.abs(fechaFin - fechaInicio);
+      const cantidadNoches = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const precioNoche = getPrecioActual(selectedCabana);
+      const costoPersonasExtra = calcularCostoPersonasExtra();
+
+      // Calcular total con descuento
+      const subtotalSinDescuento = calcularPrecioTotal();
+      const descuento = calcularDescuento(subtotalSinDescuento);
+      const precioTotal = subtotalSinDescuento - descuento;
+
+      const capacidad = selectedCabana.capacidad_personas || 0;
+      const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
+
+      // Calcular monto a pagar según tipo_pago (completo o mitad)
+      const montoPagar = formData.tipo_pago === 'mitad' ? precioTotal / 2 : precioTotal;
+
+      // Calcular fecha límite (2 horas desde ahora)
+      const fechaLimite = new Date();
+      fechaLimite.setHours(fechaLimite.getHours() + 2);
+
+      const reservaData = {
+        cabana_id: selectedCabana.id,
+        cliente_nombre: formData.cliente_nombre,
+        cliente_apellido: formData.cliente_apellido,
+        cliente_telefono: formData.cliente_telefono,
+        cliente_email: formData.cliente_email,
+        cliente_rut: formData.cliente_rut,
+        procedencia: formData.procedencia,
+        matriculas_auto: formData.matriculas_auto.filter(m => m.trim() !== ''),
+        fecha_inicio: formatDateForServer(formData.fecha_inicio),
+        fecha_fin: formatDateForServer(formData.fecha_fin),
+        cantidad_personas: formData.cantidad_personas,
+        personas_extra: personasExtra,
+        costo_personas_extra: costoPersonasExtra,
+        cantidad_noches: cantidadNoches,
+        precio_por_noche: precioNoche,
+        precio_total: precioTotal,
+        precio_final: precioTotal,
+        descuento: descuento,
+        codigo_descuento: codigoValidado?.codigo || null,
+        estado: 'pendiente',
+        metodo_pago: 'transferencia',
+        tipo_pago: formData.tipo_pago,
+        estado_pago: 'pendiente',
+        monto_pagado: 0,
+        fecha_limite_pago: fechaLimite.toISOString(),
+        origen: 'manual',
+        notas: formData.notas,
+        usuario_creacion: 'cliente',
+        tinajas: formData.tinajas_seleccionadas.map(t => ({
+          tinaja_id: t.tinaja_id,
+          fecha_uso: formatDateForServer(t.fecha_uso),
+          precio_dia: t.precio_dia,
+        })),
+      };
+
+      const response = await api.post('/cabanas/reservas/publico', reservaData);
+
+      enqueueSnackbar('✅ Reserva creada. Tienes 2 horas para realizar la transferencia', {
+        variant: 'success',
+        autoHideDuration: 6000
+      });
+
+      // Mostrar información de pago
+      const mensaje = `Debes transferir: $${montoPagar.toLocaleString('es-CL')}\n\nTienes hasta ${fechaLimite.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} para completar el pago.`;
+
+      enqueueSnackbar(mensaje, {
+        variant: 'warning',
+        autoHideDuration: 10000
+      });
+
+      setOpenReservaDialog(false);
+      cargarDatos();
+      setSelectedCabana(null);
+      setMetodoPagoSeleccionado(null);
+
+    } catch (error) {
+      console.error('Error al crear reserva:', error);
+      enqueueSnackbar(
+        error.response?.data?.message || 'Error al crear reserva',
+        { variant: 'error' }
+      );
+    } finally {
+      setProcesandoPago(false);
+    }
+  };
+
+  // ============================================
+  // MANEJO DE PAGO CON WEBPAY
+  // ============================================
+  const handlePagoWebpay = async () => {
+    try {
+      setProcesandoPago(true);
+
+      const fechaInicio = new Date(formData.fecha_inicio);
+      const fechaFin = new Date(formData.fecha_fin);
+      const diffTime = Math.abs(fechaFin - fechaInicio);
+      const cantidadNoches = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const precioNoche = getPrecioActual(selectedCabana);
+      const costoPersonasExtra = calcularCostoPersonasExtra();
+
+      // Calcular total con descuento
+      const subtotalSinDescuento = calcularPrecioTotal();
+      const descuento = calcularDescuento(subtotalSinDescuento);
+      const precioTotal = subtotalSinDescuento - descuento;
+
+      const capacidad = selectedCabana.capacidad_personas || 0;
+      const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
+
+      // Calcular monto a pagar según tipo_pago
+      const montoPagar = formData.tipo_pago === 'mitad' ? precioTotal / 2 : precioTotal;
+
+      const reservaData = {
+        cabana_id: selectedCabana.id,
+        cliente_nombre: formData.cliente_nombre,
+        cliente_apellido: formData.cliente_apellido,
+        cliente_telefono: formData.cliente_telefono,
+        cliente_email: formData.cliente_email,
+        cliente_rut: formData.cliente_rut,
+        procedencia: formData.procedencia,
+        matriculas_auto: formData.matriculas_auto.filter(m => m.trim() !== ''),
+        fecha_inicio: formatDateForServer(formData.fecha_inicio),
+        fecha_fin: formatDateForServer(formData.fecha_fin),
+        cantidad_personas: formData.cantidad_personas,
+        personas_extra: personasExtra,
+        costo_personas_extra: costoPersonasExtra,
+        cantidad_noches: cantidadNoches,
+        precio_por_noche: precioNoche,
+        precio_total: precioTotal,
+        precio_final: precioTotal,
+        descuento: descuento,
+        codigo_descuento: codigoValidado?.codigo || null,
+        estado: 'pendiente',
+        metodo_pago: 'webpay',
+        tipo_pago: formData.tipo_pago,
+        estado_pago: 'pendiente',
+        monto_pagado: 0,
+        origen: 'manual',
+        notas: formData.notas,
+        usuario_creacion: 'cliente',
+        tinajas: formData.tinajas_seleccionadas.map(t => ({
+          tinaja_id: t.tinaja_id,
+          fecha_uso: formatDateForServer(t.fecha_uso),
+          precio_dia: t.precio_dia,
+        })),
+      };
+
+      // Crear la reserva primero
+      const reservaResponse = await api.post('/cabanas/reservas/publico', reservaData);
+      const reservaId = reservaResponse.data.reserva_id;
+
+      // Crear transacción de Webpay
+      const pagoResponse = await api.post('/webpay/crear', {
+        reserva_id: reservaId,
+        monto: montoPagar,
+        descripcion: `Reserva Cabaña ${selectedCabana.nombre} - ${formData.cliente_nombre} ${formData.cliente_apellido}`
+      });
+
+      const { token, url } = pagoResponse.data.data;
+
+      // Incrementar uso del código de descuento si existe
+      if (codigoValidado) {
+        await api.post('/codigos-descuento/incrementar-uso', {
+          codigo_id: codigoValidado.id
+        });
+      }
+
+      // Crear formulario para redirección POST a Webpay
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = url;
+
+      const tokenInput = document.createElement('input');
+      tokenInput.type = 'hidden';
+      tokenInput.name = 'token_ws';
+      tokenInput.value = token;
+
+      form.appendChild(tokenInput);
+      document.body.appendChild(form);
+      form.submit();
+
+    } catch (error) {
+      console.error('Error al procesar pago:', error);
+      enqueueSnackbar(
+        error.response?.data?.message || 'Error al procesar el pago',
+        { variant: 'error' }
+      );
+      setProcesandoPago(false);
+    }
+  };
+
   const handleCrearReserva = async () => {
     try {
       const fechaInicio = new Date(formData.fecha_inicio);
@@ -1483,7 +1738,7 @@ const ReservaCabanasPage = () => {
         })),
       };
 
-      await api.post('/cabanas/reservas', reservaData);
+      await api.post('/cabanas/reservas/publico', reservaData);
 
       enqueueSnackbar('✅ Reserva creada exitosamente en estado PENDIENTE', { variant: 'success' });
 
@@ -2111,8 +2366,10 @@ const ReservaCabanasPage = () => {
 
       case 3:
         // PASO 4: Resumen y Pago
-        const total = calcularPrecioTotal();
-        const montoPagar = calcularMontoAPagar();
+        const subtotalSinDescuento = calcularPrecioTotal();
+        const descuento = calcularDescuento(subtotalSinDescuento);
+        const total = subtotalSinDescuento - descuento;
+        const montoPagar = formData.tipo_pago === 'mitad' ? total / 2 : total;
 
         // Calcular desglose detallado
         const fechaInicioResumen = new Date(formData.fecha_inicio);
@@ -2203,12 +2460,83 @@ const ReservaCabanasPage = () => {
                       </Box>
                     )}
 
+                    {/* Campo de código de descuento */}
+                    <Box sx={{ p: 1.5, bgcolor: '#FFF8E1', borderRadius: 1, border: '2px dashed #FFA726' }}>
+                      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 1, color: '#F57C00' }}>
+                        ¿Tienes un código promocional?
+                      </Typography>
+                      <Stack direction="row" spacing={1}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          placeholder="Ej: VERANO2025"
+                          value={formData.codigo_descuento}
+                          onChange={(e) => {
+                            setFormData({ ...formData, codigo_descuento: e.target.value.toUpperCase() });
+                            setErrorCodigo('');
+                            setCodigoValidado(null);
+                          }}
+                          error={!!errorCodigo}
+                          helperText={errorCodigo}
+                          disabled={!!codigoValidado}
+                          sx={{ bgcolor: 'white' }}
+                        />
+                        {!codigoValidado ? (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={validarCodigoDescuento}
+                            disabled={validandoCodigo || !formData.codigo_descuento}
+                            sx={{
+                              minWidth: '100px',
+                              bgcolor: '#FF9800',
+                              '&:hover': { bgcolor: '#F57C00' }
+                            }}
+                          >
+                            {validandoCodigo ? 'Validando...' : 'Aplicar'}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => {
+                              setCodigoValidado(null);
+                              setFormData({ ...formData, codigo_descuento: '' });
+                            }}
+                            sx={{ minWidth: '100px' }}
+                          >
+                            Quitar
+                          </Button>
+                        )}
+                      </Stack>
+                      {codigoValidado && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#2E7D32', fontWeight: 600 }}>
+                          ✓ {codigoValidado.descripcion}
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {/* Mostrar descuento si existe */}
+                    {codigoValidado && descuento > 0 && (
+                      <Box sx={{ p: 1, bgcolor: '#E8F5E9', borderRadius: 1, border: '2px solid #4CAF50' }}>
+                        <Typography variant="caption" color="text.secondary">Descuento ({codigoValidado.codigo}):</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#2E7D32' }}>
+                          - ${descuento.toLocaleString('es-CL')}
+                        </Typography>
+                      </Box>
+                    )}
+
                     <Divider />
 
                     <Box sx={{ p: 1.5, bgcolor: 'white', borderRadius: 1, textAlign: 'center' }}>
                       <Typography variant="h6" sx={{ fontWeight: 900, color: '#2E7D32' }}>
                         TOTAL: ${total.toLocaleString('es-CL')}
                       </Typography>
+                      {codigoValidado && descuento > 0 && (
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', textDecoration: 'line-through' }}>
+                          Antes: ${subtotalSinDescuento.toLocaleString('es-CL')}
+                        </Typography>
+                      )}
                     </Box>
 
                     <Paper elevation={0} sx={{ p: 1.5, mt: 1, bgcolor: formData.tipo_pago === 'completo' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 152, 0, 0.1)', border: `2px solid ${formData.tipo_pago === 'completo' ? '#4CAF50' : '#FF9800'}`, borderRadius: 1 }}>
@@ -2262,113 +2590,131 @@ const ReservaCabanasPage = () => {
               </Grid>
 
               <Grid item xs={12} md={4}>
-                <Paper elevation={3} sx={{ p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: '2px solid #4CAF50', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <Paper elevation={3} sx={{ p: 2, bgcolor: '#F5F5F5', borderRadius: 2, border: '2px solid #9E9E9E', height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ textAlign: 'center', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
-                    <BankIcon sx={{ fontSize: 40, color: '#4CAF50' }} />
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>
-                      Datos Bancarios
-                    </Typography>
-                  </Box>
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#424242', mb: 1 }}>
+                    💳 Selecciona tu Método de Pago
+                  </Typography>
                   <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#D32F2F' }}>
-                    Transferir: ${montoPagar.toLocaleString('es-CL')}
+                    Monto a Pagar: ${montoPagar.toLocaleString('es-CL')}
                   </Typography>
                 </Box>
 
-                <Box sx={{ bgcolor: 'white', p: 2, borderRadius: 1, mb: 2, flex: 1 }}>
-                  <Stack spacing={1}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">BANCO</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>SANTANDER</Typography>
+                {/* Opción 1: Transferencia Bancaria */}
+                <Paper
+                  elevation={metodoPagoSeleccionado === 'transferencia' ? 4 : 0}
+                  onClick={() => setMetodoPagoSeleccionado('transferencia')}
+                  sx={{
+                    p: 2,
+                    mb: 2,
+                    cursor: 'pointer',
+                    border: metodoPagoSeleccionado === 'transferencia' ? '3px solid #2196F3' : '2px solid #E0E0E0',
+                    borderRadius: 2,
+                    bgcolor: metodoPagoSeleccionado === 'transferencia' ? '#E3F2FD' : 'white',
+                    transition: 'all 0.3s',
+                    '&:hover': {
+                      borderColor: '#2196F3',
+                      boxShadow: 3
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <BankIcon sx={{ fontSize: 32, color: '#2196F3' }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        Transferencia Bancaria
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Reserva por 2 horas
+                      </Typography>
                     </Box>
-                    <Divider />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">CUENTA CORRIENTE N°</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>67498593</Typography>
-                    </Box>
-                    <Divider />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">RAZÓN SOCIAL</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>BEACH MARKET LTDA.</Typography>
-                    </Box>
-                    <Divider />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">RUT</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>76.236.893-5</Typography>
-                    </Box>
-                    <Divider />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">EMAIL</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>ELMIRADORDICHATO@GMAIL.COM</Typography>
-                    </Box>
-                  </Stack>
-                </Box>
+                    {metodoPagoSeleccionado === 'transferencia' && (
+                      <CheckCircleIcon sx={{ fontSize: 28, color: '#2196F3' }} />
+                    )}
+                  </Box>
+                  <Alert severity="warning" sx={{ fontSize: '0.75rem' }}>
+                    Tienes 2 horas para completar la transferencia o se cancelará automáticamente
+                  </Alert>
+                </Paper>
 
-                <Stack spacing={1}>
-                  <Button
-                    variant="contained"
-                    size="medium"
-                    fullWidth
-                    startIcon={<CopyIcon />}
-                    onClick={async () => {
-                      const datosBancarios = `DATOS BANCARIOS CABAÑAS EL MIRADOR
-BANCO: SANTANDER
-CUENTA CORRIENTE N°: 67498593
-RAZÓN SOCIAL / NOMBRE: BEACH MARKET LTDA.
-RUT: 76.236.893-5
-CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
+                {/* Opción 2: Webpay */}
+                <Paper
+                  elevation={metodoPagoSeleccionado === 'webpay' ? 4 : 0}
+                  onClick={() => setMetodoPagoSeleccionado('webpay')}
+                  sx={{
+                    p: 2,
+                    mb: 2,
+                    cursor: 'pointer',
+                    border: metodoPagoSeleccionado === 'webpay' ? '3px solid #FF6B00' : '2px solid #E0E0E0',
+                    borderRadius: 2,
+                    bgcolor: metodoPagoSeleccionado === 'webpay' ? '#FFF3E0' : 'white',
+                    transition: 'all 0.3s',
+                    '&:hover': {
+                      borderColor: '#FF6B00',
+                      boxShadow: 3
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                    <MoneyIcon sx={{ fontSize: 32, color: '#FF6B00' }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        Pago con Webpay
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Confirmación inmediata
+                      </Typography>
+                    </Box>
+                    {metodoPagoSeleccionado === 'webpay' && (
+                      <CheckCircleIcon sx={{ fontSize: 28, color: '#FF6B00' }} />
+                    )}
+                  </Box>
+                  <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
+                    Pago seguro y confirmación instantánea
+                  </Alert>
+                </Paper>
 
-                      try {
-                        const exitoso = await copiarAlPortapapeles(datosBancarios);
-                        if (exitoso) {
-                          enqueueSnackbar('✅ Datos copiados', { variant: 'success' });
-                        } else {
-                          enqueueSnackbar('❌ Error al copiar', { variant: 'error' });
-                        }
-                      } catch (err) {
-                        console.error('Error al copiar:', err);
-                        enqueueSnackbar('❌ Error al copiar', { variant: 'error' });
-                      }
-                    }}
-                    sx={{
-                      bgcolor: '#1976D2',
-                      fontWeight: 700,
-                      '&:hover': { bgcolor: '#1565C0' }
-                    }}
-                  >
-                    Copiar Datos
-                  </Button>
-
-                  <Button
-                    variant="outlined"
-                    size="medium"
-                    fullWidth
-                  startIcon={<CopyIcon />}
-                  onClick={async () => {
-                    try {
-                      const exitoso = await copiarAlPortapapeles('ELMIRADORDICHATO@GMAIL.COM');
-                      if (exitoso) {
-                        enqueueSnackbar('✅ Correo copiado al portapapeles', { variant: 'success' });
-                      } else {
-                        enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
-                      }
-                    } catch (err) {
-                      console.error('Error al copiar:', err);
-                      enqueueSnackbar('❌ Error al copiar. Intenta de nuevo.', { variant: 'error' });
+                {/* Botón para confirmar el método seleccionado */}
+                <Button
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  disabled={!metodoPagoSeleccionado || procesandoPago}
+                  onClick={() => {
+                    if (metodoPagoSeleccionado === 'transferencia') {
+                      handlePagoTransferencia();
+                    } else if (metodoPagoSeleccionado === 'webpay') {
+                      handlePagoWebpay();
                     }
                   }}
                   sx={{
-                    borderColor: '#1976D2',
-                    color: '#1976D2',
-                    fontWeight: 700,
                     py: 1.5,
-                    '&:hover': { borderColor: '#1565C0', bgcolor: '#E3F2FD' }
+                    fontWeight: 900,
+                    fontSize: '1rem',
+                    borderRadius: 2,
+                    background: metodoPagoSeleccionado === 'webpay'
+                      ? 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)'
+                      : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                    boxShadow: 4,
+                    '&:hover': {
+                      boxShadow: 6
+                    },
+                    '&:disabled': {
+                      background: '#E0E0E0'
+                    }
                   }}
                 >
-                  Copiar solo Correo
+                  {procesandoPago ? (
+                    <CircularProgress size={24} color="inherit" />
+                  ) : metodoPagoSeleccionado === 'webpay' ? (
+                    '💳 Pagar con Webpay'
+                  ) : metodoPagoSeleccionado === 'transferencia' ? (
+                    '🏦 Confirmar con Transferencia'
+                  ) : (
+                    'Selecciona un Método de Pago'
+                  )}
                 </Button>
-              </Stack>
-            </Paper>
+              </Paper>
               </Grid>
             </Grid>
 
@@ -2771,21 +3117,7 @@ CORREO ELECTRÓNICO: ELMIRADORDICHATO@GMAIL.COM`;
                 Cancelar
               </Button>
 
-              {activeStep === steps.length - 1 ? (
-                <Button
-                  variant="contained"
-                  onClick={handleCrearReserva}
-                  size="large"
-                  sx={{
-                    bgcolor: '#4CAF50',
-                    fontWeight: 700,
-                    px: 4,
-                    '&:hover': { bgcolor: '#45A049' },
-                  }}
-                >
-                  Confirmar Reserva
-                </Button>
-              ) : (
+              {activeStep !== steps.length - 1 && (
                 <Button
                   variant="contained"
                   onClick={handleNext}

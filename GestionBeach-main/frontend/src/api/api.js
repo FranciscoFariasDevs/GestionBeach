@@ -107,9 +107,14 @@ const requiresAuth = (url) => {
     '/check-db',
     '/sucursales/test',
     '/sucursales/public',
-    '/inventario/test'
+    '/inventario/test',
+    '/cabanas/reservas/publico',        // 🌐 Reservas públicas
+    '/webpay/',                           // 💳 Webpay (todas las rutas)
+    '/codigos-descuento/validar',        // 🎫 Validar códigos de descuento
+    '/codigos-descuento/incrementar-uso', // 🎫 Incrementar uso de códigos
+    '/concurso-piscinas'                  // 🏊 Concurso público
   ];
-  
+
   return !publicRoutes.some(route => url.includes(route));
 };
 

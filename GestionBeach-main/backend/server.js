@@ -139,6 +139,8 @@ const optionalRoutes = [
   { path: './routes/maintenanceRoutes', route: '/api/maintenance' },
   // 🎟️ NUEVA RUTA PARA CÓDIGOS DE DESCUENTO
   { path: './routes/codigosDescuentoRoutes', route: '/api/codigos-descuento' },
+  // 💳 NUEVA RUTA PARA WEBPAY (PAGO ONLINE)
+  { path: './routes/webpayRoutes', route: '/api/webpay' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

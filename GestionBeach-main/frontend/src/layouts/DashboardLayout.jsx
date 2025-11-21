@@ -56,6 +56,7 @@ import {
   Cottage as CottageIcon,
   Notifications as NotificationsIcon,
   Warning as WarningIcon,
+  ConfirmationNumber as ConfirmationNumberIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -302,6 +303,7 @@ export default function DashboardLayout() {
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
     { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
+    { text: 'Códigos Descuento', icon: <ConfirmationNumberIcon />, path: '/codigos-descuento', orangeType: 'dark' },
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
     { text: 'Perfiles', icon: <AssignmentIcon />, path: '/perfiles', orangeType: 'dark' },
     { text: 'Módulos', icon: <ModuleIcon />, path: '/modulos', orangeType: 'light' },
@@ -334,6 +336,7 @@ export default function DashboardLayout() {
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
+        '/codigos-descuento': 'Códigos de Descuento',
         '/usuarios': 'Gestión de Usuarios',
         '/perfiles': 'Gestión de Perfiles',
         '/modulos': 'Gestión de Módulos',
