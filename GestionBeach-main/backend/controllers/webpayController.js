@@ -117,7 +117,7 @@ exports.confirmarTransaccion = async (req, res) => {
 
     if (!token) {
       console.error('❌ No se recibió token de Webpay');
-      return res.redirect(`${FRONTEND_URL}/pago-error?error=no_token`);
+      return res.redirect(`${FRONTEND_URL}/?pago=error&error=no_token`);
     }
 
     console.log(`🔍 Confirmando transacción con token: ${token}`);
@@ -136,7 +136,7 @@ exports.confirmarTransaccion = async (req, res) => {
 
     if (transaccionResult.recordset.length === 0) {
       console.error('❌ Transacción no encontrada en BD');
-      return res.redirect(`${FRONTEND_URL}/pago-error?error=transaccion_no_encontrada`);
+      return res.redirect(`${FRONTEND_URL}/?pago=error&error=transaccion_no_encontrada`);
     }
 
     const transaccion = transaccionResult.recordset[0];
@@ -207,7 +207,7 @@ exports.confirmarTransaccion = async (req, res) => {
       console.log(`✅ Reserva ${reservaId} actualizada como PAGADA`);
 
       // Redirigir al frontend con éxito
-      return res.redirect(`${FRONTEND_URL}/pago-exitoso?reserva_id=${reservaId}&token=${token}`);
+      return res.redirect(`${FRONTEND_URL}/?pago=exitoso&reserva_id=${reservaId}`);
 
     } else {
       console.log('❌ Pago RECHAZADO o FALLIDO');
@@ -227,12 +227,12 @@ exports.confirmarTransaccion = async (req, res) => {
         `);
 
       // Redirigir al frontend con error
-      return res.redirect(`${FRONTEND_URL}/pago-error?reserva_id=${reservaId}&codigo=${commitResponse.response_code}`);
+      return res.redirect(`${FRONTEND_URL}/?pago=error&codigo=${commitResponse.response_code}`);
     }
 
   } catch (error) {
     console.error('❌ Error al confirmar transacción:', error);
-    return res.redirect(`${FRONTEND_URL}/pago-error?error=exception`);
+    return res.redirect(`${FRONTEND_URL}/?pago=error&error=exception`);
   }
 };
 

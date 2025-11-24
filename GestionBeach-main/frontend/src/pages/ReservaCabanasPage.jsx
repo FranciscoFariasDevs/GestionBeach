@@ -119,6 +119,10 @@ const ID_TO_NOMBRE = {
 const ReservaCabanasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   const svgContainerRef = useRef(null);
+  const mapaRef = useRef(null);
+
+  // Estado para mostrar landing page o mapa
+  const [mostrarMapa, setMostrarMapa] = useState(false);
 
   // Estados principales
   const [cabanas, setCabanas] = useState([]);
@@ -169,6 +173,7 @@ const ReservaCabanasPage = () => {
   // Estado para método de pago seleccionado
   const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState(null); // 'transferencia' o 'webpay'
   const [procesandoPago, setProcesandoPago] = useState(false);
+  const [reservaTransferenciaConfirmada, setReservaTransferenciaConfirmada] = useState(false);
 
   // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
@@ -196,11 +201,38 @@ const ReservaCabanasPage = () => {
   React.useEffect(() => {
     document.title = 'Reservas';
 
+    // Verificar parámetros de URL para mensaje de pago
+    const urlParams = new URLSearchParams(window.location.search);
+    const pagoEstado = urlParams.get('pago');
+    const reservaId = urlParams.get('reserva_id');
+
+    if (pagoEstado === 'exitoso') {
+      enqueueSnackbar(`✅ ¡Pago exitoso! Tu reserva #${reservaId} ha sido confirmada.`, {
+        variant: 'success',
+        autoHideDuration: 8000
+      });
+      // Limpiar parámetros de URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (pagoEstado === 'error') {
+      const codigo = urlParams.get('codigo');
+      const error = urlParams.get('error');
+      let mensaje = '❌ Error en el pago. Por favor, intenta nuevamente.';
+      if (codigo) mensaje += ` (Código: ${codigo})`;
+      if (error) mensaje += ` (${error})`;
+
+      enqueueSnackbar(mensaje, {
+        variant: 'error',
+        autoHideDuration: 10000
+      });
+      // Limpiar parámetros de URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     // Restaurar título original al desmontar
     return () => {
       document.title = 'Intranet';
     };
-  }, []);
+  }, [enqueueSnackbar]);
 
   const WHATSAPP_NUMBER = '+56942652034';
 
@@ -331,11 +363,23 @@ const ReservaCabanasPage = () => {
   // ============================================
 
   useEffect(() => {
-    cargarDatos();
+    const inicializar = async () => {
+      await cargarDatos();
+      cargarSVG();
+    };
+    inicializar();
     cargarImagenesHero();
     const interval = setInterval(cargarDatos, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Aplicar colores cuando cambien las cabañas o reservas Y el SVG esté cargado
+  useEffect(() => {
+    if (svgLoaded && cabanas.length > 0) {
+      console.log(`🔄 Datos actualizados: ${cabanas.length} cabañas, ${reservas.length} reservas`);
+      setTimeout(() => aplicarColores(), 100);
+    }
+  }, [cabanas, reservas, mantenciones, svgLoaded]);
 
   // Cargar imágenes del carrusel hero
   const cargarImagenesHero = () => {
@@ -350,12 +394,6 @@ const ReservaCabanasPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (cabanas.length > 0 && !svgLoaded) {
-      cargarSVG();
-    }
-  }, [cabanas, svgLoaded]);
-
   const cargarDatos = async () => {
     try {
       const [cabanasRes, reservasRes, mantencionesRes, tinajasRes, reservasTinajasRes] = await Promise.all([
@@ -366,16 +404,13 @@ const ReservaCabanasPage = () => {
         api.get('/cabanas/tinajas/reservas'),
       ]);
 
+      console.log(`✅ Datos cargados: ${cabanasRes.data?.cabanas?.length || 0} cabañas`);
       setCabanas(cabanasRes.data?.cabanas || []);
       setReservas(reservasRes.data?.reservas || []);
       setMantenciones(mantencionesRes.data?.mantenciones || []);
       setTinajas(tinajasRes.data?.tinajas || []);
       setReservasTinajas(reservasTinajasRes.data?.reservas || []);
       setLoading(false);
-
-      if (svgLoaded) {
-        setTimeout(() => aplicarColores(), 100);
-      }
     } catch (error) {
       console.error('Error al cargar datos:', error);
       enqueueSnackbar('Error al cargar datos', { variant: 'error' });
@@ -426,76 +461,51 @@ const ReservaCabanasPage = () => {
 
   const cargarSVG = async () => {
     try {
-      console.log('📥 Cargando SVG desde /plano1.svg...');
       const response = await fetch('/plano1.svg');
       if (!response.ok) throw new Error(`Error al cargar SVG: ${response.status}`);
-
       const svgText = await response.text();
-      console.log('✅ SVG descargado, tamaño:', svgText.length, 'caracteres');
 
       if (svgContainerRef.current && svgText) {
         svgContainerRef.current.innerHTML = svgText;
-        console.log('✅ SVG insertado en el DOM');
 
-        // ⚡ Esperar múltiples ciclos de render para asegurar que el SVG esté completamente cargado
         setTimeout(() => {
-          const svgElement = svgContainerRef.current.querySelector('svg');
-
-          if (svgElement) {
-            console.log('✅ Elemento SVG encontrado en el DOM');
-
-            // 🔍 DEBUG: Listar TODOS los IDs encontrados
-            console.log('🔍 === DEBUGGING IDS DEL SVG ===');
-            const todosLosElementos = svgElement.querySelectorAll('[id]');
-            console.log(`📊 Total de elementos con ID: ${todosLosElementos.length}`);
-            todosLosElementos.forEach((el, idx) => {
-              console.log(`${idx + 1}. ID: "${el.id}" - Tag: <${el.tagName.toLowerCase()}>`);
-            });
-            console.log('🔍 === FIN DEBUG ===');
-
-            // 🎨 Aplicar colores INMEDIATAMENTE
-            aplicarColores();
-
-            // 🖱️ Configurar eventos de click
-            configurarEventos();
-
-            // ✅ Marcar como cargado
-            setSvgLoaded(true);
-
-            console.log('✅ SVG completamente inicializado');
-          } else {
-            console.error('❌ No se encontró elemento <svg> después de insertar');
-          }
-        }, 500);  // Aumentar el tiempo de espera a 500ms
+          aplicarColores();
+          configurarEventos();
+          setSvgLoaded(true);
+        }, 50);
       }
     } catch (error) {
       console.error('❌ Error al cargar SVG:', error);
-      enqueueSnackbar(`Error al cargar mapa: ${error.message}`, { variant: 'error' });
     }
   };
 
   const obtenerEstadoCabana = (cabanaId) => {
     const idNormalizado = cabanaId.toLowerCase();
     const nombreCabana = ID_TO_NOMBRE[idNormalizado];
-    
+
+    console.log(`🔍 Buscando cabaña: ID="${cabanaId}", Nombre="${nombreCabana}"`);
+    console.log(`📊 Total cabañas en array: ${cabanas.length}`);
+
     if (!nombreCabana) {
       console.warn(`⚠️ No se encontró mapeo para ID: ${cabanaId}`);
-      return { 
-        estado: 'disponible', 
+      return {
+        estado: 'disponible',
         color: COLORES_CABANAS[idNormalizado] || '#FF8C42',
         idOriginal: cabanaId
       };
     }
-    
+
     const cabana = cabanas.find(c => {
       const nombreNormalizado = normalizarNombre(c.nombre);
       const nombreBuscado = normalizarNombre(nombreCabana);
+      console.log(`  Comparando: "${nombreNormalizado}" vs "${nombreBuscado}"`);
       return nombreNormalizado === nombreBuscado ||
              nombreNormalizado.includes(nombreBuscado) ||
              nombreBuscado.includes(nombreNormalizado);
     });
 
     if (!cabana) {
+      console.error(`❌ No se encontró la cabaña "${nombreCabana}" en el array de cabañas`);
       return { 
         estado: 'disponible', 
         color: COLORES_CABANAS[idNormalizado] || '#FF8C42',
@@ -1573,10 +1583,9 @@ const ReservaCabanasPage = () => {
         autoHideDuration: 10000
       });
 
-      setOpenReservaDialog(false);
+      // Activar el estado para mostrar el botón de WhatsApp
+      setReservaTransferenciaConfirmada(true);
       cargarDatos();
-      setSelectedCabana(null);
-      setMetodoPagoSeleccionado(null);
 
     } catch (error) {
       console.error('Error al crear reserva:', error);
@@ -1779,9 +1788,16 @@ const ReservaCabanasPage = () => {
 
   const abrirWhatsApp = () => {
     const montoPagar = calcularMontoAPagar();
-    const mensaje = `Hola, quiero enviar el comprobante de pago de mi reserva por ${montoPagar.toLocaleString('es-CL')}`;
+    const mensaje = `Hola, quiero enviar el comprobante de pago de mi reserva por $${montoPagar.toLocaleString('es-CL')}`;
     const url = `https://wa.me/${WHATSAPP_NUMBER.replace(/\D/g, '')}?text=${encodeURIComponent(mensaje)}`;
     window.open(url, '_blank');
+  };
+
+  const cerrarDialogoReserva = () => {
+    setOpenReservaDialog(false);
+    setReservaTransferenciaConfirmada(false);
+    setMetodoPagoSeleccionado(null);
+    setActiveStep(0);
   };
 
   // ============================================
@@ -2040,7 +2056,14 @@ const ReservaCabanasPage = () => {
                           textField: {
                             fullWidth: true,
                             variant: 'outlined',
-                            size: 'small'
+                            size: 'small',
+                            sx: {
+                              bgcolor: 'white',
+                              borderRadius: 1,
+                              '& .MuiOutlinedInput-root': {
+                                bgcolor: 'white'
+                              }
+                            }
                           }
                         }}
                       />
@@ -2058,7 +2081,14 @@ const ReservaCabanasPage = () => {
                           textField: {
                             fullWidth: true,
                             variant: 'outlined',
-                            size: 'small'
+                            size: 'small',
+                            sx: {
+                              bgcolor: 'white',
+                              borderRadius: 1,
+                              '& .MuiOutlinedInput-root': {
+                                bgcolor: 'white'
+                              }
+                            }
                           }
                         }}
                       />
@@ -2675,78 +2705,100 @@ const ReservaCabanasPage = () => {
                 </Paper>
 
                 {/* Botón para confirmar el método seleccionado */}
-                <Button
-                  variant="contained"
-                  size="large"
-                  fullWidth
-                  disabled={!metodoPagoSeleccionado || procesandoPago}
-                  onClick={() => {
-                    if (metodoPagoSeleccionado === 'transferencia') {
-                      handlePagoTransferencia();
-                    } else if (metodoPagoSeleccionado === 'webpay') {
-                      handlePagoWebpay();
-                    }
-                  }}
-                  sx={{
-                    py: 1.5,
-                    fontWeight: 900,
-                    fontSize: '1rem',
-                    borderRadius: 2,
-                    background: metodoPagoSeleccionado === 'webpay'
-                      ? 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)'
-                      : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
-                    boxShadow: 4,
-                    '&:hover': {
-                      boxShadow: 6
-                    },
-                    '&:disabled': {
-                      background: '#E0E0E0'
-                    }
-                  }}
-                >
-                  {procesandoPago ? (
-                    <CircularProgress size={24} color="inherit" />
-                  ) : metodoPagoSeleccionado === 'webpay' ? (
-                    '💳 Pagar con Webpay'
-                  ) : metodoPagoSeleccionado === 'transferencia' ? (
-                    '🏦 Confirmar con Transferencia'
-                  ) : (
-                    'Selecciona un Método de Pago'
-                  )}
-                </Button>
+                {!reservaTransferenciaConfirmada && (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    disabled={!metodoPagoSeleccionado || procesandoPago}
+                    onClick={() => {
+                      if (metodoPagoSeleccionado === 'transferencia') {
+                        handlePagoTransferencia();
+                      } else if (metodoPagoSeleccionado === 'webpay') {
+                        handlePagoWebpay();
+                      }
+                    }}
+                    sx={{
+                      py: 1.5,
+                      fontWeight: 900,
+                      fontSize: '1rem',
+                      borderRadius: 2,
+                      background: metodoPagoSeleccionado === 'webpay'
+                        ? 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)'
+                        : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                      boxShadow: 4,
+                      '&:hover': {
+                        boxShadow: 6
+                      },
+                      '&:disabled': {
+                        background: '#E0E0E0'
+                      }
+                    }}
+                  >
+                    {procesandoPago ? (
+                      <CircularProgress size={24} color="inherit" />
+                    ) : metodoPagoSeleccionado === 'webpay' ? (
+                      '💳 Pagar con Webpay'
+                    ) : metodoPagoSeleccionado === 'transferencia' ? (
+                      '🏦 Confirmar Reserva'
+                    ) : (
+                      'Selecciona un Método de Pago'
+                    )}
+                  </Button>
+                )}
               </Paper>
               </Grid>
             </Grid>
 
             <Stack spacing={2} sx={{ mt: 2 }}>
-              <Paper elevation={3} sx={{ p: 2, bgcolor: '#E3F2FD', borderRadius: 2 }}>
-                <Box sx={{ textAlign: 'center', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
-                    <WhatsAppIcon sx={{ fontSize: 40, color: '#25D366' }} />
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                      Enviar Comprobante
+              {reservaTransferenciaConfirmada && (
+                <Paper elevation={3} sx={{ p: 3, bgcolor: '#E3F2FD', borderRadius: 2, border: '3px solid #25D366' }}>
+                  <Box sx={{ textAlign: 'center', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
+                      <WhatsAppIcon sx={{ fontSize: 40, color: '#25D366' }} />
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        ✅ Reserva Confirmada - Enviar Comprobante
+                      </Typography>
+                    </Box>
+                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 600 }}>
+                      Transfiere <strong style={{ color: '#D32F2F', fontSize: '1.2rem' }}>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante por WhatsApp:
                     </Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ mb: 2 }}>
-                    Transfiere <strong>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante:
-                  </Typography>
-                </Box>
-                <Button
-                  variant="contained"
-                  size="medium"
-                  fullWidth
-                  startIcon={<WhatsAppIcon />}
-                  onClick={abrirWhatsApp}
-                  sx={{
-                    bgcolor: '#25D366',
-                    color: 'white',
-                    fontWeight: 700,
-                    '&:hover': { bgcolor: '#20BA5A' }
-                  }}
-                >
-                  Enviar al {WHATSAPP_NUMBER}
-                </Button>
-              </Paper>
+                  <Stack spacing={2}>
+                    <Button
+                      variant="contained"
+                      size="large"
+                      fullWidth
+                      startIcon={<WhatsAppIcon />}
+                      onClick={abrirWhatsApp}
+                      sx={{
+                        bgcolor: '#25D366',
+                        color: 'white',
+                        fontWeight: 900,
+                        fontSize: '1.1rem',
+                        py: 1.5,
+                        '&:hover': { bgcolor: '#20BA5A' }
+                      }}
+                    >
+                      📲 Enviar Comprobante al {WHATSAPP_NUMBER}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="medium"
+                      fullWidth
+                      onClick={cerrarDialogoReserva}
+                      sx={{
+                        borderColor: '#757575',
+                        color: '#424242',
+                        fontWeight: 600,
+                        '&:hover': { borderColor: '#424242', bgcolor: '#F5F5F5' }
+                      }}
+                    >
+                      Cerrar
+                    </Button>
+                  </Stack>
+                </Paper>
+              )}
 
               <TextField
                 fullWidth
@@ -3009,36 +3061,74 @@ const ReservaCabanasPage = () => {
             </Box>
           </Fade>
 
-          {/* Mapa SVG - Reducido y con mejor contraste */}
+          {/* Botón RESERVA YA */}
           <Zoom in timeout={1200}>
-            <Paper
-              elevation={10}
-              sx={{
-                p: 2,
-                background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-                backdropFilter: 'blur(10px)',
-                borderRadius: 4,
-                maxWidth: '900px',
-                margin: '0 auto',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                border: '3px solid #2196F3',
-                boxShadow: '0 12px 40px rgba(33, 150, 243, 0.25)',
-                position: 'relative',
-                zIndex: 1,
-              }}
-            >
-              {loading ? (
-                <Box sx={{ p: 6, textAlign: 'center' }}>
-                  <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
-                    Cargando mapa interactivo...
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Preparando tu experiencia
-                  </Typography>
-                </Box>
-              ) : (
+            <Box sx={{ textAlign: 'center', py: 8 }}>
+              <Button
+                  variant="contained"
+                  size="large"
+                  onClick={() => {
+                    mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  sx={{
+                    py: 4,
+                    px: 10,
+                    fontSize: '2.5rem',
+                    fontWeight: 900,
+                    background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
+                    color: '#FFFFFF',
+                    borderRadius: 4,
+                    border: '4px solid #FF8C42',
+                    boxShadow: '0 12px 40px rgba(255, 107, 0, 0.4)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)',
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 16px 50px rgba(255, 107, 0, 0.6)',
+                    },
+                    '&:active': {
+                      transform: 'scale(0.98)',
+                    }
+                  }}
+                >
+                  🏖️ RESERVA YA
+                </Button>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    mt: 3,
+                    color: '#546E7A',
+                    fontWeight: 500,
+                  }}
+                >
+                  Haz clic para ver el mapa interactivo de cabañas
+                </Typography>
+              </Box>
+            </Zoom>
+
+          {/* Mapa SVG - Siempre visible abajo */}
+          <Box ref={mapaRef} sx={{ mt: 8, mb: 4 }}>
+            <Zoom in timeout={1200}>
+              <Paper
+                elevation={10}
+                sx={{
+                  p: 2,
+                  background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: 4,
+                  maxWidth: '900px',
+                  margin: '0 auto',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  border: '3px solid #2196F3',
+                  boxShadow: '0 12px 40px rgba(33, 150, 243, 0.25)',
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
                 <Box
                   ref={svgContainerRef}
                   sx={{
@@ -3053,15 +3143,15 @@ const ReservaCabanasPage = () => {
                     },
                   }}
                 />
-              )}
-            </Paper>
-          </Zoom>
+              </Paper>
+            </Zoom>
+          </Box>
         </Container>
 
         {/* Dialog de Reserva con Stepper */}
         <Dialog
           open={openReservaDialog}
-          onClose={() => setOpenReservaDialog(false)}
+          onClose={cerrarDialogoReserva}
           maxWidth="xl"
           fullWidth
           PaperProps={{
@@ -3098,42 +3188,46 @@ const ReservaCabanasPage = () => {
             </Box>
           </DialogContent>
           <DialogActions sx={{ p: 3, justifyContent: 'space-between', bgcolor: '#F5F5F5' }}>
-            <Button
-              disabled={activeStep === 0}
-              onClick={handleBack}
-              startIcon={<ArrowBackIcon />}
-              size="large"
-              sx={{ fontWeight: 600 }}
-            >
-              Atrás
-            </Button>
-
-            <Box>
-              <Button
-                onClick={() => setOpenReservaDialog(false)}
-                sx={{ mr: 2, fontWeight: 600 }}
-                size="large"
-              >
-                Cancelar
-              </Button>
-
-              {activeStep !== steps.length - 1 && (
+            {!reservaTransferenciaConfirmada && (
+              <>
                 <Button
-                  variant="contained"
-                  onClick={handleNext}
-                  endIcon={<ArrowForwardIcon />}
+                  disabled={activeStep === 0}
+                  onClick={handleBack}
+                  startIcon={<ArrowBackIcon />}
                   size="large"
-                  sx={{
-                    bgcolor: '#FF8C42',
-                    fontWeight: 700,
-                    px: 4,
-                    '&:hover': { bgcolor: '#FF7722' },
-                  }}
+                  sx={{ fontWeight: 600 }}
                 >
-                  Siguiente
+                  Atrás
                 </Button>
-              )}
-            </Box>
+
+                <Box>
+                  <Button
+                    onClick={cerrarDialogoReserva}
+                    sx={{ mr: 2, fontWeight: 600 }}
+                    size="large"
+                  >
+                    Cancelar
+                  </Button>
+
+                  {activeStep !== steps.length - 1 && (
+                    <Button
+                      variant="contained"
+                      onClick={handleNext}
+                      endIcon={<ArrowForwardIcon />}
+                      size="large"
+                      sx={{
+                        bgcolor: '#FF8C42',
+                        fontWeight: 700,
+                        px: 4,
+                        '&:hover': { bgcolor: '#FF7722' },
+                      }}
+                    >
+                      Siguiente
+                    </Button>
+                  )}
+                </Box>
+              </>
+            )}
           </DialogActions>
         </Dialog>
       </Box>

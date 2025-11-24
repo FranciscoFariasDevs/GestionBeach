@@ -108,7 +108,13 @@ const requiresAuth = (url) => {
     '/sucursales/test',
     '/sucursales/public',
     '/inventario/test',
-    '/cabanas/reservas/publico',        // 🌐 Reservas públicas
+    '/cabanas/cabanas',                   // 🏠 Obtener lista de cabañas (público)
+    '/cabanas/reservas',                  // 📅 Obtener reservas (público para ver disponibilidad)
+    '/cabanas/reservas/publico',          // 🌐 Crear reservas públicas
+    '/cabanas/mantenciones/activas',      // 🔧 Obtener mantenciones activas (público)
+    '/cabanas/tinajas',                   // 🛁 Obtener tinajas (público)
+    '/cabanas/tinajas/reservas',          // 🛁 Reservas de tinajas (público)
+    '/cabanas/disponibilidad',            // 📊 Verificar disponibilidad (público)
     '/webpay/',                           // 💳 Webpay (todas las rutas)
     '/codigos-descuento/validar',        // 🎫 Validar códigos de descuento
     '/codigos-descuento/incrementar-uso', // 🎫 Incrementar uso de códigos
