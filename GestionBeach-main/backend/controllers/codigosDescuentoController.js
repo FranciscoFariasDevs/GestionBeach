@@ -8,27 +8,29 @@ exports.getCodigosDescuento = async (req, res) => {
 
     const result = await pool.request().query(`
       SELECT
-        id,
-        codigo,
-        descripcion,
-        tipo_descuento,
-        valor_descuento,
-        fecha_inicio,
-        fecha_fin,
-        usos_maximos,
-        usos_actuales,
-        activo,
-        fecha_creacion,
-        fecha_actualizacion,
+        cd.id,
+        cd.codigo,
+        cd.descripcion,
+        cd.tipo_descuento,
+        cd.valor_descuento,
+        cd.fecha_inicio,
+        cd.fecha_fin,
+        cd.usos_maximos,
+        cd.usos_actuales,
+        cd.activo,
+        cd.aplica_todas_cabanas,
+        cd.fecha_creacion,
+        cd.fecha_actualizacion,
         CASE
-          WHEN usos_maximos IS NOT NULL AND usos_actuales >= usos_maximos THEN 'agotado'
-          WHEN fecha_fin IS NOT NULL AND fecha_fin < GETDATE() THEN 'expirado'
-          WHEN fecha_inicio IS NOT NULL AND fecha_inicio > GETDATE() THEN 'pendiente'
-          WHEN activo = 0 THEN 'inactivo'
+          WHEN cd.usos_maximos IS NOT NULL AND cd.usos_actuales >= cd.usos_maximos THEN 'agotado'
+          WHEN cd.fecha_fin IS NOT NULL AND cd.fecha_fin < GETDATE() THEN 'expirado'
+          WHEN cd.fecha_inicio IS NOT NULL AND cd.fecha_inicio > GETDATE() THEN 'pendiente'
+          WHEN cd.activo = 0 THEN 'inactivo'
           ELSE 'activo'
-        END as estado
-      FROM codigos_descuento
-      ORDER BY fecha_creacion DESC
+        END as estado,
+        (SELECT COUNT(*) FROM codigos_descuento_cabanas WHERE codigo_descuento_id = cd.id) as cantidad_cabanas
+      FROM codigos_descuento cd
+      ORDER BY cd.fecha_creacion DESC
     `);
 
     return res.json({
@@ -81,7 +83,7 @@ exports.getCodigoById = async (req, res) => {
 // ✅ Validar un código de descuento
 exports.validarCodigo = async (req, res) => {
   try {
-    const { codigo } = req.body;
+    const { codigo, cabana_id, fecha_inicio_reserva, fecha_fin_reserva } = req.body;
 
     if (!codigo || codigo.trim() === '') {
       return res.status(400).json({
@@ -105,7 +107,8 @@ exports.validarCodigo = async (req, res) => {
           fecha_fin,
           usos_maximos,
           usos_actuales,
-          activo
+          activo,
+          aplica_todas_cabanas
         FROM codigos_descuento
         WHERE codigo = @codigo
       `);
@@ -120,6 +123,30 @@ exports.validarCodigo = async (req, res) => {
 
     const codigoData = result.recordset[0];
 
+    // ============================================
+    // VERIFICAR SI APLICA A LA CABAÑA ESPECÍFICA
+    // ============================================
+    if (cabana_id && !codigoData.aplica_todas_cabanas) {
+      // El código NO aplica a todas las cabañas, verificar si aplica a esta específica
+      const cabanaResult = await pool.request()
+        .input('codigo_descuento_id', sql.Int, codigoData.id)
+        .input('cabana_id', sql.Int, cabana_id)
+        .query(`
+          SELECT COUNT(*) as existe
+          FROM codigos_descuento_cabanas
+          WHERE codigo_descuento_id = @codigo_descuento_id
+            AND cabana_id = @cabana_id
+        `);
+
+      if (cabanaResult.recordset[0].existe === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este código no es válido para esta cabaña',
+          valido: false
+        });
+      }
+    }
+
     // Validaciones
     if (!codigoData.activo) {
       return res.status(400).json({
@@ -129,22 +156,64 @@ exports.validarCodigo = async (req, res) => {
       });
     }
 
-    // Verificar fecha de inicio
-    if (codigoData.fecha_inicio && new Date(codigoData.fecha_inicio) > new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Este código aún no está disponible',
-        valido: false
-      });
-    }
+    // ============================================
+    // VALIDAR FECHAS DE LA RESERVA
+    // ============================================
+    // Si el código tiene fechas de vigencia Y se proporcionan fechas de reserva,
+    // verificar que TODAS las fechas de la reserva estén dentro del rango del código
+    if (fecha_inicio_reserva && fecha_fin_reserva) {
+      const fechaInicioReserva = new Date(fecha_inicio_reserva);
+      const fechaFinReserva = new Date(fecha_fin_reserva);
 
-    // Verificar fecha de fin
-    if (codigoData.fecha_fin && new Date(codigoData.fecha_fin) < new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Este código ha expirado',
-        valido: false
-      });
+      // Si el código tiene fecha_inicio, la reserva debe iniciar DESPUÉS de esa fecha
+      if (codigoData.fecha_inicio) {
+        const fechaInicioCodigo = new Date(codigoData.fecha_inicio);
+        fechaInicioCodigo.setHours(0, 0, 0, 0);
+
+        if (fechaInicioReserva < fechaInicioCodigo) {
+          return res.status(400).json({
+            success: false,
+            message: `Este código solo es válido desde el ${fechaInicioCodigo.toLocaleDateString('es-CL')}`,
+            valido: false
+          });
+        }
+      }
+
+      // Si el código tiene fecha_fin, la reserva debe terminar ANTES de esa fecha
+      if (codigoData.fecha_fin) {
+        const fechaFinCodigo = new Date(codigoData.fecha_fin);
+        fechaFinCodigo.setHours(23, 59, 59, 999);
+
+        if (fechaFinReserva > fechaFinCodigo) {
+          return res.status(400).json({
+            success: false,
+            message: `Este código solo es válido hasta el ${fechaFinCodigo.toLocaleDateString('es-CL')}`,
+            valido: false
+          });
+        }
+      }
+    } else {
+      // Si no se proporcionan fechas de reserva, validar con fecha actual
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      // Verificar fecha de inicio
+      if (codigoData.fecha_inicio && new Date(codigoData.fecha_inicio) > hoy) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este código aún no está disponible',
+          valido: false
+        });
+      }
+
+      // Verificar fecha de fin
+      if (codigoData.fecha_fin && new Date(codigoData.fecha_fin) < hoy) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este código ha expirado',
+          valido: false
+        });
+      }
     }
 
     // Verificar usos máximos
@@ -166,7 +235,7 @@ exports.validarCodigo = async (req, res) => {
         codigo: codigoData.codigo,
         descripcion: codigoData.descripcion,
         tipo_descuento: codigoData.tipo_descuento,
-        valor_descuento: codigoData.valor_descuento
+        valor_descuento: parseFloat(codigoData.valor_descuento) // Convertir a número
       }
     });
 
@@ -191,7 +260,9 @@ exports.crearCodigo = async (req, res) => {
       fecha_inicio,
       fecha_fin,
       usos_maximos,
-      activo
+      activo,
+      aplica_todas_cabanas,
+      cabanas_ids // Array de IDs de cabañas si aplica_todas_cabanas = false
     } = req.body;
 
     // Validaciones
@@ -247,17 +318,34 @@ exports.crearCodigo = async (req, res) => {
       .input('fecha_fin', sql.Date, fecha_fin || null)
       .input('usos_maximos', sql.Int, usos_maximos || null)
       .input('activo', sql.Bit, activo !== undefined ? activo : true)
+      .input('aplica_todas_cabanas', sql.Bit, aplica_todas_cabanas !== undefined ? aplica_todas_cabanas : true)
       .query(`
         INSERT INTO codigos_descuento (
           codigo, descripcion, tipo_descuento, valor_descuento,
-          fecha_inicio, fecha_fin, usos_maximos, activo
+          fecha_inicio, fecha_fin, usos_maximos, activo, aplica_todas_cabanas
         )
         VALUES (
           @codigo, @descripcion, @tipo_descuento, @valor_descuento,
-          @fecha_inicio, @fecha_fin, @usos_maximos, @activo
+          @fecha_inicio, @fecha_fin, @usos_maximos, @activo, @aplica_todas_cabanas
         );
         SELECT SCOPE_IDENTITY() as id;
       `);
+
+    const codigoId = result.recordset[0].id;
+
+    // Si NO aplica a todas las cabañas, insertar relaciones
+    if (!aplica_todas_cabanas && cabanas_ids && cabanas_ids.length > 0) {
+      for (const cabanaId of cabanas_ids) {
+        await pool.request()
+          .input('codigo_descuento_id', sql.Int, codigoId)
+          .input('cabana_id', sql.Int, cabanaId)
+          .query(`
+            INSERT INTO codigos_descuento_cabanas (codigo_descuento_id, cabana_id)
+            VALUES (@codigo_descuento_id, @cabana_id)
+          `);
+      }
+      console.log(`✅ Código ${codigo} asignado a ${cabanas_ids.length} cabaña(s)`);
+    }
 
     console.log(`✅ Código de descuento creado: ${codigo}`);
 
@@ -265,7 +353,7 @@ exports.crearCodigo = async (req, res) => {
       success: true,
       message: 'Código de descuento creado exitosamente',
       data: {
-        id: result.recordset[0].id
+        id: codigoId
       }
     });
 
@@ -291,7 +379,9 @@ exports.actualizarCodigo = async (req, res) => {
       fecha_inicio,
       fecha_fin,
       usos_maximos,
-      activo
+      activo,
+      aplica_todas_cabanas,
+      cabanas_ids
     } = req.body;
 
     const pool = await poolPromise;
@@ -319,6 +409,7 @@ exports.actualizarCodigo = async (req, res) => {
       .input('fecha_fin', sql.Date, fecha_fin || null)
       .input('usos_maximos', sql.Int, usos_maximos || null)
       .input('activo', sql.Bit, activo !== undefined ? activo : true)
+      .input('aplica_todas_cabanas', sql.Bit, aplica_todas_cabanas !== undefined ? aplica_todas_cabanas : true)
       .query(`
         UPDATE codigos_descuento
         SET
@@ -330,9 +421,30 @@ exports.actualizarCodigo = async (req, res) => {
           fecha_fin = @fecha_fin,
           usos_maximos = @usos_maximos,
           activo = @activo,
+          aplica_todas_cabanas = @aplica_todas_cabanas,
           fecha_actualizacion = GETDATE()
         WHERE id = @id
       `);
+
+    // Actualizar las relaciones con cabañas
+    // Primero eliminar las existentes
+    await pool.request()
+      .input('codigo_descuento_id', sql.Int, id)
+      .query('DELETE FROM codigos_descuento_cabanas WHERE codigo_descuento_id = @codigo_descuento_id');
+
+    // Si NO aplica a todas las cabañas, insertar nuevas relaciones
+    if (!aplica_todas_cabanas && cabanas_ids && cabanas_ids.length > 0) {
+      for (const cabanaId of cabanas_ids) {
+        await pool.request()
+          .input('codigo_descuento_id', sql.Int, id)
+          .input('cabana_id', sql.Int, cabanaId)
+          .query(`
+            INSERT INTO codigos_descuento_cabanas (codigo_descuento_id, cabana_id)
+            VALUES (@codigo_descuento_id, @cabana_id)
+          `);
+      }
+      console.log(`✅ Código ${codigo} asignado a ${cabanas_ids.length} cabaña(s)`);
+    }
 
     console.log(`✅ Código de descuento actualizado: ${id}`);
 
@@ -412,6 +524,59 @@ exports.incrementarUso = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al registrar uso',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Obtener las cabañas asociadas a un código de descuento
+exports.getCabanasByCodigo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = await poolPromise;
+
+    // Verificar que el código existe
+    const codigoResult = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id, aplica_todas_cabanas FROM codigos_descuento WHERE id = @id');
+
+    if (codigoResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Código de descuento no encontrado'
+      });
+    }
+
+    const codigo = codigoResult.recordset[0];
+
+    // Si aplica a todas las cabañas, devolver array vacío
+    if (codigo.aplica_todas_cabanas) {
+      return res.json({
+        success: true,
+        cabanas: []
+      });
+    }
+
+    // Obtener las cabañas asociadas
+    const result = await pool.request()
+      .input('codigo_descuento_id', sql.Int, id)
+      .query(`
+        SELECT c.id, c.nombre
+        FROM codigos_descuento_cabanas cdc
+        INNER JOIN cabanas c ON cdc.cabana_id = c.id
+        WHERE cdc.codigo_descuento_id = @codigo_descuento_id
+      `);
+
+    return res.json({
+      success: true,
+      cabanas: result.recordset
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener cabañas del código:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener cabañas del código',
       error: error.message
     });
   }

@@ -17,6 +17,8 @@ export const MODULES = {
   EMPLEADOS: 'empleados',
   CABANAS: 'admin/cabanas',
   SORTEO_CONCURSO: 'sorteo-concurso',
+  CODIGOS_DESCUENTO: 'codigos-descuento',
+  TICKETS: 'mis-tickets',
   USUARIOS: 'usuarios',
   PERFILES: 'perfiles',
   MODULOS: 'modulos',
@@ -48,13 +50,13 @@ export const PROFILE_MAP = {
 // Definir permisos por perfil
 export const PERMISSIONS_BY_PROFILE = {
   super_admin: {
-    // Super Admin: Acceso total
+    // Super Admin: Acceso total (incluye Tickets)
     modules: Object.values(MODULES),
     actions: [ACTIONS.manage] // Puede hacer todo
   },
 
   administrador: {
-    // Administrador: Igual que Super Admin
+    // Administrador: Igual que Super Admin (incluye Tickets)
     modules: Object.values(MODULES),
     actions: [ACTIONS.manage]
   },
@@ -204,6 +206,8 @@ export function canAccessRoute(ability, route) {
     '/dashboard/empleados': MODULES.EMPLEADOS,
     '/dashboard/admin/cabanas': MODULES.CABANAS,
     '/dashboard/sorteo-concurso': MODULES.SORTEO_CONCURSO,
+    '/dashboard/codigos-descuento': MODULES.CODIGOS_DESCUENTO,
+    '/dashboard/mis-tickets': MODULES.TICKETS,
     '/dashboard/usuarios': MODULES.USUARIOS,
     '/dashboard/perfiles': MODULES.PERFILES,
     '/dashboard/modulos': MODULES.MODULOS,
@@ -223,6 +227,8 @@ export function canAccessRoute(ability, route) {
     '/empleados': MODULES.EMPLEADOS,
     '/admin/cabanas': MODULES.CABANAS,
     '/sorteo-concurso': MODULES.SORTEO_CONCURSO,
+    '/codigos-descuento': MODULES.CODIGOS_DESCUENTO,
+    '/mis-tickets': MODULES.TICKETS,
     '/usuarios': MODULES.USUARIOS,
     '/perfiles': MODULES.PERFILES,
     '/modulos': MODULES.MODULOS,

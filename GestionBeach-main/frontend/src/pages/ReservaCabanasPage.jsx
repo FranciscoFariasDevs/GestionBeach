@@ -63,10 +63,13 @@ import {
   ContentCopy as CopyIcon,
   AccountBalance as BankIcon,
   CheckCircle as CheckCircleIcon,
+  Info as InfoIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
 import { enviarConfirmacionReservaCabana } from '../services/emailService';
+import { useCabanaTutorial } from '../hooks/useCabanaTutorial';
 
 // Colores ÚNICOS para cada cabaña (tonos VIBRANTES y brillantes)
 const COLORES_CABANAS = {
@@ -120,6 +123,9 @@ const ReservaCabanasPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   const svgContainerRef = useRef(null);
   const mapaRef = useRef(null);
+
+  // Hook del tutorial de Shepherd.js
+  const { resetTutorial } = useCabanaTutorial(svgContainerRef, mapaRef);
 
   // Estado para mostrar landing page o mapa
   const [mostrarMapa, setMostrarMapa] = useState(false);
@@ -175,6 +181,10 @@ const ReservaCabanasPage = () => {
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [reservaTransferenciaConfirmada, setReservaTransferenciaConfirmada] = useState(false);
 
+  // Estado para comprobante de pago
+  const [mostrarComprobante, setMostrarComprobante] = useState(false);
+  const [datosComprobante, setDatosComprobante] = useState(null);
+
   // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
     'path1',
@@ -206,13 +216,53 @@ const ReservaCabanasPage = () => {
     const pagoEstado = urlParams.get('pago');
     const reservaId = urlParams.get('reserva_id');
 
-    if (pagoEstado === 'exitoso') {
-      enqueueSnackbar(`✅ ¡Pago exitoso! Tu reserva #${reservaId} ha sido confirmada.`, {
-        variant: 'success',
-        autoHideDuration: 8000
-      });
-      // Limpiar parámetros de URL
-      window.history.replaceState({}, document.title, window.location.pathname);
+    if (pagoEstado === 'exitoso' && reservaId) {
+      console.log(`💳 Pago exitoso detectado. Cargando reserva #${reservaId}`);
+
+      // Cargar datos de la reserva para mostrar comprobante
+      api.get(`/cabanas/reservas/${reservaId}`)
+        .then(response => {
+          console.log('📦 Respuesta de reserva:', response.data);
+
+          if (response.data?.reserva) {
+            setDatosComprobante(response.data.reserva);
+            setMostrarComprobante(true);
+            enqueueSnackbar(`✅ ¡Pago exitoso! Tu reserva #${reservaId} ha sido confirmada.`, {
+              variant: 'success',
+              autoHideDuration: 5000
+            });
+
+            // 📧 Enviar email de confirmación al cliente
+            enviarConfirmacionReservaCabana(response.data.reserva)
+              .then(emailResult => {
+                if (emailResult.success) {
+                  console.log('✅ Email de confirmación enviado correctamente');
+                  enqueueSnackbar(`📧 Email de confirmación enviado a ${response.data.reserva.cliente_email}`, {
+                    variant: 'info',
+                    autoHideDuration: 4000
+                  });
+                } else {
+                  console.error('❌ Error al enviar email:', emailResult.error);
+                }
+              })
+              .catch(emailError => {
+                console.error('❌ Error enviando email de confirmación:', emailError);
+              });
+          }
+
+          // Limpiar parámetros de URL DESPUÉS de cargar datos
+          window.history.replaceState({}, document.title, window.location.pathname);
+        })
+        .catch(error => {
+          console.error('❌ Error al cargar datos de reserva:', error);
+          enqueueSnackbar(`✅ ¡Pago exitoso! Tu reserva #${reservaId} ha sido confirmada. Revisa tu email.`, {
+            variant: 'success',
+            autoHideDuration: 8000
+          });
+
+          // Limpiar parámetros de URL incluso si hay error
+          window.history.replaceState({}, document.title, window.location.pathname);
+        });
     } else if (pagoEstado === 'error') {
       const codigo = urlParams.get('codigo');
       const error = urlParams.get('error');
@@ -396,21 +446,36 @@ const ReservaCabanasPage = () => {
 
   const cargarDatos = async () => {
     try {
-      const [cabanasRes, reservasRes, mantencionesRes, tinajasRes, reservasTinajasRes] = await Promise.all([
+      const [cabanasRes, reservasRes, mantencionesRes, tinajasRes, reservasTinajasRes, temporadaRes] = await Promise.all([
         api.get('/cabanas/cabanas'),
         api.get('/cabanas/reservas'),
         api.get('/cabanas/mantenciones/activas'),
         api.get('/cabanas/tinajas'),
         api.get('/cabanas/tinajas/reservas'),
+        api.get('/configuracion/temporada'),
       ]);
 
-      console.log(`✅ Datos cargados: ${cabanasRes.data?.cabanas?.length || 0} cabañas`);
-      setCabanas(cabanasRes.data?.cabanas || []);
+      const cabanasData = cabanasRes.data?.cabanas || [];
+      console.log(`✅ Datos cargados: ${cabanasData.length} cabañas`);
+
+      // Guardar en el estado
+      setCabanas(cabanasData);
       setReservas(reservasRes.data?.reservas || []);
       setMantenciones(mantencionesRes.data?.mantenciones || []);
       setTinajas(tinajasRes.data?.tinajas || []);
       setReservasTinajas(reservasTinajasRes.data?.reservas || []);
+
+      // Cargar temporada actual desde el servidor
+      if (temporadaRes.data?.success) {
+        setTemporadaActual(temporadaRes.data.temporada);
+        console.log(`✅ Temporada actual: ${temporadaRes.data.temporada}`);
+      }
+
       setLoading(false);
+
+      // Exponer globalmente para acceso desde eventos
+      if (!window.appState) window.appState = {};
+      window.appState.cabanas = cabanasData;
     } catch (error) {
       console.error('Error al cargar datos:', error);
       enqueueSnackbar('Error al cargar datos', { variant: 'error' });
@@ -479,12 +544,12 @@ const ReservaCabanasPage = () => {
     }
   };
 
-  const obtenerEstadoCabana = (cabanaId) => {
+  const obtenerEstadoCabana = (cabanaId, cabanasArray = cabanas) => {
     const idNormalizado = cabanaId.toLowerCase();
     const nombreCabana = ID_TO_NOMBRE[idNormalizado];
 
     console.log(`🔍 Buscando cabaña: ID="${cabanaId}", Nombre="${nombreCabana}"`);
-    console.log(`📊 Total cabañas en array: ${cabanas.length}`);
+    console.log(`📊 Total cabañas en array: ${cabanasArray.length}`);
 
     if (!nombreCabana) {
       console.warn(`⚠️ No se encontró mapeo para ID: ${cabanaId}`);
@@ -495,17 +560,17 @@ const ReservaCabanasPage = () => {
       };
     }
 
-    const cabana = cabanas.find(c => {
-      const nombreNormalizado = normalizarNombre(c.nombre);
-      const nombreBuscado = normalizarNombre(nombreCabana);
-      console.log(`  Comparando: "${nombreNormalizado}" vs "${nombreBuscado}"`);
-      return nombreNormalizado === nombreBuscado ||
-             nombreNormalizado.includes(nombreBuscado) ||
-             nombreBuscado.includes(nombreNormalizado);
+    // Buscar la cabaña comparando nombres normalizados (sin espacios ni tildes)
+    const cabana = cabanasArray.find(c => {
+      const nombreDB = normalizarNombre(c.nombre);  // "cabaña1"
+      const nombreBuscado = normalizarNombre(nombreCabana);  // "cabaña1"
+      console.log(`  Comparando: DB="${nombreDB}" (${c.nombre}) vs Buscado="${nombreBuscado}" (${nombreCabana})`);
+      return nombreDB === nombreBuscado;
     });
 
     if (!cabana) {
-      console.error(`❌ No se encontró la cabaña "${nombreCabana}" en el array de cabañas`);
+      console.error(`❌ No se encontró la cabaña "${nombreCabana}" en el array`);
+      console.error(`   Cabañas disponibles:`, cabanas.map(c => c.nombre));
       return { 
         estado: 'disponible', 
         color: COLORES_CABANAS[idNormalizado] || '#FF8C42',
@@ -517,7 +582,7 @@ const ReservaCabanasPage = () => {
     const hoy = getTodayDate();
     const reservaActiva = reservas.find(r => {
       if (r.cabana_id !== cabana.id) return false;
-      if (r.estado === 'cancelada') return false;
+      if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
       const fechaInicio = parseServerDate(r.fecha_inicio);
       const fechaFin = parseServerDate(r.fecha_fin);
@@ -663,14 +728,22 @@ const ReservaCabanasPage = () => {
         elemento.setAttribute('data-clickeable', 'true');
         elemento.setAttribute('data-cabana-id', id);
 
-        elemento.addEventListener('click', async (e) => {
+        const handleClick = async (e) => {
           console.log(`🖱️ CLICK detectado en: "${id}"`);
           e.stopPropagation();
 
-          const { cabana, nombreCabana, estado, reserva } = obtenerEstadoCabana(id);
+          // Obtener cabañas del estado actual
+          const cabanasActuales = window.appState?.cabanas || [];
+          console.log(`📊 Cabañas disponibles en click: ${cabanasActuales.length}`);
+
+          const resultado = obtenerEstadoCabana(id, cabanasActuales);
+          console.log('🔍 Resultado de obtenerEstadoCabana:', resultado);
+
+          const { cabana, nombreCabana, estado, reserva } = resultado;
 
           // Si no existe cabaña en BD, mostrar error
           if (!cabana) {
+            console.error(`❌ No se encontró cabaña para ID="${id}", nombreCabana="${nombreCabana}"`);
             enqueueSnackbar(`⚠️ La cabaña "${nombreCabana || id}" no está registrada en el sistema. Contacta al administrador.`, {
               variant: 'warning',
               autoHideDuration: 5000
@@ -712,7 +785,9 @@ const ReservaCabanasPage = () => {
           });
           setActiveStep(0);
           setOpenReservaDialog(true);
-        });
+        };
+
+        elemento.addEventListener('click', handleClick);
 
         elemento.addEventListener('mouseenter', () => {
           elemento.setAttribute('fill-opacity', '0.45');
@@ -800,7 +875,7 @@ const ReservaCabanasPage = () => {
       // Verificar si el usuario seleccionó un día de checkout (naranja) como check-in
       const reservaCheckoutEnInicio = reservas.find(r => {
         if (r.cabana_id !== selectedCabana.id) return false;
-        if (r.estado === 'cancelada') return false;
+        if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
         const fechaFin = parseServerDate(r.fecha_fin);
         return isSameDay(fechaInicioUsuario, fechaFin);
@@ -815,7 +890,7 @@ const ReservaCabanasPage = () => {
         // Verificar si hay una reserva que empieza el día siguiente
         const reservaDiaSiguiente = reservas.find(r => {
           if (r.cabana_id !== selectedCabana.id) return false;
-          if (r.estado === 'cancelada') return false;
+          if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
           const fechaInicio = parseServerDate(r.fecha_inicio);
           return isSameDay(diaSiguiente, fechaInicio);
@@ -851,7 +926,7 @@ const ReservaCabanasPage = () => {
         // RESTRINGIR: Bloquear TODOS los checkouts (morados y naranjas) excepto el celeste
         const esOtroCheckout = reservas.some(r => {
           if (r.cabana_id !== selectedCabana.id) return false;
-          if (r.estado === 'cancelada') return false;
+          if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
           const fechaFin = parseServerDate(r.fecha_fin);
           // Bloquear cualquier checkout que NO sea el día siguiente (celeste)
@@ -868,7 +943,7 @@ const ReservaCabanasPage = () => {
     // PRIMERO: Buscar reservas activas en este día (días ocupados entre check-in y check-out)
     const reservasEnDia = reservas.filter(r => {
       if (r.cabana_id !== selectedCabana.id) return false;
-      if (r.estado === 'cancelada') return false;
+      if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
       const fechaInicio = parseServerDate(r.fecha_inicio);
       const fechaFin = parseServerDate(r.fecha_fin);
@@ -894,7 +969,7 @@ const ReservaCabanasPage = () => {
       // SEGUNDO: Verificar si es día de CHECKOUT (disponible para nuevo check-in)
       const reservasCheckout = reservas.filter(r => {
         if (r.cabana_id !== selectedCabana.id) return false;
-        if (r.estado === 'cancelada') return false;
+        if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
         const fechaFin = parseServerDate(r.fecha_fin);
         return isSameDay(date, fechaFin);
@@ -907,7 +982,7 @@ const ReservaCabanasPage = () => {
 
         const reservaDiaSiguiente = reservas.find(r => {
           if (r.cabana_id !== selectedCabana.id) return false;
-          if (r.estado === 'cancelada') return false;
+          if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
           const fechaInicio = parseServerDate(r.fecha_inicio);
           return isSameDay(diaSiguiente, fechaInicio);
@@ -1195,15 +1270,23 @@ const ReservaCabanasPage = () => {
   // LÓGICA DE STEPPER Y RESERVA
   // ============================================
 
+  // Estado para temporada (se carga desde el servidor)
+  const [temporadaActual, setTemporadaActual] = useState('baja');
+
   const getTemporadaActual = () => {
-    const mes = new Date().getMonth() + 1;
-    return (mes === 12 || mes === 1 || mes === 2) ? 'alta' : 'baja';
+    return temporadaActual;
   };
 
   const getPrecioActual = (cabana) => {
     if (!cabana) return 0;
     const temporada = getTemporadaActual();
-    return temporada === 'alta' ? cabana.precio_fin_semana : cabana.precio_noche;
+
+    // Usar precios de temporada si existen, sino usar los precios antiguos como fallback
+    if (temporada === 'alta') {
+      return cabana.precio_temporada_alta || cabana.precio_fin_semana || cabana.precio_noche;
+    } else {
+      return cabana.precio_temporada_baja || cabana.precio_noche;
+    }
   };
 
   const calcularCostoPersonasExtra = () => {
@@ -1222,6 +1305,7 @@ const ReservaCabanasPage = () => {
     return personasExtra * 20000 * cantidadNoches;
   };
 
+  // Calcular subtotal SIN descuento
   const calcularPrecioTotal = () => {
     if (!selectedCabana || !formData.fecha_inicio || !formData.fecha_fin) return 0;
 
@@ -1237,9 +1321,17 @@ const ReservaCabanasPage = () => {
     return (precioNoche * diffDays) + costoPersonasExtra + costoTinajas;
   };
 
+  // Calcular total CON descuento aplicado
+  const calcularTotalConDescuento = () => {
+    const subtotal = calcularPrecioTotal();
+    const descuento = calcularDescuento(subtotal);
+    return subtotal - descuento;
+  };
+
+  // Calcular monto a pagar según tipo de pago (completo o mitad)
   const calcularMontoAPagar = () => {
-    const total = calcularPrecioTotal();
-    return formData.tipo_pago === 'mitad' ? total / 2 : total;
+    const totalConDescuento = calcularTotalConDescuento();
+    return formData.tipo_pago === 'mitad' ? totalConDescuento / 2 : totalConDescuento;
   };
 
   // Función para validar código de descuento
@@ -1249,12 +1341,21 @@ const ReservaCabanasPage = () => {
       return;
     }
 
+    // Validar que haya fechas seleccionadas
+    if (!formData.fecha_inicio || !formData.fecha_fin) {
+      setErrorCodigo('Primero selecciona las fechas de tu reserva');
+      return;
+    }
+
     setValidandoCodigo(true);
     setErrorCodigo('');
 
     try {
       const response = await api.post('/codigos-descuento/validar', {
-        codigo: formData.codigo_descuento.trim()
+        codigo: formData.codigo_descuento.trim(),
+        cabana_id: selectedCabana?.id, // Enviar ID de cabaña para verificar si aplica
+        fecha_inicio_reserva: formData.fecha_inicio, // Enviar fechas para validar rango
+        fecha_fin_reserva: formData.fecha_fin
       });
 
       if (response.data.success && response.data.valido) {
@@ -1278,10 +1379,14 @@ const ReservaCabanasPage = () => {
     if (!codigoValidado) return 0;
 
     if (codigoValidado.tipo_descuento === 'porcentaje') {
-      return subtotal * (codigoValidado.valor_descuento / 100);
-    } else {
-      return codigoValidado.valor_descuento;
+      const descuento = subtotal * (parseFloat(codigoValidado.valor_descuento) / 100);
+      return descuento;
+    } else if (codigoValidado.tipo_descuento === 'monto_fijo') {
+      const descuento = parseFloat(codigoValidado.valor_descuento);
+      // El descuento no puede ser mayor al subtotal
+      return Math.min(descuento, subtotal);
     }
+    return 0;
   };
 
   // Función para formatear RUT chileno mientras el usuario escribe
@@ -1473,7 +1578,7 @@ const ReservaCabanasPage = () => {
 
       const reservaConflicto = reservas.find(r => {
         if (r.cabana_id !== selectedCabana.id) return false;
-        if (r.estado === 'cancelada') return false;
+        if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
 
         const fechaInicio = parseServerDate(r.fecha_inicio);
         const fechaFin = parseServerDate(r.fecha_fin);
@@ -1510,6 +1615,26 @@ const ReservaCabanasPage = () => {
     try {
       setProcesandoPago(true);
 
+      // ============================================
+      // VERIFICAR HORARIO PERMITIDO (8:00 - 16:30)
+      // ============================================
+      const ahora = new Date();
+      const horaActual = ahora.getHours();
+      const minutosActuales = ahora.getMinutes();
+      const tiempoEnMinutos = horaActual * 60 + minutosActuales;
+
+      const HORA_INICIO = 8 * 60; // 8:00 = 480 minutos
+      const HORA_FIN = 16 * 60 + 30; // 16:30 = 990 minutos
+
+      if (tiempoEnMinutos < HORA_INICIO || tiempoEnMinutos > HORA_FIN) {
+        enqueueSnackbar(
+          '⏰ Los pagos por transferencia solo están disponibles entre las 8:00 y 16:30 hrs',
+          { variant: 'error', autoHideDuration: 6000 }
+        );
+        setProcesandoPago(false);
+        return;
+      }
+
       const fechaInicio = new Date(formData.fecha_inicio);
       const fechaFin = new Date(formData.fecha_fin);
       const diffTime = Math.abs(fechaFin - fechaInicio);
@@ -1528,9 +1653,22 @@ const ReservaCabanasPage = () => {
       // Calcular monto a pagar según tipo_pago (completo o mitad)
       const montoPagar = formData.tipo_pago === 'mitad' ? precioTotal / 2 : precioTotal;
 
-      // Calcular fecha límite (2 horas desde ahora)
+      // ============================================
+      // CALCULAR FECHA LÍMITE (30 MINUTOS)
+      // ============================================
       const fechaLimite = new Date();
-      fechaLimite.setHours(fechaLimite.getHours() + 2);
+      fechaLimite.setMinutes(fechaLimite.getMinutes() + 30);
+
+      // Verificar que no exceda las 16:30
+      const horaLimite = fechaLimite.getHours() * 60 + fechaLimite.getMinutes();
+      if (horaLimite > HORA_FIN) {
+        enqueueSnackbar(
+          '⏰ Es muy tarde para procesar transferencias hoy. Intenta antes de las 16:00 hrs',
+          { variant: 'error', autoHideDuration: 6000 }
+        );
+        setProcesandoPago(false);
+        return;
+      }
 
       const reservaData = {
         cabana_id: selectedCabana.id,
@@ -1570,13 +1708,13 @@ const ReservaCabanasPage = () => {
 
       const response = await api.post('/cabanas/reservas/publico', reservaData);
 
-      enqueueSnackbar('✅ Reserva creada. Tienes 2 horas para realizar la transferencia', {
+      enqueueSnackbar('✅ Reserva creada. Tienes 30 minutos para enviar el comprobante de transferencia', {
         variant: 'success',
         autoHideDuration: 6000
       });
 
       // Mostrar información de pago
-      const mensaje = `Debes transferir: $${montoPagar.toLocaleString('es-CL')}\n\nTienes hasta ${fechaLimite.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} para completar el pago.`;
+      const mensaje = `Debes transferir: $${montoPagar.toLocaleString('es-CL')}\n\n⏰ Tienes hasta las ${fechaLimite.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} para enviar el comprobante.\n\n⚠️ Si no envías el comprobante en 30 minutos, la reserva será eliminada automáticamente.`;
 
       enqueueSnackbar(mensaje, {
         variant: 'warning',
@@ -1623,6 +1761,7 @@ const ReservaCabanasPage = () => {
       // Calcular monto a pagar según tipo_pago
       const montoPagar = formData.tipo_pago === 'mitad' ? precioTotal / 2 : precioTotal;
 
+      // Preparar datos de la reserva (NO se crea aún, solo se envían a Webpay)
       const reservaData = {
         cabana_id: selectedCabana.id,
         cliente_nombre: formData.cliente_nombre,
@@ -1631,6 +1770,7 @@ const ReservaCabanasPage = () => {
         cliente_email: formData.cliente_email,
         cliente_rut: formData.cliente_rut,
         procedencia: formData.procedencia,
+        tiene_auto: formData.tiene_auto,
         matriculas_auto: formData.matriculas_auto.filter(m => m.trim() !== ''),
         fecha_inicio: formatDateForServer(formData.fecha_inicio),
         fecha_fin: formatDateForServer(formData.fecha_fin),
@@ -1638,19 +1778,12 @@ const ReservaCabanasPage = () => {
         personas_extra: personasExtra,
         costo_personas_extra: costoPersonasExtra,
         cantidad_noches: cantidadNoches,
-        precio_por_noche: precioNoche,
+        precio_noche: precioNoche,
         precio_total: precioTotal,
-        precio_final: precioTotal,
-        descuento: descuento,
+        descuento_aplicado: descuento,
         codigo_descuento: codigoValidado?.codigo || null,
-        estado: 'pendiente',
-        metodo_pago: 'webpay',
         tipo_pago: formData.tipo_pago,
-        estado_pago: 'pendiente',
-        monto_pagado: 0,
-        origen: 'manual',
         notas: formData.notas,
-        usuario_creacion: 'cliente',
         tinajas: formData.tinajas_seleccionadas.map(t => ({
           tinaja_id: t.tinaja_id,
           fecha_uso: formatDateForServer(t.fecha_uso),
@@ -1658,15 +1791,11 @@ const ReservaCabanasPage = () => {
         })),
       };
 
-      // Crear la reserva primero
-      const reservaResponse = await api.post('/cabanas/reservas/publico', reservaData);
-      const reservaId = reservaResponse.data.reserva_id;
-
-      // Crear transacción de Webpay
+      // Crear transacción de Webpay (ahora recibe reservaData, no reserva_id)
       const pagoResponse = await api.post('/webpay/crear', {
-        reserva_id: reservaId,
         monto: montoPagar,
-        descripcion: `Reserva Cabaña ${selectedCabana.nombre} - ${formData.cliente_nombre} ${formData.cliente_apellido}`
+        descripcion: `Reserva Cabaña ${selectedCabana.nombre} - ${formData.cliente_nombre} ${formData.cliente_apellido}`,
+        reservaData: reservaData // Enviar datos para guardar pendiente
       });
 
       const { token, url } = pagoResponse.data.data;
@@ -2047,7 +2176,14 @@ const ReservaCabanasPage = () => {
                       <DatePicker
                         label="Check-In"
                         value={formData.fecha_inicio}
-                        onChange={(newValue) => setFormData({ ...formData, fecha_inicio: newValue })}
+                        onChange={(newValue) => {
+                          setFormData({ ...formData, fecha_inicio: newValue });
+                          // Invalidar código si cambian las fechas
+                          if (codigoValidado) {
+                            setCodigoValidado(null);
+                            setErrorCodigo('Las fechas cambiaron. Valida el código nuevamente.');
+                          }
+                        }}
                         minDate={new Date()}
                         slots={{
                           day: (props) => renderDayWithStatus(props.day, [], props, 'inicio'),
@@ -2072,7 +2208,14 @@ const ReservaCabanasPage = () => {
                       <DatePicker
                         label="Check-Out"
                         value={formData.fecha_fin}
-                        onChange={(newValue) => setFormData({ ...formData, fecha_fin: newValue })}
+                        onChange={(newValue) => {
+                          setFormData({ ...formData, fecha_fin: newValue });
+                          // Invalidar código si cambian las fechas
+                          if (codigoValidado) {
+                            setCodigoValidado(null);
+                            setErrorCodigo('Las fechas cambiaron. Valida el código nuevamente.');
+                          }
+                        }}
                         minDate={formData.fecha_inicio || new Date()}
                         slots={{
                           day: (props) => renderDayWithStatus(props.day, [], props, 'fin'),
@@ -3063,7 +3206,7 @@ const ReservaCabanasPage = () => {
 
           {/* Botón RESERVA YA */}
           <Zoom in timeout={1200}>
-            <Box sx={{ textAlign: 'center', py: 8 }}>
+            <Box sx={{ textAlign: 'center', py: { xs: 4, sm: 8 } }}>
               <Button
                   variant="contained"
                   size="large"
@@ -3071,14 +3214,14 @@ const ReservaCabanasPage = () => {
                     mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }}
                   sx={{
-                    py: 4,
-                    px: 10,
-                    fontSize: '2.5rem',
+                    py: { xs: 2, sm: 4 },
+                    px: { xs: 4, sm: 10 },
+                    fontSize: { xs: '1.5rem', sm: '2.5rem' },
                     fontWeight: 900,
                     background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
                     color: '#FFFFFF',
-                    borderRadius: 4,
-                    border: '4px solid #FF8C42',
+                    borderRadius: { xs: 2, sm: 4 },
+                    border: { xs: '3px solid #FF8C42', sm: '4px solid #FF8C42' },
                     boxShadow: '0 12px 40px rgba(255, 107, 0, 0.4)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
@@ -3098,32 +3241,50 @@ const ReservaCabanasPage = () => {
                 <Typography
                   variant="h6"
                   sx={{
-                    mt: 3,
+                    mt: { xs: 2, sm: 3 },
                     color: '#546E7A',
                     fontWeight: 500,
+                    fontSize: { xs: '0.9rem', sm: '1.25rem' },
                   }}
                 >
                   Haz clic para ver el mapa interactivo de cabañas
                 </Typography>
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={resetTutorial}
+                  startIcon={<InfoIcon />}
+                  sx={{
+                    mt: 2,
+                    color: '#2196F3',
+                    fontSize: { xs: '0.75rem', sm: '0.9rem' },
+                    textTransform: 'none',
+                    '&:hover': {
+                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                    }
+                  }}
+                >
+                  ¿Primera vez? Ver tutorial
+                </Button>
               </Box>
             </Zoom>
 
           {/* Mapa SVG - Siempre visible abajo */}
-          <Box ref={mapaRef} sx={{ mt: 8, mb: 4 }}>
+          <Box ref={mapaRef} sx={{ mt: { xs: 4, sm: 8 }, mb: { xs: 2, sm: 4 } }}>
             <Zoom in timeout={1200}>
               <Paper
                 elevation={10}
                 sx={{
-                  p: 2,
+                  p: { xs: 1, sm: 2 }, // Menos padding en móvil
                   background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
                   backdropFilter: 'blur(10px)',
-                  borderRadius: 4,
-                  maxWidth: '900px',
+                  borderRadius: { xs: 2, sm: 4 }, // Menos border radius en móvil
+                  maxWidth: { xs: '100%', sm: '900px' }, // Ancho completo en móvil
                   margin: '0 auto',
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  border: '3px solid #2196F3',
+                  border: { xs: '2px solid #2196F3', sm: '3px solid #2196F3' }, // Borde más delgado en móvil
                   boxShadow: '0 12px 40px rgba(33, 150, 243, 0.25)',
                   position: 'relative',
                   zIndex: 1,
@@ -3138,7 +3299,7 @@ const ReservaCabanasPage = () => {
                     '& svg': {
                       width: '100%',
                       height: 'auto',
-                      maxHeight: '500px',
+                      maxHeight: { xs: '70vh', sm: '500px' }, // Mucho más alto en móvil (70% de la altura de la pantalla)
                       filter: 'drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15))',
                     },
                   }}
@@ -3229,6 +3390,287 @@ const ReservaCabanasPage = () => {
               </>
             )}
           </DialogActions>
+        </Dialog>
+
+        {/* Dialog de Comprobante de Pago Profesional */}
+        <Dialog
+          open={mostrarComprobante}
+          onClose={() => setMostrarComprobante(false)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+            }
+          }}
+        >
+          {datosComprobante && (
+            <>
+              {/* Header con Logo y Empresa */}
+              <Box sx={{
+                background: 'linear-gradient(135deg, #1976D2 0%, #2196F3 100%)',
+                p: 3,
+                color: 'white',
+                borderBottom: '4px solid #FFD700'
+              }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box>
+                    <img
+                      src="/logo.png"
+                      alt="Beach Logo"
+                      style={{ height: 60, filter: 'brightness(0) invert(1)' }}
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="h4" sx={{ fontWeight: 900, mb: 0.5 }}>
+                      BEACH
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                      Cabañas y Departamentos
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ textAlign: 'center', mt: 2 }}>
+                  <CheckCircleIcon sx={{ fontSize: 70, mb: 1 }} />
+                  <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: 1 }}>
+                    ¡RESERVA CONFIRMADA!
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.9 }}>
+                    Pago procesado exitosamente
+                  </Typography>
+                </Box>
+              </Box>
+
+              <DialogContent sx={{ p: 4, bgcolor: '#FAFAFA' }}>
+                {/* Información de la Empresa */}
+                <Paper elevation={0} sx={{ p: 2, mb: 3, bgcolor: 'white', border: '1px solid #E0E0E0' }}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">EMISOR</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
+                        Beach Cabañas S.A.
+                      </Typography>
+                      <Typography variant="caption" display="block">
+                        Camino a la Playa S/N
+                      </Typography>
+                      <Typography variant="caption" display="block">
+                        Contacto: reservas@beach.cl
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} sx={{ textAlign: 'right' }}>
+                      <Typography variant="caption" color="text.secondary">FECHA EMISIÓN</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
+                        {new Date().toLocaleDateString('es-CL', {
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 900, color: '#1976D2', mt: 1 }}>
+                        N° {String(datosComprobante.id).padStart(6, '0')}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </Paper>
+
+                {/* Datos del Cliente */}
+                <Paper elevation={0} sx={{ p: 2.5, mb: 3, bgcolor: 'white', border: '1px solid #E0E0E0' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1976D2', mb: 2 }}>
+                    DATOS DEL CLIENTE
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">NOMBRE COMPLETO</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {datosComprobante.cliente_nombre} {datosComprobante.cliente_apellido}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">RUT</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {datosComprobante.cliente_rut || 'No proporcionado'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">EMAIL</Typography>
+                      <Typography variant="body2">{datosComprobante.cliente_email}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">TELÉFONO</Typography>
+                      <Typography variant="body2">{datosComprobante.cliente_telefono}</Typography>
+                    </Grid>
+                  </Grid>
+                </Paper>
+
+                {/* Detalles de la Reserva */}
+                <Paper elevation={0} sx={{ p: 2.5, mb: 3, bgcolor: 'white', border: '1px solid #E0E0E0' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1976D2', mb: 2 }}>
+                    DETALLES DE LA RESERVA
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Alojamiento:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        Cabaña (ID: {datosComprobante.cabana_id})
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Check-In:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {new Date(datosComprobante.fecha_inicio).toLocaleDateString('es-CL', {
+                          weekday: 'long',
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric'
+                        })}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Check-Out:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {new Date(datosComprobante.fecha_fin).toLocaleDateString('es-CL', {
+                          weekday: 'long',
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric'
+                        })}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Cantidad de Personas:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {datosComprobante.cantidad_personas} persona(s)
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Noches:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {Math.ceil((new Date(datosComprobante.fecha_fin) - new Date(datosComprobante.fecha_inicio)) / (1000 * 60 * 60 * 24))} noche(s)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+
+                {/* Desglose de Pago */}
+                <Paper elevation={0} sx={{ p: 2.5, mb: 3, bgcolor: '#F5F9FF', border: '2px solid #2196F3' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1976D2', mb: 2 }}>
+                    RESUMEN DE PAGO
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                      <Typography variant="body2">Subtotal:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        ${datosComprobante.precio_total?.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+                    {datosComprobante.descuento > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                        <Typography variant="body2" color="error">Descuento:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main' }}>
+                          -${datosComprobante.descuento?.toLocaleString('es-CL')}
+                        </Typography>
+                      </Box>
+                    )}
+                    <Divider />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, bgcolor: 'white', px: 2, borderRadius: 1 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                        TOTAL PAGADO:
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 900, color: '#4CAF50' }}>
+                        ${datosComprobante.monto_pagado?.toLocaleString('es-CL')}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary">Método de Pago:</Typography>
+                      <Chip
+                        label={datosComprobante.metodo_pago === 'webpay' ? 'Webpay Plus (Transbank)' : 'Transferencia Bancaria'}
+                        size="small"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary">Estado:</Typography>
+                      <Chip
+                        icon={<CheckCircleIcon />}
+                        label={datosComprobante.estado_pago === 'pagado' ? 'PAGADO COMPLETO' : 'PAGO PARCIAL'}
+                        color={datosComprobante.estado_pago === 'pagado' ? 'success' : 'warning'}
+                        size="small"
+                        sx={{ fontWeight: 700 }}
+                      />
+                    </Box>
+                  </Stack>
+                </Paper>
+
+                {/* Alertas Importantes */}
+                <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Confirmación enviada a: {datosComprobante.cliente_email}
+                  </Typography>
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    Revisa tu bandeja de entrada y carpeta de spam
+                  </Typography>
+                </Alert>
+
+                <Alert severity="info" icon={<InfoIcon />}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Código de Reserva: #{String(datosComprobante.id).padStart(6, '0')}
+                  </Typography>
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    Presenta este código al momento del check-in
+                  </Typography>
+                </Alert>
+
+                {/* Términos */}
+                <Box sx={{ mt: 3, p: 2, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px solid #FFB74D' }}>
+                  <Typography variant="caption" display="block" sx={{ fontWeight: 700, mb: 1, color: '#E65100' }}>
+                    ⚠️ TÉRMINOS Y CONDICIONES
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    • Check-in: 15:00 hrs | Check-out: 12:00 hrs
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    • Cancelación: hasta 48hrs antes sin cargo
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    • No se admiten mascotas salvo autorización previa
+                  </Typography>
+                </Box>
+              </DialogContent>
+
+              <DialogActions sx={{ p: 3, bgcolor: '#FAFAFA', borderTop: '1px solid #E0E0E0', gap: 2 }}>
+                <Button
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  onClick={() => window.print()}
+                  sx={{
+                    borderColor: '#1976D2',
+                    color: '#1976D2',
+                    fontWeight: 600,
+                    '&:hover': { borderColor: '#1565C0', bgcolor: '#E3F2FD' }
+                  }}
+                >
+                  Imprimir
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => setMostrarComprobante(false)}
+                  sx={{
+                    bgcolor: '#1976D2',
+                    fontWeight: 700,
+                    px: 4,
+                    boxShadow: '0 4px 12px rgba(25, 118, 210, 0.3)',
+                    '&:hover': { bgcolor: '#1565C0', boxShadow: '0 6px 16px rgba(25, 118, 210, 0.4)' }
+                  }}
+                >
+                  Cerrar
+                </Button>
+              </DialogActions>
+            </>
+          )}
         </Dialog>
       </Box>
     </LocalizationProvider>

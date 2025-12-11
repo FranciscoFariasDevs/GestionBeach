@@ -141,6 +141,10 @@ const optionalRoutes = [
   { path: './routes/codigosDescuentoRoutes', route: '/api/codigos-descuento' },
   // 💳 NUEVA RUTA PARA WEBPAY (PAGO ONLINE)
   { path: './routes/webpayRoutes', route: '/api/webpay' },
+  // 🎫 NUEVA RUTA PARA SISTEMA DE TICKETS
+  { path: './routes/tickets', route: '/api/tickets' },
+  // ⚙️ RUTA PARA CONFIGURACIÓN DEL SISTEMA (TEMPORADA, ETC)
+  { path: './routes/configuracionRoutes', route: '/api/configuracion' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -527,7 +531,18 @@ const startServer = async () => {
       console.error('❌ Error de conexión a BD:', dbError.message);
       console.log('⚠️ El servidor continuará pero algunas funciones pueden fallar');
     }
-    
+
+    // ============================================
+    // INICIAR JOB DE LIMPIEZA DE RESERVAS PENDIENTES
+    // ============================================
+    try {
+      const { iniciarJobLimpieza } = require('./jobs/limpiarReservasPendientes');
+      iniciarJobLimpieza();
+      console.log('✅ Job de limpieza de reservas pendientes iniciado');
+    } catch (jobError) {
+      console.error('⚠️ Error al iniciar job de limpieza:', jobError.message);
+    }
+
     // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
     app.listen(PORT, '0.0.0.0', () => {
       console.log('\n🚀 ===== SERVIDOR INICIADO =====');

@@ -28,7 +28,8 @@ import {
   Snackbar,
   Alert,
   Avatar,
-  Tooltip
+  Tooltip,
+  Fab
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -52,7 +53,8 @@ import {
   Build,
   Store,
   ShoppingCart,
-  AccountCircle
+  AccountCircle,
+  ReportProblem
 } from '@mui/icons-material';
 
 // Import local images
@@ -1131,6 +1133,9 @@ export default function HomePage() {
                 <Button sx={{ color: '#fff', justifyContent: 'flex-start', textTransform: 'none' }} onClick={() => navigate('/reserva-cabanas')}>
                   Cabañas
                 </Button>
+                <Button sx={{ color: '#ff9800', justifyContent: 'flex-start', textTransform: 'none', fontWeight: 600 }} onClick={() => navigate('/reportar-problema')}>
+                  Reportar Problema
+                </Button>
               </Box>
             </Grid>
             <Grid item xs={12} md={4}>
@@ -1166,6 +1171,50 @@ export default function HomePage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Floating Action Button for Reportar Problema */}
+      <Tooltip title="¿Tienes algún problema? Repórtalo aquí" placement="left" arrow>
+        <Fab
+          color="primary"
+          onClick={() => navigate('/reportar-problema')}
+          sx={{
+            position: 'fixed',
+            bottom: { xs: 16, md: 32 },
+            right: { xs: 16, md: 32 },
+            bgcolor: '#9c27b0',
+            color: '#fff',
+            width: { xs: 56, md: 64 },
+            height: { xs: 56, md: 64 },
+            boxShadow: '0 6px 20px rgba(156, 39, 176, 0.4)',
+            zIndex: 1000,
+            '&:hover': {
+              bgcolor: '#7b1fa2',
+              boxShadow: '0 8px 24px rgba(156, 39, 176, 0.5)',
+              transform: 'scale(1.1)'
+            },
+            transition: 'all 0.3s ease',
+            animation: 'pulse 2s infinite'
+          }}
+        >
+          <ReportProblem sx={{ fontSize: { xs: 28, md: 32 } }} />
+        </Fab>
+      </Tooltip>
+
+      {/* Add keyframes animation for pulse effect */}
+      <style>
+        {`
+          @keyframes pulse {
+            0%, 100% {
+              transform: scale(1);
+              box-shadow: 0 6px 20px rgba(156, 39, 176, 0.4);
+            }
+            50% {
+              transform: scale(1.05);
+              box-shadow: 0 8px 24px rgba(156, 39, 176, 0.5);
+            }
+          }
+        `}
+      </style>
     </Box>
   );
 }

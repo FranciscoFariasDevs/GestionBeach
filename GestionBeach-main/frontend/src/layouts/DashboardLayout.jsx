@@ -171,7 +171,7 @@ const avatarVariants = {
 export default function DashboardLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(!isMobile); // Iniciar cerrado en móvil
   const [anchorEl, setAnchorEl] = useState(null);
   const { user, logout } = useAuth();
   const { ability, isSuperUser, hasProfile } = usePermissions();
@@ -186,8 +186,13 @@ export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
 
-  const handleDrawerOpen = () => setOpen(true);
+  const handleDrawerOpen = () => {
+    console.log('🔓 Abriendo drawer - isMobile:', isMobile);
+    setOpen(true);
+  };
+
   const handleDrawerClose = () => {
+    console.log('🔒 Cerrando drawer - isMobile:', isMobile);
     if (isMobile) {
       setOpen(false);
     } else {
@@ -197,7 +202,7 @@ export default function DashboardLayout() {
     }
   };
 
-  // Auto-cerrar drawer después de 2 segundos al cargar
+  // Auto-cerrar drawer después de 2 segundos al cargar (solo desktop)
   useEffect(() => {
     if (!isMobile) {
       const timer = setTimeout(() => {
@@ -205,12 +210,8 @@ export default function DashboardLayout() {
       }, 2000);
 
       return () => clearTimeout(timer);
-    }
-  }, [isMobile]);
-
-  // Controlar apertura en mobile
-  useEffect(() => {
-    if (isMobile) {
+    } else {
+      // En móvil, asegurar que esté cerrado
       setOpen(false);
     }
   }, [isMobile]);
@@ -304,6 +305,7 @@ export default function DashboardLayout() {
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
     { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
     { text: 'Códigos Descuento', icon: <ConfirmationNumberIcon />, path: '/codigos-descuento', orangeType: 'dark' },
+    { text: 'Mis Tickets', icon: <AssignmentIcon />, path: '/mis-tickets', orangeType: 'light' },
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
     { text: 'Perfiles', icon: <AssignmentIcon />, path: '/perfiles', orangeType: 'dark' },
     { text: 'Módulos', icon: <ModuleIcon />, path: '/modulos', orangeType: 'light' },
@@ -337,6 +339,7 @@ export default function DashboardLayout() {
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
         '/codigos-descuento': 'Códigos de Descuento',
+        '/mis-tickets': 'Mis Tickets de Soporte',
         '/usuarios': 'Gestión de Usuarios',
         '/perfiles': 'Gestión de Perfiles',
         '/modulos': 'Gestión de Módulos',
@@ -509,7 +512,7 @@ export default function DashboardLayout() {
           width: open ? drawerWidth : miniDrawerWidth,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: open ? drawerWidth : miniDrawerWidth,
+            width: isMobile && open ? drawerWidth : (open ? drawerWidth : miniDrawerWidth),
             boxSizing: 'border-box',
             overflowX: 'hidden',
             transition: theme.transitions.create('width', {
@@ -521,9 +524,14 @@ export default function DashboardLayout() {
         variant={isMobile ? 'temporary' : 'permanent'}
         anchor="left"
         open={isMobile ? open : true}
-        onClose={handleDrawerClose}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onClose={isMobile ? handleDrawerClose : undefined}
+        ModalProps={isMobile ? {
+          keepMounted: true, // Mejor rendimiento en móvil
+        } : undefined}
+        {...(!isMobile && {
+          onMouseEnter: handleMouseEnter,
+          onMouseLeave: handleMouseLeave,
+        })}
       >
         <DrawerHeader>
           <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', px: open ? 1.5 : 0.5, justifyContent: open ? 'flex-start' : 'center' }}>

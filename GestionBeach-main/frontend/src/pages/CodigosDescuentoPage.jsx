@@ -26,7 +26,10 @@ import {
   Chip,
   Alert,
   Snackbar,
-  Grid
+  Grid,
+  Checkbox,
+  ListItemText,
+  OutlinedInput
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +41,7 @@ import api from '../api/api';
 
 const CodigosDescuentoPage = () => {
   const [codigos, setCodigos] = useState([]);
+  const [cabanas, setCabanas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -52,11 +56,14 @@ const CodigosDescuentoPage = () => {
     fecha_inicio: '',
     fecha_fin: '',
     usos_maximos: '',
-    activo: true
+    activo: true,
+    aplica_todas_cabanas: true,
+    cabanas_ids: []
   });
 
   useEffect(() => {
     cargarCodigos();
+    cargarCabanas();
   }, []);
 
   const cargarCodigos = async () => {
@@ -75,9 +82,33 @@ const CodigosDescuentoPage = () => {
     }
   };
 
-  const handleOpenDialog = (codigo = null) => {
+  const cargarCabanas = async () => {
+    try {
+      const response = await api.get('/cabanas/cabanas');
+      if (response.data.success) {
+        setCabanas(response.data.cabanas);
+      }
+    } catch (error) {
+      console.error('Error al cargar cabañas:', error);
+      showSnackbar('Error al cargar cabañas', 'error');
+    }
+  };
+
+  const handleOpenDialog = async (codigo = null) => {
     if (codigo) {
       setSelectedCodigo(codigo);
+
+      // Cargar las cabañas asociadas al código
+      let cabanasAsociadas = [];
+      try {
+        const response = await api.get(`/codigos-descuento/${codigo.id}/cabanas`);
+        if (response.data.success) {
+          cabanasAsociadas = response.data.cabanas.map(c => c.id);
+        }
+      } catch (error) {
+        console.error('Error al cargar cabañas del código:', error);
+      }
+
       setFormData({
         codigo: codigo.codigo,
         descripcion: codigo.descripcion || '',
@@ -86,7 +117,9 @@ const CodigosDescuentoPage = () => {
         fecha_inicio: codigo.fecha_inicio ? codigo.fecha_inicio.split('T')[0] : '',
         fecha_fin: codigo.fecha_fin ? codigo.fecha_fin.split('T')[0] : '',
         usos_maximos: codigo.usos_maximos || '',
-        activo: codigo.activo
+        activo: codigo.activo,
+        aplica_todas_cabanas: codigo.aplica_todas_cabanas !== undefined ? codigo.aplica_todas_cabanas : true,
+        cabanas_ids: cabanasAsociadas
       });
     } else {
       setSelectedCodigo(null);
@@ -98,7 +131,9 @@ const CodigosDescuentoPage = () => {
         fecha_inicio: '',
         fecha_fin: '',
         usos_maximos: '',
-        activo: true
+        activo: true,
+        aplica_todas_cabanas: true,
+        cabanas_ids: []
       });
     }
     setOpenDialog(true);
@@ -115,7 +150,9 @@ const CodigosDescuentoPage = () => {
       fecha_inicio: '',
       fecha_fin: '',
       usos_maximos: '',
-      activo: true
+      activo: true,
+      aplica_todas_cabanas: true,
+      cabanas_ids: []
     });
   };
 
@@ -145,6 +182,12 @@ const CodigosDescuentoPage = () => {
         return;
       }
 
+      // Validar que si no aplica a todas, al menos seleccione una cabaña
+      if (!formData.aplica_todas_cabanas && formData.cabanas_ids.length === 0) {
+        showSnackbar('Debe seleccionar al menos una cabaña', 'error');
+        return;
+      }
+
       const payload = {
         codigo: formData.codigo.trim().toUpperCase(),
         descripcion: formData.descripcion.trim(),
@@ -153,7 +196,9 @@ const CodigosDescuentoPage = () => {
         fecha_inicio: formData.fecha_inicio || null,
         fecha_fin: formData.fecha_fin || null,
         usos_maximos: formData.usos_maximos ? parseInt(formData.usos_maximos) : null,
-        activo: formData.activo
+        activo: formData.activo,
+        aplica_todas_cabanas: formData.aplica_todas_cabanas,
+        cabanas_ids: formData.aplica_todas_cabanas ? [] : formData.cabanas_ids
       };
 
       if (selectedCodigo) {
@@ -235,6 +280,30 @@ const CodigosDescuentoPage = () => {
     return `$${parseFloat(valor).toLocaleString('es-CL')}`;
   };
 
+  const getCabanasAplicaChip = (codigo) => {
+    if (codigo.aplica_todas_cabanas) {
+      return (
+        <Chip
+          label="Todas las cabañas"
+          color="success"
+          size="small"
+          variant="outlined"
+        />
+      );
+    }
+
+    // Si tiene cabañas específicas, mostrar un contador
+    const cantidadCabanas = codigo.cantidad_cabanas || 0;
+    return (
+      <Chip
+        label={`${cantidadCabanas} cabaña${cantidadCabanas !== 1 ? 's' : ''}`}
+        color="info"
+        size="small"
+        variant="outlined"
+      />
+    );
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -267,6 +336,7 @@ const CodigosDescuentoPage = () => {
               <TableCell><strong>Código</strong></TableCell>
               <TableCell><strong>Descripción</strong></TableCell>
               <TableCell align="center"><strong>Descuento</strong></TableCell>
+              <TableCell align="center"><strong>Aplica a</strong></TableCell>
               <TableCell align="center"><strong>Vigencia</strong></TableCell>
               <TableCell align="center"><strong>Usos</strong></TableCell>
               <TableCell align="center"><strong>Estado</strong></TableCell>
@@ -276,13 +346,13 @@ const CodigosDescuentoPage = () => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={8} align="center">
                   Cargando...
                 </TableCell>
               </TableRow>
             ) : codigos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={8} align="center">
                   No hay códigos de descuento registrados
                 </TableCell>
               </TableRow>
@@ -302,6 +372,9 @@ const CodigosDescuentoPage = () => {
                       variant="outlined"
                       size="small"
                     />
+                  </TableCell>
+                  <TableCell align="center">
+                    {getCabanasAplicaChip(codigo)}
                   </TableCell>
                   <TableCell align="center">
                     {codigo.fecha_inicio ? (
@@ -463,6 +536,74 @@ const CodigosDescuentoPage = () => {
                 label="Código activo"
               />
             </Grid>
+
+            {/* Selección de cabañas */}
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.aplica_todas_cabanas}
+                    onChange={(e) => {
+                      setFormData({
+                        ...formData,
+                        aplica_todas_cabanas: e.target.checked,
+                        cabanas_ids: []
+                      });
+                    }}
+                    color="primary"
+                  />
+                }
+                label="Aplica a todas las cabañas"
+              />
+            </Grid>
+
+            {!formData.aplica_todas_cabanas && (
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel id="cabanas-select-label">Seleccionar Cabañas</InputLabel>
+                  <Select
+                    labelId="cabanas-select-label"
+                    multiple
+                    value={formData.cabanas_ids}
+                    onChange={(e) => {
+                      setFormData({
+                        ...formData,
+                        cabanas_ids: e.target.value
+                      });
+                    }}
+                    input={<OutlinedInput label="Seleccionar Cabañas" />}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selected.map((id) => {
+                          const cabana = cabanas.find(c => c.id === id);
+                          return (
+                            <Chip
+                              key={id}
+                              label={cabana?.nombre || `ID: ${id}`}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          );
+                        })}
+                      </Box>
+                    )}
+                  >
+                    {cabanas.map((cabana) => (
+                      <MenuItem key={cabana.id} value={cabana.id}>
+                        <Checkbox checked={formData.cabanas_ids.indexOf(cabana.id) > -1} />
+                        <ListItemText primary={cabana.nombre} />
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {formData.cabanas_ids.length === 0 && (
+                    <Typography variant="caption" color="error" sx={{ mt: 1, ml: 2 }}>
+                      Seleccione al menos una cabaña
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>

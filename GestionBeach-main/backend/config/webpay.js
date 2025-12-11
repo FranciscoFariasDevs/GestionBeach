@@ -79,16 +79,20 @@ const tx = new WebpayPlus.Transaction(
  * Ajusta estas URLs según tu dominio en producción
  */
 
-const BASE_URL = isDevelopment
-  ? 'http://localhost:5000'  // URL del backend en desarrollo
-  : process.env.WEBPAY_BASE_URL || 'https://tu-dominio.com';
+// ⚠️ HARDCODEADO PARA DESARROLLO CON WEBPAY
+// Siempre usar reservas.beach.cl incluso en modo desarrollo
+const BASE_URL = 'https://api.beach.cl';
+const RETURN_URL = 'https://api.beach.cl/api/webpay/confirmar';
+const FRONTEND_URL = 'https://reservas.beach.cl';
 
-const RETURN_URL = `${BASE_URL}/api/webpay/confirmar`;
-
-// URL del frontend para redireccionar después de confirmar
-const FRONTEND_URL = isDevelopment
-  ? 'http://localhost:3000'
-  : process.env.FRONTEND_URL || 'https://tu-frontend.com';
+// Log para debugging
+console.log('🔧 Webpay Configuration:');
+console.log(`   - Mode: ${isDevelopment ? 'DEVELOPMENT' : 'PRODUCTION'}`);
+console.log(`   - WEBPAY_BASE_URL from env: ${process.env.WEBPAY_BASE_URL}`);
+console.log(`   - FRONTEND_URL from env: ${process.env.FRONTEND_URL}`);
+console.log(`   - BASE_URL (usado): ${BASE_URL}`);
+console.log(`   - RETURN_URL (usado): ${RETURN_URL}`);
+console.log(`   - FRONTEND_URL (usado): ${FRONTEND_URL}`);
 
 // ============================================
 // EXPORTAR CONFIGURACIÓN

@@ -16,6 +16,7 @@ exports.obtenerCabanas = async (req, res) => {
           id, nombre, descripcion, capacidad_personas,
           numero_habitaciones, numero_banos,
           precio_noche, precio_fin_semana,
+          precio_temporada_baja, precio_temporada_alta,
           imagenes, amenidades, estado, ubicacion,
           fecha_creacion
         FROM dbo.cabanas

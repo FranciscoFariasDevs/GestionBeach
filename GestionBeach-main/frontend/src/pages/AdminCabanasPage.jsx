@@ -259,6 +259,13 @@ const AdminCabanasPage = () => {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState(null);
   const [filtroCabana, setFiltroCabana] = useState('todas'); // 'todas' o id de cabaña
 
+  // Estados para sub-tabs de reservas (activas vs pagadas)
+  const [subTabReservas, setSubTabReservas] = useState('activas'); // 'activas' o 'pagadas'
+
+  // Estados para paginación de reservas
+  const [paginaReservas, setPaginaReservas] = useState(0);
+  const ITEMS_POR_PAGINA = 10;
+
   // Estado para temporada
   const [temporada, setTemporada] = useState('baja'); // 'baja' o 'alta'
 
@@ -425,6 +432,9 @@ const AdminCabanasPage = () => {
   // EFECTOS
   // ============================================
   useEffect(() => {
+    // Cargar temporada actual al montar el componente
+    cargarTemporadaActual();
+
     if (tabValue === 0) {
       cargarCabanas();
       cargarReservas(); // ✅ Cargar reservas también en tab 0
@@ -460,12 +470,32 @@ const AdminCabanasPage = () => {
     }
   };
 
-  const cambiarTemporada = (nuevaTemporada) => {
-    setTemporada(nuevaTemporada);
-    enqueueSnackbar(`✅ Vista cambiada a precios de Temporada ${nuevaTemporada === 'baja' ? 'Baja' : 'Alta'}`, {
-      variant: 'info',
-      autoHideDuration: 3000
-    });
+  const cargarTemporadaActual = async () => {
+    try {
+      const response = await api.get('/configuracion/temporada');
+      if (response.data.success) {
+        setTemporada(response.data.temporada);
+      }
+    } catch (error) {
+      console.error('Error al cargar temporada:', error);
+      // Si falla, mantener el valor por defecto 'baja'
+    }
+  };
+
+  const cambiarTemporada = async (nuevaTemporada) => {
+    try {
+      // Actualizar en el servidor
+      await api.put('/configuracion/temporada', { temporada: nuevaTemporada });
+
+      setTemporada(nuevaTemporada);
+      enqueueSnackbar(`✅ Temporada actualizada a ${nuevaTemporada === 'baja' ? 'Baja ❄️' : 'Alta ☀️'}. Los clientes verán estos precios.`, {
+        variant: 'success',
+        autoHideDuration: 4000
+      });
+    } catch (error) {
+      console.error('Error al cambiar temporada:', error);
+      enqueueSnackbar('Error al actualizar temporada', { variant: 'error' });
+    }
   };
 
   const cargarReservas = async () => {
@@ -1333,8 +1363,39 @@ const AdminCabanasPage = () => {
   // ============================================
   const renderTabReservas = () => {
     const reservasFiltradas = getReservasFiltradas();
+
+    // Separar reservas en activas (pendientes/confirmadas futuras) y pagadas/completadas
+    const reservasActivas = reservasFiltradas.filter(r => {
+      const fechaInicio = new Date(r.fecha_inicio);
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      // Activas: pendientes de pago O confirmadas que aún no pasaron
+      return r.estado_pago === 'pendiente' ||
+             (r.estado !== 'cancelada' && fechaInicio >= hoy);
+    });
+
+    const reservasPagadas = reservasFiltradas.filter(r => {
+      const fechaInicio = new Date(r.fecha_inicio);
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      // Pagadas/Completadas: pagadas O fechas pasadas (ya completadas)
+      return (r.estado_pago === 'pagado' || r.estado_pago === 'parcial') ||
+             (r.estado !== 'cancelada' && fechaInicio < hoy);
+    });
+
     // Filtrar reservas pendientes (no pagadas)
     const reservasPendientes = reservasFiltradas.filter(r => r.estado_pago === 'pendiente');
+
+    // Seleccionar el conjunto de reservas según el sub-tab activo
+    const reservasParaMostrar = subTabReservas === 'activas' ? reservasActivas : reservasPagadas;
+
+    // Aplicar paginación
+    const indiceInicio = paginaReservas * ITEMS_POR_PAGINA;
+    const indiceFin = indiceInicio + ITEMS_POR_PAGINA;
+    const reservasPaginadas = reservasParaMostrar.slice(indiceInicio, indiceFin);
+    const hayMasReservas = indiceFin < reservasParaMostrar.length;
 
     return (
     <Fade in>
@@ -1384,7 +1445,10 @@ const AdminCabanasPage = () => {
             type="date"
             label="Desde"
             value={filtroFechaDesde || ''}
-            onChange={(e) => setFiltroFechaDesde(e.target.value)}
+            onChange={(e) => {
+              setFiltroFechaDesde(e.target.value);
+              setPaginaReservas(0); // Reset pagination on filter change
+            }}
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 180, borderRadius: 2 }}
             size="small"
@@ -1394,7 +1458,10 @@ const AdminCabanasPage = () => {
             type="date"
             label="Hasta"
             value={filtroFechaHasta || ''}
-            onChange={(e) => setFiltroFechaHasta(e.target.value)}
+            onChange={(e) => {
+              setFiltroFechaHasta(e.target.value);
+              setPaginaReservas(0); // Reset pagination on filter change
+            }}
             InputLabelProps={{ shrink: true }}
             sx={{ minWidth: 180, borderRadius: 2 }}
             size="small"
@@ -1405,6 +1472,7 @@ const AdminCabanasPage = () => {
             onClick={() => {
               setFiltroFechaDesde(null);
               setFiltroFechaHasta(null);
+              setPaginaReservas(0); // Reset pagination on filter clear
             }}
             sx={{ borderRadius: 2 }}
           >
@@ -1415,7 +1483,10 @@ const AdminCabanasPage = () => {
             select
             label="Filtrar por Cabaña"
             value={filtroCabana}
-            onChange={(e) => setFiltroCabana(e.target.value)}
+            onChange={(e) => {
+              setFiltroCabana(e.target.value);
+              setPaginaReservas(0); // Reset pagination on filter change
+            }}
             SelectProps={{ native: true }}
             sx={{ minWidth: 200, borderRadius: 2 }}
             size="small"
@@ -1427,40 +1498,106 @@ const AdminCabanasPage = () => {
           </TextField>
         </Box>
 
+        {/* Sub-Tabs para Activas vs Pagadas/Completadas */}
+        <Paper elevation={0} sx={{ mb: 3, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+          <Tabs
+            value={subTabReservas}
+            onChange={(e, newValue) => {
+              setSubTabReservas(newValue);
+              setPaginaReservas(0); // Reset pagination on tab change
+            }}
+            sx={{
+              '& .MuiTabs-indicator': {
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                height: 3,
+              }
+            }}
+          >
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>Activas / Pendientes</span>
+                  <Chip
+                    label={reservasActivas.length}
+                    size="small"
+                    color="primary"
+                    sx={{ fontWeight: 700 }}
+                  />
+                </Box>
+              }
+              value="activas"
+              sx={{
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                textTransform: 'none',
+              }}
+            />
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span>Pagadas / Completadas</span>
+                  <Chip
+                    label={reservasPagadas.length}
+                    size="small"
+                    color="success"
+                    sx={{ fontWeight: 700 }}
+                  />
+                </Box>
+              }
+              value="pagadas"
+              sx={{
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                textTransform: 'none',
+              }}
+            />
+          </Tabs>
+        </Paper>
+
         {loadingReservas ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}>
             <CircularProgress size={60} thickness={4} />
           </Box>
         ) : (
-          <TableContainer
-            component={Paper}
-            elevation={0}
-            sx={{
-              borderRadius: 3,
-              border: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: alpha('#667eea', 0.05) }}>
-                  <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Cabaña</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Cliente</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Teléfono</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Procedencia</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Matrículas</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Fecha Inicio</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Fecha Fin</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Tinajas</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Estado</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Estado Pago</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Precio</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Acciones</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {Array.isArray(reservasFiltradas) && reservasFiltradas.map((reserva) => (
+          <>
+            <TableContainer
+              component={Paper}
+              elevation={0}
+              sx={{
+                borderRadius: 3,
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: alpha('#667eea', 0.05) }}>
+                    <TableCell sx={{ fontWeight: 700 }}>ID</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Cabaña</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Cliente</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Teléfono</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Procedencia</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Matrículas</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Fecha Inicio</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Fecha Fin</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Tinajas</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Estado</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Estado Pago</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Precio</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700 }}>Acciones</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {Array.isArray(reservasPaginadas) && reservasPaginadas.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={13} align="center" sx={{ py: 6 }}>
+                        <Typography variant="body1" color="text.secondary">
+                          No hay reservas en esta sección
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    Array.isArray(reservasPaginadas) && reservasPaginadas.map((reserva) => (
                   <TableRow
                     key={reserva.id}
                     sx={{
@@ -1711,10 +1848,46 @@ const AdminCabanasPage = () => {
                       </Box>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            {/* Botón "Cargar Más" */}
+            {hayMasReservas && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={() => setPaginaReservas(paginaReservas + 1)}
+                  sx={{
+                    borderRadius: 3,
+                    px: 5,
+                    py: 1.5,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    boxShadow: '0 4px 20px rgba(102, 126, 234, 0.4)',
+                    fontWeight: 700,
+                    fontSize: '1rem',
+                    '&:hover': {
+                      boxShadow: '0 6px 25px rgba(102, 126, 234, 0.6)',
+                      transform: 'translateY(-2px)',
+                    },
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  Cargar más ({reservasParaMostrar.length - indiceFin} restantes)
+                </Button>
+              </Box>
+            )}
+
+            {/* Información de paginación */}
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Mostrando {Math.min(indiceFin, reservasParaMostrar.length)} de {reservasParaMostrar.length} reservas
+              </Typography>
+            </Box>
+          </>
         )}
       </Box>
     </Fade>

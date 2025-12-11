@@ -11,6 +11,7 @@ router.post('/incrementar-uso', codigosDescuentoController.incrementarUso); // ð
 // Rutas protegidas (solo admin)
 router.get('/', authMiddleware, codigosDescuentoController.getCodigosDescuento);
 router.get('/:id', authMiddleware, codigosDescuentoController.getCodigoById);
+router.get('/:id/cabanas', authMiddleware, codigosDescuentoController.getCabanasByCodigo);
 router.post('/', authMiddleware, codigosDescuentoController.crearCodigo);
 router.put('/:id', authMiddleware, codigosDescuentoController.actualizarCodigo);
 router.delete('/:id', authMiddleware, codigosDescuentoController.eliminarCodigo);

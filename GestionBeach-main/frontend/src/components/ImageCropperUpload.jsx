@@ -791,11 +791,11 @@ const ImageCropperUpload = ({ onNumeroDetectado, onImagenSeleccionada }) => {
                 startIcon={<CameraAltIcon />}
                 onClick={() => inputFileRef.current?.click()}
                 fullWidth
-                sx={{ py: 1.5 }}
+                sx={{ py: 1.5, opacity: 0, pointerEvents: 'none', height: 0, overflow: 'hidden' }}
               >
                 Seleccionar o Tomar Foto
               </Button>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, opacity: 0, pointerEvents: 'none', height: 0, overflow: 'hidden' }}>
                 Asegúrate de que el número de boleta sea legible
               </Typography>
             </>

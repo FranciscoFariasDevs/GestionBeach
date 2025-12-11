@@ -9,16 +9,17 @@ const { sql, poolPromise } = require('../config/db');
 exports.crearTransaccion = async (req, res) => {
   try {
     const {
-      reserva_id,
       monto,
-      descripcion
+      descripcion,
+      // Datos de la reserva (ahora NO se crea hasta confirmar pago)
+      reservaData
     } = req.body;
 
     // Validaciones
-    if (!reserva_id || !monto) {
+    if (!monto || !reservaData) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan datos requeridos: reserva_id y monto'
+        message: 'Faltan datos requeridos: monto y reservaData'
       });
     }
 
@@ -31,28 +32,12 @@ exports.crearTransaccion = async (req, res) => {
 
     const pool = await poolPromise;
 
-    // Verificar que la reserva existe
-    const reservaResult = await pool.request()
-      .input('reserva_id', sql.Int, reserva_id)
-      .query('SELECT * FROM reservas_cabanas WHERE id = @reserva_id');
-
-    if (reservaResult.recordset.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Reserva no encontrada'
-      });
-    }
-
-    const reserva = reservaResult.recordset[0];
-
     // Generar un número de orden único (buy_order)
-    // Formato: RESERVA-{id}-{timestamp}
-    const buyOrder = `RESERVA-${reserva_id}-${Date.now()}`;
+    const timestamp = Date.now();
+    const buyOrder = `PENDIENTE-${timestamp}`;
+    const sessionId = `SESSION-${timestamp}`;
 
-    // Session ID: identificador único de la sesión
-    const sessionId = `SESSION-${reserva_id}-${Date.now()}`;
-
-    console.log(`📦 Creando transacción Webpay:`);
+    console.log(`📦 Creando transacción Webpay (sin reserva previa):`);
     console.log(`   - Buy Order: ${buyOrder}`);
     console.log(`   - Session ID: ${sessionId}`);
     console.log(`   - Monto: $${monto}`);
@@ -68,9 +53,59 @@ exports.crearTransaccion = async (req, res) => {
 
     console.log('✅ Transacción creada en Webpay:', createResponse);
 
-    // Guardar la transacción en la base de datos
+    // Guardar la RESERVA PENDIENTE (no la reserva final)
+    const fechaExpiracion = new Date(Date.now() + 30 * 60 * 1000); // 30 minutos
+
     await pool.request()
-      .input('reserva_id', sql.Int, reserva_id)
+      .input('cabana_id', sql.Int, reservaData.cabana_id)
+      .input('fecha_inicio', sql.Date, reservaData.fecha_inicio)
+      .input('fecha_fin', sql.Date, reservaData.fecha_fin)
+      .input('cantidad_noches', sql.Int, reservaData.cantidad_noches)
+      .input('cantidad_personas', sql.Int, reservaData.cantidad_personas)
+      .input('personas_extra', sql.Int, reservaData.personas_extra || 0)
+      .input('precio_noche', sql.Decimal(10, 2), reservaData.precio_noche)
+      .input('precio_total', sql.Decimal(10, 2), reservaData.precio_total)
+      .input('costo_personas_extra', sql.Decimal(10, 2), reservaData.costo_personas_extra || 0)
+      .input('cliente_nombre', sql.NVarChar, reservaData.cliente_nombre)
+      .input('cliente_apellido', sql.NVarChar, reservaData.cliente_apellido)
+      .input('cliente_telefono', sql.NVarChar, reservaData.cliente_telefono)
+      .input('cliente_email', sql.NVarChar, reservaData.cliente_email)
+      .input('cliente_rut', sql.NVarChar, reservaData.cliente_rut || null)
+      .input('procedencia', sql.NVarChar, reservaData.procedencia || null)
+      .input('tiene_auto', sql.Bit, reservaData.tiene_auto || 0)
+      .input('matriculas_auto', sql.NVarChar, JSON.stringify(reservaData.matriculas_auto || []))
+      .input('metodo_pago', sql.VarChar, 'webpay')
+      .input('tipo_pago', sql.VarChar, reservaData.tipo_pago || 'completo')
+      .input('monto_a_pagar', sql.Decimal(10, 2), monto)
+      .input('codigo_descuento', sql.NVarChar, reservaData.codigo_descuento || null)
+      .input('descuento_aplicado', sql.Decimal(10, 2), reservaData.descuento_aplicado || 0)
+      .input('tinajas', sql.NVarChar, JSON.stringify(reservaData.tinajas || []))
+      .input('notas', sql.NVarChar, reservaData.notas || null)
+      .input('webpay_token', sql.NVarChar, createResponse.token)
+      .input('fecha_expiracion', sql.DateTime, fechaExpiracion)
+      .query(`
+        INSERT INTO reservas_pendientes (
+          cabana_id, fecha_inicio, fecha_fin, cantidad_noches, cantidad_personas, personas_extra,
+          precio_noche, precio_total, costo_personas_extra,
+          cliente_nombre, cliente_apellido, cliente_telefono, cliente_email, cliente_rut, procedencia,
+          tiene_auto, matriculas_auto,
+          metodo_pago, tipo_pago, monto_a_pagar,
+          codigo_descuento, descuento_aplicado, tinajas, notas,
+          webpay_token, fecha_expiracion, estado
+        )
+        VALUES (
+          @cabana_id, @fecha_inicio, @fecha_fin, @cantidad_noches, @cantidad_personas, @personas_extra,
+          @precio_noche, @precio_total, @costo_personas_extra,
+          @cliente_nombre, @cliente_apellido, @cliente_telefono, @cliente_email, @cliente_rut, @procedencia,
+          @tiene_auto, @matriculas_auto,
+          @metodo_pago, @tipo_pago, @monto_a_pagar,
+          @codigo_descuento, @descuento_aplicado, @tinajas, @notas,
+          @webpay_token, @fecha_expiracion, 'pendiente'
+        )
+      `);
+
+    // Guardar la transacción en la BD (sin reserva_id por ahora)
+    await pool.request()
       .input('buy_order', sql.NVarChar, buyOrder)
       .input('session_id', sql.NVarChar, sessionId)
       .input('token', sql.NVarChar, createResponse.token)
@@ -78,14 +113,14 @@ exports.crearTransaccion = async (req, res) => {
       .input('estado', sql.VarChar, 'INICIADO')
       .query(`
         INSERT INTO transacciones_webpay (
-          reserva_id, buy_order, session_id, token, monto, estado, fecha_creacion
+          buy_order, session_id, token, monto, estado, fecha_creacion
         )
         VALUES (
-          @reserva_id, @buy_order, @session_id, @token, @monto, @estado, GETDATE()
+          @buy_order, @session_id, @token, @monto, @estado, GETDATE()
         )
       `);
 
-    console.log('✅ Transacción guardada en BD');
+    console.log('✅ Reserva pendiente y transacción guardadas en BD');
 
     // Retornar la URL y token para redirigir al usuario
     return res.json({
@@ -129,28 +164,107 @@ exports.confirmarTransaccion = async (req, res) => {
 
     const pool = await poolPromise;
 
-    // Buscar la transacción en la BD
-    const transaccionResult = await pool.request()
+    // Buscar la reserva pendiente por token
+    const pendienteResult = await pool.request()
       .input('token', sql.NVarChar, token)
-      .query('SELECT * FROM transacciones_webpay WHERE token = @token');
+      .query('SELECT * FROM reservas_pendientes WHERE webpay_token = @token AND estado = \'pendiente\'');
 
-    if (transaccionResult.recordset.length === 0) {
-      console.error('❌ Transacción no encontrada en BD');
-      return res.redirect(`${FRONTEND_URL}/?pago=error&error=transaccion_no_encontrada`);
+    if (pendienteResult.recordset.length === 0) {
+      console.error('❌ Reserva pendiente no encontrada');
+      return res.redirect(`${FRONTEND_URL}/reserva-cabanas?pago=error&error=reserva_no_encontrada`);
     }
 
-    const transaccion = transaccionResult.recordset[0];
-    const reservaId = transaccion.reserva_id;
+    const reservaPendiente = pendienteResult.recordset[0];
 
     // Verificar el estado de la transacción
     const aprobada = commitResponse.status === 'AUTHORIZED' && commitResponse.response_code === 0;
 
     if (aprobada) {
-      console.log('✅ Pago APROBADO');
+      console.log('✅ Pago APROBADO - Creando reserva real...');
 
-      // Actualizar la transacción en BD
+      // CREAR LA RESERVA REAL AHORA QUE EL PAGO FUE EXITOSO
+      const tinajas = JSON.parse(reservaPendiente.tinajas || '[]');
+      const matriculas = JSON.parse(reservaPendiente.matriculas_auto || '[]');
+
+      // Determinar estado de pago
+      const montoPagado = parseFloat(commitResponse.amount);
+      const precioTotal = parseFloat(reservaPendiente.precio_total);
+      let estadoPago = 'pagado';
+
+      if (reservaPendiente.tipo_pago === 'mitad') {
+        estadoPago = montoPagado >= precioTotal ? 'pagado' : 'pago_parcial';
+      }
+
+      // Insertar la reserva REAL
+      const reservaResult = await pool.request()
+        .input('cabana_id', sql.Int, reservaPendiente.cabana_id)
+        .input('fecha_inicio', sql.Date, reservaPendiente.fecha_inicio)
+        .input('fecha_fin', sql.Date, reservaPendiente.fecha_fin)
+        .input('cantidad_noches', sql.Int, reservaPendiente.cantidad_noches)
+        .input('cantidad_personas', sql.Int, reservaPendiente.cantidad_personas)
+        .input('personas_extra', sql.Int, reservaPendiente.personas_extra)
+        .input('precio_noche', sql.Decimal(10, 2), reservaPendiente.precio_noche)
+        .input('precio_total', sql.Decimal(10, 2), reservaPendiente.precio_total)
+        .input('costo_personas_extra', sql.Decimal(10, 2), reservaPendiente.costo_personas_extra)
+        .input('cliente_nombre', sql.NVarChar, reservaPendiente.cliente_nombre)
+        .input('cliente_apellido', sql.NVarChar, reservaPendiente.cliente_apellido)
+        .input('cliente_telefono', sql.NVarChar, reservaPendiente.cliente_telefono)
+        .input('cliente_email', sql.NVarChar, reservaPendiente.cliente_email)
+        .input('cliente_rut', sql.NVarChar, reservaPendiente.cliente_rut)
+        .input('procedencia', sql.NVarChar, reservaPendiente.procedencia)
+        .input('tiene_auto', sql.Bit, reservaPendiente.tiene_auto)
+        .input('matriculas_auto', sql.NVarChar, reservaPendiente.matriculas_auto)
+        .input('metodo_pago', sql.VarChar, 'webpay')
+        .input('tipo_pago', sql.VarChar, reservaPendiente.tipo_pago)
+        .input('estado_pago', sql.VarChar, estadoPago)
+        .input('monto_pagado', sql.Decimal(10, 2), montoPagado)
+        .input('notas', sql.NVarChar, reservaPendiente.notas)
+        .input('estado', sql.VarChar, 'confirmada')
+        .input('origen', sql.VarChar, 'webpay')
+        .input('usuario_creacion', sql.VarChar, 'webpay_sistema')
+        .query(`
+          INSERT INTO reservas_cabanas (
+            cabana_id, fecha_inicio, fecha_fin, cantidad_noches, cantidad_personas, personas_extra,
+            precio_noche, precio_total, costo_personas_extra,
+            cliente_nombre, cliente_apellido, cliente_telefono, cliente_email, cliente_rut, procedencia,
+            tiene_auto, matriculas_auto,
+            metodo_pago, tipo_pago, estado_pago, monto_pagado,
+            notas, estado, origen, usuario_creacion, fecha_creacion
+          )
+          OUTPUT INSERTED.id
+          VALUES (
+            @cabana_id, @fecha_inicio, @fecha_fin, @cantidad_noches, @cantidad_personas, @personas_extra,
+            @precio_noche, @precio_total, @costo_personas_extra,
+            @cliente_nombre, @cliente_apellido, @cliente_telefono, @cliente_email, @cliente_rut, @procedencia,
+            @tiene_auto, @matriculas_auto,
+            @metodo_pago, @tipo_pago, @estado_pago, @monto_pagado,
+            @notas, @estado, @origen, @usuario_creacion, GETDATE()
+          )
+        `);
+
+      const reservaId = reservaResult.recordset[0].id;
+      console.log(`✅ Reserva ${reservaId} creada exitosamente`);
+
+      // Insertar tinajas si existen
+      if (tinajas.length > 0) {
+        for (const tinaja of tinajas) {
+          await pool.request()
+            .input('reserva_id', sql.Int, reservaId)
+            .input('tinaja_id', sql.Int, tinaja.tinaja_id)
+            .input('fecha_uso', sql.Date, tinaja.fecha_uso)
+            .input('precio_dia', sql.Decimal(10, 2), tinaja.precio_dia)
+            .query(`
+              INSERT INTO reserva_tinajas (reserva_id, tinaja_id, fecha_uso, precio_dia)
+              VALUES (@reserva_id, @tinaja_id, @fecha_uso, @precio_dia)
+            `);
+        }
+        console.log(`✅ ${tinajas.length} tinaja(s) asociada(s)`);
+      }
+
+      // Actualizar la transacción con el reserva_id
       await pool.request()
         .input('token', sql.NVarChar, token)
+        .input('reserva_id', sql.Int, reservaId)
         .input('estado', sql.VarChar, 'APROBADO')
         .input('authorization_code', sql.NVarChar, commitResponse.authorization_code || null)
         .input('payment_type_code', sql.VarChar, commitResponse.payment_type_code || null)
@@ -158,6 +272,7 @@ exports.confirmarTransaccion = async (req, res) => {
         .query(`
           UPDATE transacciones_webpay
           SET
+            reserva_id = @reserva_id,
             estado = @estado,
             authorization_code = @authorization_code,
             payment_type_code = @payment_type_code,
@@ -166,48 +281,19 @@ exports.confirmarTransaccion = async (req, res) => {
           WHERE token = @token
         `);
 
-      // Obtener información de la reserva para verificar tipo de pago
-      const reservaResult = await pool.request()
-        .input('reserva_id', sql.Int, reservaId)
-        .query('SELECT precio_total, tipo_pago, monto_pagado FROM reservas_cabanas WHERE id = @reserva_id');
-
-      const reserva = reservaResult.recordset[0];
-      const nuevoMontoPagado = parseFloat(reserva.monto_pagado || 0) + parseFloat(commitResponse.amount);
-      const precioTotal = parseFloat(reserva.precio_total);
-
-      // Determinar estado de pago según tipo_pago y monto pagado
-      let estadoPago = 'pendiente';
-
-      if (reserva.tipo_pago === 'mitad') {
-        // Si el tipo es "mitad", verificar si ya pagó todo o solo la mitad
-        if (nuevoMontoPagado >= precioTotal) {
-          estadoPago = 'pagado'; // Ya pagó todo
-        } else {
-          estadoPago = 'pago_parcial'; // Solo pagó la mitad
-        }
-      } else {
-        // Si el tipo es "completo", debe estar pagado
-        estadoPago = 'pagado';
-      }
-
-      // Actualizar la reserva
+      // Marcar la reserva pendiente como procesada
       await pool.request()
-        .input('reserva_id', sql.Int, reservaId)
-        .input('monto_pagado', sql.Decimal(10, 2), nuevoMontoPagado)
-        .input('estado_pago', sql.VarChar, estadoPago)
+        .input('token', sql.NVarChar, token)
         .query(`
-          UPDATE reservas_cabanas
-          SET
-            estado_pago = @estado_pago,
-            monto_pagado = @monto_pagado,
-            estado = 'confirmada'
-          WHERE id = @reserva_id
+          UPDATE reservas_pendientes
+          SET estado = 'procesada'
+          WHERE webpay_token = @token
         `);
 
-      console.log(`✅ Reserva ${reservaId} actualizada como PAGADA`);
+      console.log(`✅ Pago procesado completamente - Reserva ID: ${reservaId}`);
 
       // Redirigir al frontend con éxito
-      return res.redirect(`${FRONTEND_URL}/?pago=exitoso&reserva_id=${reservaId}`);
+      return res.redirect(`${FRONTEND_URL}/reserva-cabanas?pago=exitoso&reserva_id=${reservaId}`);
 
     } else {
       console.log('❌ Pago RECHAZADO o FALLIDO');
@@ -226,8 +312,19 @@ exports.confirmarTransaccion = async (req, res) => {
           WHERE token = @token
         `);
 
+      // Marcar la reserva pendiente como cancelada (NO se crea la reserva)
+      await pool.request()
+        .input('token', sql.NVarChar, token)
+        .query(`
+          UPDATE reservas_pendientes
+          SET estado = 'cancelada'
+          WHERE webpay_token = @token
+        `);
+
+      console.log('✅ Reserva pendiente marcada como cancelada - NO se creó reserva');
+
       // Redirigir al frontend con error
-      return res.redirect(`${FRONTEND_URL}/?pago=error&codigo=${commitResponse.response_code}`);
+      return res.redirect(`${FRONTEND_URL}/reserva-cabanas?pago=error&codigo=${commitResponse.response_code}`);
     }
 
   } catch (error) {

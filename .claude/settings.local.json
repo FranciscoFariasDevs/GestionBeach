@@ -15,7 +15,22 @@
       "Bash(tasklist:*)",
       "Bash(chmod:*)",
       "Bash(taskkill:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(nul)",
+      "Bash(timeout /t 2 /nobreak)",
+      "Bash(Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"cd ''C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\GestionBeach-main\\backend'' ; node server.js\" -WindowStyle Normal)",
+      "Bash(findstr:*)",
+      "Bash(sqlcmd:*)",
+      "Bash(dir scriptscrear_solo_tablas_tickets.sql)",
+      "Bash(npm --version)",
+      "Bash(dir scriptscreate_reservas_pendientes.sql)",
+      "Bash(dir:*)",
+      "Bash(node scripts/crear_tabla_pendientes.js:*)",
+      "Bash(node scripts/agregar_precios_temporada_cabanas.js:*)",
+      "Bash(node scripts/crear_codigos_descuento_cabanas.js:*)",
+      "Bash(node scripts/crear_configuracion_temporada.js:*)",
+      "Bash(timeout 10 npm run build:*)",
+      "Bash(node scripts/test_codigo_descuento.js:*)"
     ],
     "deny": [],
     "ask": []

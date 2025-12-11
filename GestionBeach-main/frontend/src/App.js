@@ -1,6 +1,6 @@
 // frontend/src/App.js - VERSIÓN CORREGIDA CON HOMEPAGE
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { SnackbarProvider } from 'notistack';
@@ -30,6 +30,7 @@ import SorteoConcursoPage from './pages/SorteoConcursoPage'; // 🎲 SORTEO DEL 
 import MaintenancePage from './pages/MaintenancePage'; // 🔧 PÁGINA DE MANTENIMIENTO
 import PagoExitosoPage from './pages/PagoExitosoPage'; // 💳 PÁGINA DE PAGO EXITOSO
 import PagoErrorPage from './pages/PagoErrorPage'; // 💳 PÁGINA DE ERROR EN PAGO
+import ReportarProblemaPage from './pages/ReportarProblemaPage'; // 🎫 REPORTAR PROBLEMA (TICKETS)
 
 // ========================================
 // CONFIGURACIÓN
@@ -57,11 +58,40 @@ import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
 import InventarioPage from './pages/InventarioPage';
 import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
+import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
 
 // ========================================
 // COMPONENTS
 // ========================================
 import ProtectedRoute from './components/ProtectedRoute';
+
+// Componente para limpiar overlays de Shepherd en cada cambio de ruta
+function ShepherdCleanup() {
+  const location = useLocation();
+
+  useEffect(() => {
+    // Limpiar overlays de Shepherd cada vez que cambie la ruta
+    const cleanShepherdOverlays = () => {
+      const overlays = document.querySelectorAll('.shepherd-modal-overlay-container');
+      const elements = document.querySelectorAll('.shepherd-element');
+      const targets = document.querySelectorAll('.shepherd-target');
+
+      overlays.forEach(overlay => overlay.remove());
+      elements.forEach(el => el.remove());
+      targets.forEach(target => {
+        target.classList.remove('shepherd-target');
+        target.classList.remove('shepherd-enabled');
+      });
+
+      // Limpiar cualquier estilo inline que Shepherd pueda haber agregado
+      document.body.style.overflow = '';
+    };
+
+    cleanShepherdOverlays();
+  }, [location.pathname]);
+
+  return null;
+}
 
 function App() {
   // 🔧 VERIFICACIÓN DE MODO MANTENIMIENTO
@@ -101,6 +131,9 @@ function App() {
         >
           <AuthProvider>
             <BrowserRouter>
+              {/* Limpiar overlays de Shepherd en cada cambio de ruta */}
+              <ShepherdCleanup />
+
               <Routes>
                 {/* ========================================== */}
                 {/* RUTAS PÚBLICAS (Sin autenticación)         */}
@@ -127,6 +160,9 @@ function App() {
                 {/* 💳 PÁGINAS DE PAGO - RUTAS PÚBLICAS */}
                 <Route path="/pago-exitoso" element={<PagoExitosoPage />} />
                 <Route path="/pago-error" element={<PagoErrorPage />} />
+
+                {/* 🎫 SISTEMA DE TICKETS - RUTA PÚBLICA */}
+                <Route path="/reportar-problema" element={<ReportarProblemaPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS - INTRANET                  */}
@@ -382,6 +418,19 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/codigos-descuento">
                         <CodigosDescuentoPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* ========================================== */}
+                  {/* SISTEMA DE TICKETS - MIS TICKETS           */}
+                  {/* Solo SuperAdmin, Administrador, Soporte    */}
+                  {/* ========================================== */}
+                  <Route
+                    path="/mis-tickets"
+                    element={
+                      <ProtectedRoute requiredRoute="/mis-tickets">
+                        <MisTicketsPage />
                       </ProtectedRoute>
                     }
                   />
