@@ -180,6 +180,7 @@ const ReservaCabanasPage = () => {
   const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState(null); // 'transferencia' o 'webpay'
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [reservaTransferenciaConfirmada, setReservaTransferenciaConfirmada] = useState(false);
+  const [transferenciaHabilitada, setTransferenciaHabilitada] = useState(true); // Control de horario transferencias
 
   // Estado para comprobante de pago
   const [mostrarComprobante, setMostrarComprobante] = useState(false);
@@ -283,6 +284,47 @@ const ReservaCabanasPage = () => {
       document.title = 'Intranet';
     };
   }, [enqueueSnackbar]);
+
+  // ============================================
+  // VERIFICAR HORARIO PARA TRANSFERENCIAS (8:00 - 16:30)
+  // ============================================
+  useEffect(() => {
+    const verificarHorarioTransferencias = () => {
+      const ahora = new Date();
+      const horaActual = ahora.getHours();
+      const minutosActuales = ahora.getMinutes();
+      const tiempoEnMinutos = horaActual * 60 + minutosActuales;
+
+      const HORA_INICIO = 8 * 60; // 8:00 = 480 minutos
+      const HORA_FIN = 16 * 60 + 30; // 16:30 = 990 minutos
+
+      const habilitado = tiempoEnMinutos >= HORA_INICIO && tiempoEnMinutos <= HORA_FIN;
+
+      // Si cambia el estado de habilitado
+      if (transferenciaHabilitada !== habilitado) {
+        setTransferenciaHabilitada(habilitado);
+
+        // Si se deshabilita y el usuario tiene seleccionada transferencia, deseleccionar
+        if (!habilitado && metodoPagoSeleccionado === 'transferencia') {
+          setMetodoPagoSeleccionado(null);
+          enqueueSnackbar('⏰ Las transferencias bancarias ya no están disponibles (horario 8:00-16:30)', {
+            variant: 'warning',
+            autoHideDuration: 6000
+          });
+        }
+      }
+
+      console.log(`⏰ Verificación horario transferencias: ${ahora.toLocaleTimeString('es-CL')} - ${habilitado ? 'HABILITADO' : 'DESHABILITADO'}`);
+    };
+
+    // Verificar inmediatamente al cargar
+    verificarHorarioTransferencias();
+
+    // Verificar cada minuto
+    const interval = setInterval(verificarHorarioTransferencias, 60000); // 60 segundos
+
+    return () => clearInterval(interval);
+  }, [transferenciaHabilitada, metodoPagoSeleccionado, enqueueSnackbar]);
 
   const WHATSAPP_NUMBER = '+56942652034';
 
@@ -2776,38 +2818,45 @@ const ReservaCabanasPage = () => {
                 {/* Opción 1: Transferencia Bancaria */}
                 <Paper
                   elevation={metodoPagoSeleccionado === 'transferencia' ? 4 : 0}
-                  onClick={() => setMetodoPagoSeleccionado('transferencia')}
+                  onClick={() => transferenciaHabilitada && setMetodoPagoSeleccionado('transferencia')}
                   sx={{
                     p: 2,
                     mb: 2,
-                    cursor: 'pointer',
+                    cursor: transferenciaHabilitada ? 'pointer' : 'not-allowed',
                     border: metodoPagoSeleccionado === 'transferencia' ? '3px solid #2196F3' : '2px solid #E0E0E0',
                     borderRadius: 2,
-                    bgcolor: metodoPagoSeleccionado === 'transferencia' ? '#E3F2FD' : 'white',
+                    bgcolor: !transferenciaHabilitada ? '#F5F5F5' : (metodoPagoSeleccionado === 'transferencia' ? '#E3F2FD' : 'white'),
+                    opacity: transferenciaHabilitada ? 1 : 0.5,
                     transition: 'all 0.3s',
-                    '&:hover': {
+                    '&:hover': transferenciaHabilitada ? {
                       borderColor: '#2196F3',
                       boxShadow: 3
-                    }
+                    } : {}
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-                    <BankIcon sx={{ fontSize: 32, color: '#2196F3' }} />
+                    <BankIcon sx={{ fontSize: 32, color: transferenciaHabilitada ? '#2196F3' : '#9E9E9E' }} />
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="subtitle1" fontWeight={700}>
+                      <Typography variant="subtitle1" fontWeight={700} color={transferenciaHabilitada ? 'inherit' : 'text.disabled'}>
                         Transferencia Bancaria
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Reserva por 2 horas
+                      <Typography variant="caption" color={transferenciaHabilitada ? 'text.secondary' : 'text.disabled'}>
+                        {transferenciaHabilitada ? 'Reserva por 30 minutos' : 'No disponible fuera de horario'}
                       </Typography>
                     </Box>
-                    {metodoPagoSeleccionado === 'transferencia' && (
+                    {metodoPagoSeleccionado === 'transferencia' && transferenciaHabilitada && (
                       <CheckCircleIcon sx={{ fontSize: 28, color: '#2196F3' }} />
                     )}
                   </Box>
-                  <Alert severity="warning" sx={{ fontSize: '0.75rem' }}>
-                    Tienes 2 horas para completar la transferencia o se cancelará automáticamente
-                  </Alert>
+                  {transferenciaHabilitada ? (
+                    <Alert severity="warning" sx={{ fontSize: '0.75rem' }}>
+                      Tienes 30 minutos para completar la transferencia o se cancelará automáticamente
+                    </Alert>
+                  ) : (
+                    <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
+                      Las transferencias bancarias solo están disponibles de 8:00 a 16:30 hrs
+                    </Alert>
+                  )}
                 </Paper>
 
                 {/* Opción 2: Webpay */}
@@ -2853,7 +2902,11 @@ const ReservaCabanasPage = () => {
                     variant="contained"
                     size="large"
                     fullWidth
-                    disabled={!metodoPagoSeleccionado || procesandoPago}
+                    disabled={
+                      !metodoPagoSeleccionado ||
+                      procesandoPago ||
+                      (metodoPagoSeleccionado === 'transferencia' && !transferenciaHabilitada)
+                    }
                     onClick={() => {
                       if (metodoPagoSeleccionado === 'transferencia') {
                         handlePagoTransferencia();
