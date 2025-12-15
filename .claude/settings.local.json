@@ -30,7 +30,15 @@
       "Bash(node scripts/crear_codigos_descuento_cabanas.js:*)",
       "Bash(node scripts/crear_configuracion_temporada.js:*)",
       "Bash(timeout 10 npm run build:*)",
-      "Bash(node scripts/test_codigo_descuento.js:*)"
+      "Bash(node scripts/test_codigo_descuento.js:*)",
+      "Bash(netstat:*)",
+      "Bash(node:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git clean:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
