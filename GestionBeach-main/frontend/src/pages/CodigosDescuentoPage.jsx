@@ -109,13 +109,25 @@ const CodigosDescuentoPage = () => {
         console.error('Error al cargar cabañas del código:', error);
       }
 
+      // Helper function to format dates properly (fixes timezone issue)
+      const formatDateForInput = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        // Sumar 1 día para compensar el timezone
+        date.setDate(date.getDate() + 1);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
       setFormData({
         codigo: codigo.codigo,
         descripcion: codigo.descripcion || '',
         tipo_descuento: codigo.tipo_descuento,
         valor_descuento: codigo.valor_descuento,
-        fecha_inicio: codigo.fecha_inicio ? codigo.fecha_inicio.split('T')[0] : '',
-        fecha_fin: codigo.fecha_fin ? codigo.fecha_fin.split('T')[0] : '',
+        fecha_inicio: formatDateForInput(codigo.fecha_inicio),
+        fecha_fin: formatDateForInput(codigo.fecha_fin),
         usos_maximos: codigo.usos_maximos || '',
         activo: codigo.activo,
         aplica_todas_cabanas: codigo.aplica_todas_cabanas !== undefined ? codigo.aplica_todas_cabanas : true,
@@ -188,13 +200,20 @@ const CodigosDescuentoPage = () => {
         return;
       }
 
+      // Helper para convertir fecha local a formato ISO sin cambio de timezone
+      const formatDateForServer = (dateString) => {
+        if (!dateString) return null;
+        // Agregar tiempo local para evitar cambio de día por timezone
+        return `${dateString}T00:00:00`;
+      };
+
       const payload = {
         codigo: formData.codigo.trim().toUpperCase(),
         descripcion: formData.descripcion.trim(),
         tipo_descuento: formData.tipo_descuento,
         valor_descuento: parseFloat(formData.valor_descuento),
-        fecha_inicio: formData.fecha_inicio || null,
-        fecha_fin: formData.fecha_fin || null,
+        fecha_inicio: formatDateForServer(formData.fecha_inicio),
+        fecha_fin: formatDateForServer(formData.fecha_fin),
         usos_maximos: formData.usos_maximos ? parseInt(formData.usos_maximos) : null,
         activo: formData.activo,
         aplica_todas_cabanas: formData.aplica_todas_cabanas,
@@ -278,6 +297,14 @@ const CodigosDescuentoPage = () => {
       return `${valor}%`;
     }
     return `$${parseFloat(valor).toLocaleString('es-CL')}`;
+  };
+
+  // Helper para mostrar fechas sumando 1 día (compensar timezone)
+  const formatDateDisplay = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    date.setDate(date.getDate() + 1);
+    return date.toLocaleDateString('es-CL');
   };
 
   const getCabanasAplicaChip = (codigo) => {
@@ -379,12 +406,12 @@ const CodigosDescuentoPage = () => {
                   <TableCell align="center">
                     {codigo.fecha_inicio ? (
                       <Typography variant="caption" display="block">
-                        Desde: {new Date(codigo.fecha_inicio).toLocaleDateString('es-CL')}
+                        Desde: {formatDateDisplay(codigo.fecha_inicio)}
                       </Typography>
                     ) : null}
                     {codigo.fecha_fin ? (
                       <Typography variant="caption" display="block">
-                        Hasta: {new Date(codigo.fecha_fin).toLocaleDateString('es-CL')}
+                        Hasta: {formatDateDisplay(codigo.fecha_fin)}
                       </Typography>
                     ) : null}
                     {!codigo.fecha_inicio && !codigo.fecha_fin ? 'Sin límite' : null}

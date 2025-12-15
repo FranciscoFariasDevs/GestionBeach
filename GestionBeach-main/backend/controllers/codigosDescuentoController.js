@@ -504,6 +504,34 @@ exports.incrementarUso = async (req, res) => {
 
     const pool = await poolPromise;
 
+    // Primero verificar que no se haya excedido el límite
+    const codigoResult = await pool.request()
+      .input('id', sql.Int, codigo_id)
+      .query(`
+        SELECT id, codigo, usos_maximos, usos_actuales
+        FROM codigos_descuento
+        WHERE id = @id
+      `);
+
+    if (codigoResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Código no encontrado'
+      });
+    }
+
+    const codigo = codigoResult.recordset[0];
+
+    // Verificar si ya se alcanzó el límite
+    if (codigo.usos_maximos !== null && codigo.usos_actuales >= codigo.usos_maximos) {
+      console.log(`⚠️ Código ${codigo.codigo} ya alcanzó su límite de usos (${codigo.usos_maximos})`);
+      return res.status(400).json({
+        success: false,
+        message: 'El código ya alcanzó su límite de usos'
+      });
+    }
+
+    // Incrementar el uso
     await pool.request()
       .input('id', sql.Int, codigo_id)
       .query(`
@@ -512,7 +540,7 @@ exports.incrementarUso = async (req, res) => {
         WHERE id = @id
       `);
 
-    console.log(`✅ Uso incrementado para código: ${codigo_id}`);
+    console.log(`✅ Uso incrementado para código: ${codigo.codigo} (${codigo.usos_actuales + 1}/${codigo.usos_maximos || '∞'})`);
 
     return res.json({
       success: true,

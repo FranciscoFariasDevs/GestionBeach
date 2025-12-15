@@ -26,6 +26,8 @@ import {
   Popover,
   Paper,
   Button,
+  Fab,
+  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -57,6 +59,7 @@ import {
   Notifications as NotificationsIcon,
   Warning as WarningIcon,
   ConfirmationNumber as ConfirmationNumberIcon,
+  ReportProblem as ReportProblemIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -773,6 +776,30 @@ export default function DashboardLayout() {
         <DrawerHeader />
         {showEmail ? <EmailFrame src="https://beachmarket.cl:2096" title="Correo Electrónico" /> : <Outlet />}
       </Main>
+
+      {/* Botón flotante de Reportar Problema */}
+      <Tooltip title="Reportar Problema" placement="left">
+        <Fab
+          color="error"
+          aria-label="reportar problema"
+          onClick={() => navigate('/reportar-problema')}
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 1000,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+              transform: 'scale(1.1)',
+            },
+            transition: 'all 0.3s ease',
+            boxShadow: '0 4px 20px 0 rgba(102, 126, 234, 0.4)',
+          }}
+        >
+          <ReportProblemIcon />
+        </Fab>
+      </Tooltip>
     </Box>
   );
 }

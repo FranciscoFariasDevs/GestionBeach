@@ -181,6 +181,10 @@ const ReservaCabanasPage = () => {
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [reservaTransferenciaConfirmada, setReservaTransferenciaConfirmada] = useState(false);
   const [transferenciaHabilitada, setTransferenciaHabilitada] = useState(true); // Control de horario transferencias
+  const [transferenciaEnviada, setTransferenciaEnviada] = useState(null); // null = no respondido, true = SI, false = NO
+  const [tiempoRestante, setTiempoRestante] = useState(30 * 60); // 30 minutos en segundos
+  const [fechaLimiteTransferencia, setFechaLimiteTransferencia] = useState(null);
+  const [codigoUsoIncrementado, setCodigoUsoIncrementado] = useState(false); // Para evitar incrementar múltiples veces
 
   // Estado para comprobante de pago
   const [mostrarComprobante, setMostrarComprobante] = useState(false);
@@ -286,6 +290,32 @@ const ReservaCabanasPage = () => {
   }, [enqueueSnackbar]);
 
   // ============================================
+  // CONTADOR REGRESIVO PARA TRANSFERENCIAS
+  // ============================================
+  useEffect(() => {
+    if (!reservaTransferenciaConfirmada || !fechaLimiteTransferencia) return;
+
+    const interval = setInterval(() => {
+      const ahora = new Date();
+      const diferencia = Math.floor((fechaLimiteTransferencia - ahora) / 1000);
+
+      if (diferencia <= 0) {
+        setTiempoRestante(0);
+        clearInterval(interval);
+        // Aquí podrías agregar lógica para cancelar la reserva automáticamente
+        enqueueSnackbar('⏰ El tiempo para completar la transferencia ha expirado', {
+          variant: 'error',
+          autoHideDuration: 8000
+        });
+      } else {
+        setTiempoRestante(diferencia);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [reservaTransferenciaConfirmada, fechaLimiteTransferencia, enqueueSnackbar]);
+
+  // ============================================
   // VERIFICAR HORARIO PARA TRANSFERENCIAS (8:00 - 16:30)
   // ============================================
   useEffect(() => {
@@ -294,11 +324,15 @@ const ReservaCabanasPage = () => {
       const horaActual = ahora.getHours();
       const minutosActuales = ahora.getMinutes();
       const tiempoEnMinutos = horaActual * 60 + minutosActuales;
+      const diaSemana = ahora.getDay(); // 0 = domingo, 1 = lunes, ..., 6 = sábado
 
       const HORA_INICIO = 8 * 60; // 8:00 = 480 minutos
       const HORA_FIN = 16 * 60 + 30; // 16:30 = 990 minutos
 
-      const habilitado = tiempoEnMinutos >= HORA_INICIO && tiempoEnMinutos <= HORA_FIN;
+      // Transferencias habilitadas solo si:
+      // 1. Está en el horario permitido (8:00 - 16:30)
+      // 2. NO es domingo (día 0)
+      const habilitado = tiempoEnMinutos >= HORA_INICIO && tiempoEnMinutos <= HORA_FIN && diaSemana !== 0;
 
       // Si cambia el estado de habilitado
       if (transferenciaHabilitada !== habilitado) {
@@ -307,7 +341,10 @@ const ReservaCabanasPage = () => {
         // Si se deshabilita y el usuario tiene seleccionada transferencia, deseleccionar
         if (!habilitado && metodoPagoSeleccionado === 'transferencia') {
           setMetodoPagoSeleccionado(null);
-          enqueueSnackbar('⏰ Las transferencias bancarias ya no están disponibles (horario 8:00-16:30)', {
+          const mensaje = diaSemana === 0
+            ? '🚫 Las transferencias bancarias no están disponibles los domingos. Por favor, usa WebPay.'
+            : '⏰ Las transferencias bancarias ya no están disponibles (horario 8:00-16:30)';
+          enqueueSnackbar(mensaje, {
             variant: 'warning',
             autoHideDuration: 6000
           });
@@ -327,6 +364,15 @@ const ReservaCabanasPage = () => {
   }, [transferenciaHabilitada, metodoPagoSeleccionado, enqueueSnackbar]);
 
   const WHATSAPP_NUMBER = '+56942652034';
+
+  // ============================================
+  // FUNCIÓN PARA FORMATEAR TIEMPO RESTANTE
+  // ============================================
+  const formatearTiempoRestante = (segundos) => {
+    const minutos = Math.floor(segundos / 60);
+    const segs = segundos % 60;
+    return `${minutos}:${segs.toString().padStart(2, '0')}`;
+  };
 
   // ============================================
   // FUNCIÓN PARA COPIAR AL PORTAPAPELES (Con fallback para HTTP)
@@ -1402,15 +1448,18 @@ const ReservaCabanasPage = () => {
 
       if (response.data.success && response.data.valido) {
         setCodigoValidado(response.data.data);
+        setCodigoUsoIncrementado(false); // Resetear para el nuevo código
         enqueueSnackbar(`✅ Código aplicado: ${response.data.data.descripcion}`, { variant: 'success' });
       } else {
         setErrorCodigo('Código no válido');
         setCodigoValidado(null);
+        setCodigoUsoIncrementado(false);
       }
     } catch (error) {
       console.error('Error al validar código:', error);
       setErrorCodigo(error.response?.data?.message || 'Código no válido');
       setCodigoValidado(null);
+      setCodigoUsoIncrementado(false);
     } finally {
       setValidandoCodigo(false);
     }
@@ -1658,16 +1707,28 @@ const ReservaCabanasPage = () => {
       setProcesandoPago(true);
 
       // ============================================
-      // VERIFICAR HORARIO PERMITIDO (8:00 - 16:30)
+      // VERIFICAR HORARIO PERMITIDO (8:00 - 16:30) Y QUE NO SEA DOMINGO
       // ============================================
       const ahora = new Date();
       const horaActual = ahora.getHours();
       const minutosActuales = ahora.getMinutes();
       const tiempoEnMinutos = horaActual * 60 + minutosActuales;
+      const diaSemana = ahora.getDay(); // 0 = domingo
 
       const HORA_INICIO = 8 * 60; // 8:00 = 480 minutos
       const HORA_FIN = 16 * 60 + 30; // 16:30 = 990 minutos
 
+      // Verificar si es domingo
+      if (diaSemana === 0) {
+        enqueueSnackbar(
+          '🚫 Los pagos por transferencia no están disponibles los domingos. Por favor, usa WebPay para completar tu reserva.',
+          { variant: 'error', autoHideDuration: 7000 }
+        );
+        setProcesandoPago(false);
+        return;
+      }
+
+      // Verificar horario
       if (tiempoEnMinutos < HORA_INICIO || tiempoEnMinutos > HORA_FIN) {
         enqueueSnackbar(
           '⏰ Los pagos por transferencia solo están disponibles entre las 8:00 y 16:30 hrs',
@@ -1750,6 +1811,18 @@ const ReservaCabanasPage = () => {
 
       const response = await api.post('/cabanas/reservas/publico', reservaData);
 
+      // Incrementar uso del código de descuento si existe (solo una vez)
+      if (codigoValidado && !codigoUsoIncrementado) {
+        try {
+          await api.post('/codigos-descuento/incrementar-uso', {
+            codigo_id: codigoValidado.id
+          });
+          setCodigoUsoIncrementado(true);
+        } catch (error) {
+          console.error('Error al incrementar uso del código:', error);
+        }
+      }
+
       enqueueSnackbar('✅ Reserva creada. Tienes 30 minutos para enviar el comprobante de transferencia', {
         variant: 'success',
         autoHideDuration: 6000
@@ -1763,8 +1836,11 @@ const ReservaCabanasPage = () => {
         autoHideDuration: 10000
       });
 
-      // Activar el estado para mostrar el botón de WhatsApp
+      // Activar el estado para mostrar la pregunta de confirmación
       setReservaTransferenciaConfirmada(true);
+      setFechaLimiteTransferencia(fechaLimite);
+      setTiempoRestante(30 * 60); // 30 minutos en segundos
+      setTransferenciaEnviada(null); // Resetear estado
       cargarDatos();
 
     } catch (error) {
@@ -1842,11 +1918,16 @@ const ReservaCabanasPage = () => {
 
       const { token, url } = pagoResponse.data.data;
 
-      // Incrementar uso del código de descuento si existe
-      if (codigoValidado) {
-        await api.post('/codigos-descuento/incrementar-uso', {
-          codigo_id: codigoValidado.id
-        });
+      // Incrementar uso del código de descuento si existe (solo una vez)
+      if (codigoValidado && !codigoUsoIncrementado) {
+        try {
+          await api.post('/codigos-descuento/incrementar-uso', {
+            codigo_id: codigoValidado.id
+          });
+          setCodigoUsoIncrementado(true);
+        } catch (error) {
+          console.error('Error al incrementar uso del código:', error);
+        }
       }
 
       // Crear formulario para redirección POST a Webpay
@@ -1989,20 +2070,34 @@ const ReservaCabanasPage = () => {
                 color: 'white',
                 borderRadius: 2,
                 display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: 2
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'center', sm: 'flex-start' } }}>
                 <BedIcon sx={{ fontSize: 36 }} />
                 <Typography variant="h5" sx={{ fontWeight: 900 }}>
                   {selectedCabana?.nombre}
                 </Typography>
               </Box>
 
-              <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                <Box sx={{ textAlign: 'center', bgcolor: 'rgba(255,255,255,0.2)', px: 2, py: 1, borderRadius: 1 }}>
+              <Box sx={{
+                display: 'flex',
+                gap: { xs: 1.5, sm: 3 },
+                alignItems: 'center',
+                flexDirection: { xs: 'column', sm: 'row' },
+                width: { xs: '100%', sm: 'auto' }
+              }}>
+                <Box sx={{
+                  textAlign: 'center',
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  px: 2,
+                  py: 1,
+                  borderRadius: 1,
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
                   <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
                     Capacidad
                   </Typography>
@@ -2011,7 +2106,14 @@ const ReservaCabanasPage = () => {
                   </Typography>
                 </Box>
 
-                <Box sx={{ textAlign: 'center', bgcolor: 'rgba(255,255,255,0.2)', px: 2, py: 1, borderRadius: 1 }}>
+                <Box sx={{
+                  textAlign: 'center',
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  px: 2,
+                  py: 1,
+                  borderRadius: 1,
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
                   <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
                     Precio por Noche
                   </Typography>
@@ -2841,7 +2943,7 @@ const ReservaCabanasPage = () => {
                         Transferencia Bancaria
                       </Typography>
                       <Typography variant="caption" color={transferenciaHabilitada ? 'text.secondary' : 'text.disabled'}>
-                        {transferenciaHabilitada ? 'Reserva por 30 minutos' : 'No disponible fuera de horario'}
+                        {transferenciaHabilitada ? 'Reserva por 30 minutos' : 'No disponible'}
                       </Typography>
                     </Box>
                     {metodoPagoSeleccionado === 'transferencia' && transferenciaHabilitada && (
@@ -2854,7 +2956,9 @@ const ReservaCabanasPage = () => {
                     </Alert>
                   ) : (
                     <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
-                      Las transferencias bancarias solo están disponibles de 8:00 a 16:30 hrs
+                      {new Date().getDay() === 0
+                        ? '🚫 Las transferencias no están disponibles los domingos. Usa WebPay para completar tu reserva.'
+                        : '⏰ Las transferencias solo están disponibles de lunes a sábado, de 8:00 a 16:30 hrs'}
                     </Alert>
                   )}
                 </Paper>
@@ -2948,51 +3052,151 @@ const ReservaCabanasPage = () => {
 
             <Stack spacing={2} sx={{ mt: 2 }}>
               {reservaTransferenciaConfirmada && (
-                <Paper elevation={3} sx={{ p: 3, bgcolor: '#E3F2FD', borderRadius: 2, border: '3px solid #25D366' }}>
-                  <Box sx={{ textAlign: 'center', mb: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 1 }}>
-                      <WhatsAppIcon sx={{ fontSize: 40, color: '#25D366' }} />
-                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                        ✅ Reserva Confirmada - Enviar Comprobante
-                      </Typography>
-                    </Box>
-                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 600 }}>
-                      Transfiere <strong style={{ color: '#D32F2F', fontSize: '1.2rem' }}>${montoPagar.toLocaleString('es-CL')}</strong> y envía tu comprobante por WhatsApp:
+                <Paper elevation={4} sx={{ p: 3, borderRadius: 3, border: '3px solid #FF9800' }}>
+                  {/* Contador regresivo */}
+                  <Box sx={{ textAlign: 'center', mb: 3, p: 2, bgcolor: tiempoRestante <= 300 ? '#FFEBEE' : '#FFF3E0', borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      Tiempo restante para completar la transferencia:
+                    </Typography>
+                    <Typography variant="h3" sx={{ fontWeight: 900, color: tiempoRestante <= 300 ? '#D32F2F' : '#F57C00', fontFamily: 'monospace' }}>
+                      {formatearTiempoRestante(tiempoRestante)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {tiempoRestante <= 300 ? '⚠️ ¡Quedan menos de 5 minutos!' : '⏰ No olvides enviar tu comprobante'}
                     </Typography>
                   </Box>
-                  <Stack spacing={2}>
-                    <Button
-                      variant="contained"
-                      size="large"
-                      fullWidth
-                      startIcon={<WhatsAppIcon />}
-                      onClick={abrirWhatsApp}
-                      sx={{
-                        bgcolor: '#25D366',
-                        color: 'white',
-                        fontWeight: 900,
-                        fontSize: '1.1rem',
-                        py: 1.5,
-                        '&:hover': { bgcolor: '#20BA5A' }
-                      }}
-                    >
-                      📲 Enviar Comprobante al {WHATSAPP_NUMBER}
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="medium"
-                      fullWidth
-                      onClick={cerrarDialogoReserva}
-                      sx={{
-                        borderColor: '#757575',
-                        color: '#424242',
-                        fontWeight: 600,
-                        '&:hover': { borderColor: '#424242', bgcolor: '#F5F5F5' }
-                      }}
-                    >
-                      Cerrar
-                    </Button>
-                  </Stack>
+
+                  {/* Si aún no ha respondido */}
+                  {transferenciaEnviada === null && (
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h5" sx={{ fontWeight: 900, mb: 3, color: '#1976D2' }}>
+                        ¿Ya enviaste la transferencia?
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                          <Button
+                            variant="contained"
+                            size="large"
+                            fullWidth
+                            onClick={() => setTransferenciaEnviada(true)}
+                            sx={{
+                              py: 2,
+                              fontSize: '1.2rem',
+                              fontWeight: 900,
+                              background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                              boxShadow: 4,
+                              '&:hover': {
+                                boxShadow: 6,
+                                background: 'linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%)'
+                              }
+                            }}
+                          >
+                            ✅ SÍ
+                          </Button>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <Button
+                            variant="contained"
+                            size="large"
+                            fullWidth
+                            onClick={() => setTransferenciaEnviada(false)}
+                            sx={{
+                              py: 2,
+                              fontSize: '1.2rem',
+                              fontWeight: 900,
+                              background: 'linear-gradient(135deg, #F44336 0%, #C62828 100%)',
+                              boxShadow: 4,
+                              '&:hover': {
+                                boxShadow: 6,
+                                background: 'linear-gradient(135deg, #C62828 0%, #B71C1C 100%)'
+                              }
+                            }}
+                          >
+                            ❌ NO
+                          </Button>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
+
+                  {/* Si respondió NO */}
+                  {transferenciaEnviada === false && (
+                    <Box>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        📋 Realiza la transferencia y luego envía el comprobante
+                      </Alert>
+                      <Typography variant="body1" sx={{ mb: 2, fontWeight: 600, textAlign: 'center' }}>
+                        Transfiere <strong style={{ color: '#D32F2F', fontSize: '1.3rem' }}>${montoPagar.toLocaleString('es-CL')}</strong>
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        size="large"
+                        fullWidth
+                        startIcon={<WhatsAppIcon />}
+                        onClick={abrirWhatsApp}
+                        sx={{
+                          bgcolor: '#25D366',
+                          color: 'white',
+                          fontWeight: 900,
+                          fontSize: '1.1rem',
+                          py: 1.5,
+                          mb: 2,
+                          '&:hover': { bgcolor: '#20BA5A' }
+                        }}
+                      >
+                        📲 Enviar Comprobante al {WHATSAPP_NUMBER}
+                      </Button>
+                      <Button
+                        variant="text"
+                        fullWidth
+                        onClick={() => setTransferenciaEnviada(null)}
+                        sx={{ color: '#757575' }}
+                      >
+                        ← Volver
+                      </Button>
+                    </Box>
+                  )}
+
+                  {/* Si respondió SÍ */}
+                  {transferenciaEnviada === true && (
+                    <Box>
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        ✅ ¡Excelente! Tu reserva quedará en estado PENDIENTE hasta que se confirme el pago
+                      </Alert>
+                      <Typography variant="body2" sx={{ mb: 2, textAlign: 'center', color: 'text.secondary' }}>
+                        El administrador revisará tu transferencia y confirmará tu reserva a la brevedad.
+                      </Typography>
+                      <Stack spacing={1.5}>
+                        <Button
+                          variant="contained"
+                          size="large"
+                          fullWidth
+                          startIcon={<WhatsAppIcon />}
+                          onClick={abrirWhatsApp}
+                          sx={{
+                            bgcolor: '#25D366',
+                            color: 'white',
+                            fontWeight: 700,
+                            '&:hover': { bgcolor: '#20BA5A' }
+                          }}
+                        >
+                          📲 Enviar Comprobante (Opcional)
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          onClick={cerrarDialogoReserva}
+                          sx={{
+                            borderColor: '#1976D2',
+                            color: '#1976D2',
+                            fontWeight: 600
+                          }}
+                        >
+                          Cerrar
+                        </Button>
+                      </Stack>
+                    </Box>
+                  )}
                 </Paper>
               )}
 

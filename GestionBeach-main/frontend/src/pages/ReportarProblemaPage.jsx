@@ -1,5 +1,6 @@
 // frontend/src/pages/ReportarProblemaPage.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -35,33 +36,13 @@ import {
   Speed as SpeedIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
-import { keyframes } from '@mui/system';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
-
-// Animaciones
-const pulse = keyframes`
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-`;
-
-const slideIn = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
-
-const shimmer = keyframes`
-  0% { background-position: -1000px 0; }
-  100% { background-position: 1000px 0; }
-`;
 
 const ReportarProblemaPage = () => {
   const { enqueueSnackbar } = useSnackbar();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Estados del formulario
   const [asunto, setAsunto] = useState('');
@@ -78,6 +59,15 @@ const ReportarProblemaPage = () => {
   const [ticketCreado, setTicketCreado] = useState(false);
   const [ticketNumero, setTicketNumero] = useState('');
   const [categorias, setCategorias] = useState([]);
+
+  // Auto-completar datos del usuario autenticado
+  useEffect(() => {
+    if (user) {
+      setNombreReportante(user.nombre_completo || user.username || '');
+      // No se requiere email para usuarios autenticados
+      setEmailReportante('');
+    }
+  }, [user]);
 
   // Cargar categorías
   useEffect(() => {
@@ -104,20 +94,25 @@ const ReportarProblemaPage = () => {
       enqueueSnackbar('Por favor describe el problema', { variant: 'warning' });
       return false;
     }
-    if (!nombreReportante.trim()) {
-      enqueueSnackbar('Por favor ingresa tu nombre', { variant: 'warning' });
-      return false;
-    }
-    if (!emailReportante.trim()) {
-      enqueueSnackbar('Por favor ingresa tu email', { variant: 'warning' });
-      return false;
-    }
 
-    // Validar email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(emailReportante)) {
-      enqueueSnackbar('Por favor ingresa un email válido', { variant: 'warning' });
-      return false;
+    // Solo validar nombre y email si NO está autenticado
+    if (!user) {
+      if (!nombreReportante.trim()) {
+        enqueueSnackbar('Por favor ingresa tu nombre', { variant: 'warning' });
+        return false;
+      }
+
+      if (!emailReportante.trim()) {
+        enqueueSnackbar('Por favor ingresa tu email', { variant: 'warning' });
+        return false;
+      }
+
+      // Validar formato de email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(emailReportante)) {
+        enqueueSnackbar('Por favor ingresa un email válido', { variant: 'warning' });
+        return false;
+      }
     }
 
     return true;
@@ -131,25 +126,41 @@ const ReportarProblemaPage = () => {
     setLoading(true);
 
     try {
-      const response = await api.post('/tickets/crear', {
+      const datosTicket = {
         asunto: asunto.trim(),
         mensaje: mensaje.trim(),
-        nombre_reportante: nombreReportante.trim(),
-        email_reportante: emailReportante.trim().toLowerCase(),
-        telefono_reportante: telefonoReportante.trim() || null,
-        departamento: departamento.trim() || null,
         prioridad,
         categoria: categoria || null,
-      });
+      };
+
+      // Solo agregar datos de contacto si NO está autenticado
+      if (!user) {
+        datosTicket.nombre_reportante = nombreReportante.trim();
+        datosTicket.email_reportante = emailReportante.trim().toLowerCase();
+        datosTicket.telefono_reportante = telefonoReportante.trim() || null;
+        datosTicket.departamento = departamento.trim() || null;
+      }
+
+      console.log('📤 Enviando ticket:', datosTicket);
+      console.log('👤 Usuario autenticado:', user);
+
+      const response = await api.post('/tickets/crear', datosTicket);
 
       if (response.data.success) {
-        setTicketNumero(response.data.ticket.numero_ticket);
-        setTicketCreado(true);
-        enqueueSnackbar('Ticket creado exitosamente', { variant: 'success' });
+        enqueueSnackbar(`✅ Ticket ${response.data.ticket.numero_ticket} creado exitosamente`, {
+          variant: 'success',
+          autoHideDuration: 4000
+        });
+
+        // Esperar un momento para que el usuario vea el mensaje y luego redirigir
+        setTimeout(() => {
+          navigate('/welcome');
+        }, 1500);
       }
 
     } catch (error) {
-      console.error('Error al crear ticket:', error);
+      console.error('❌ Error completo:', error);
+      console.error('❌ Respuesta del servidor:', error.response?.data);
       const errorMsg = error.response?.data?.message || 'Error al crear el ticket';
       enqueueSnackbar(errorMsg, { variant: 'error' });
     } finally {
@@ -207,7 +218,6 @@ const ReportarProblemaPage = () => {
                     bgcolor: '#4CAF50',
                     mx: 'auto',
                     mb: 3,
-                    animation: `${pulse} 2s ease-in-out infinite`,
                     boxShadow: '0 10px 30px rgba(76, 175, 80, 0.4)',
                   }}
                 >
@@ -253,9 +263,11 @@ const ReportarProblemaPage = () => {
                   <Typography variant="body2" fontWeight="bold" gutterBottom>
                     ¿Qué sigue?
                   </Typography>
-                  <Typography variant="body2">
-                    • Recibirás un email de confirmación a <strong>{emailReportante}</strong>
-                  </Typography>
+                  {!user && emailReportante && (
+                    <Typography variant="body2">
+                      • Recibirás un email de confirmación a <strong>{emailReportante}</strong>
+                    </Typography>
+                  )}
                   <Typography variant="body2">
                     • Nuestro equipo revisará tu ticket a la brevedad
                   </Typography>
@@ -302,27 +314,8 @@ const ReportarProblemaPage = () => {
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         py: { xs: 4, md: 6 },
         position: 'relative',
-        overflow: 'hidden',
       }}
     >
-      {/* Círculos decorativos */}
-      {[...Array(5)].map((_, i) => (
-        <Box
-          key={i}
-          sx={{
-            position: 'absolute',
-            width: { xs: 150, md: 300 },
-            height: { xs: 150, md: 300 },
-            borderRadius: '50%',
-            background: 'rgba(255, 255, 255, 0.1)',
-            top: `${Math.random() * 100}%`,
-            left: `${Math.random() * 100}%`,
-            animation: `${pulse} ${3 + i}s ease-in-out infinite`,
-            zIndex: 0,
-          }}
-        />
-      ))}
-
       <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
         <Fade in timeout={600}>
           <Box sx={{ textAlign: 'center', mb: 4 }}>
@@ -375,7 +368,6 @@ const ReportarProblemaPage = () => {
                 sx={{
                   borderRadius: 3,
                   boxShadow: '0 16px 48px rgba(0, 0, 0, 0.2)',
-                  animation: `${slideIn} 0.6s ease-out`,
                 }}
               >
                 <CardContent sx={{ p: { xs: 2, md: 4 } }}>
@@ -488,72 +480,98 @@ const ReportarProblemaPage = () => {
                       }}
                     />
 
-                    <Typography variant="h6" fontWeight="bold" sx={{ pt: 2 }}>
-                      Tus Datos de Contacto
-                    </Typography>
+                    {/* Mostrar info del usuario si está autenticado */}
+                    {user ? (
+                      <Alert
+                        severity="info"
+                        icon={<PersonIcon />}
+                        sx={{
+                          mt: 2,
+                          borderRadius: 2,
+                          '& .MuiAlert-message': {
+                            width: '100%'
+                          }
+                        }}
+                      >
+                        <Typography variant="body1">
+                          Reportando como: <strong>{user.nombre_completo || user.username}</strong>
+                        </Typography>
+                        {user.email && (
+                          <Typography variant="body2" color="text.secondary">
+                            {user.email}
+                          </Typography>
+                        )}
+                      </Alert>
+                    ) : (
+                      <>
+                        <Typography variant="h6" fontWeight="bold" sx={{ pt: 2 }}>
+                          Tus Datos de Contacto
+                        </Typography>
 
-                    {/* Nombre */}
-                    <TextField
-                      label="Nombre Completo"
-                      value={nombreReportante}
-                      onChange={(e) => setNombreReportante(e.target.value)}
-                      disabled={loading}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                        {/* Nombre */}
+                        <TextField
+                          label="Nombre Completo"
+                          value={nombreReportante}
+                          onChange={(e) => setNombreReportante(e.target.value)}
+                          disabled={loading}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <PersonIcon color="primary" />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
 
-                    {/* Email */}
-                    <TextField
-                      label="Email"
-                      type="email"
-                      value={emailReportante}
-                      onChange={(e) => setEmailReportante(e.target.value)}
-                      disabled={loading}
-                      required
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <EmailIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                        {/* Email */}
+                        <TextField
+                          label="Email"
+                          type="email"
+                          value={emailReportante}
+                          onChange={(e) => setEmailReportante(e.target.value)}
+                          disabled={loading}
+                          required
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <EmailIcon color="primary" />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
 
-                    {/* Teléfono */}
-                    <TextField
-                      label="Teléfono (Opcional)"
-                      value={telefonoReportante}
-                      onChange={(e) => setTelefonoReportante(e.target.value)}
-                      disabled={loading}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PhoneIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                        {/* Teléfono */}
+                        <TextField
+                          label="Teléfono (Opcional)"
+                          value={telefonoReportante}
+                          onChange={(e) => setTelefonoReportante(e.target.value)}
+                          disabled={loading}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <PhoneIcon color="primary" />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
 
-                    {/* Departamento */}
-                    <TextField
-                      label="Departamento/Área (Opcional)"
-                      value={departamento}
-                      onChange={(e) => setDepartamento(e.target.value)}
-                      disabled={loading}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <BusinessIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
+                        {/* Departamento */}
+                        <TextField
+                          label="Departamento/Área (Opcional)"
+                          value={departamento}
+                          onChange={(e) => setDepartamento(e.target.value)}
+                          disabled={loading}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <BusinessIcon color="primary" />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                      </>
+                    )}
                   </Stack>
 
                   {loading && <LinearProgress sx={{ mt: 3 }} />}
@@ -571,20 +589,7 @@ const ReportarProblemaPage = () => {
                       fontSize: '1.1rem',
                       fontWeight: 800,
                       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: '-100%',
-                        width: '100%',
-                        height: '100%',
-                        background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-                        animation: `${shimmer} 2s infinite`,
-                      },
                       '&:hover': {
-                        transform: 'translateY(-2px)',
                         boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
                       },
                     }}

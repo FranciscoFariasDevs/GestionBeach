@@ -30,6 +30,10 @@ import {
   ListItemText,
   Badge,
   Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   ConfirmationNumber as TicketIcon,
@@ -49,6 +53,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { keyframes } from '@mui/system';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
 
 // Animaciones
@@ -70,6 +75,7 @@ const slideUp = keyframes`
 
 const MisTicketsPage = () => {
   const { enqueueSnackbar } = useSnackbar();
+  const { user } = useAuth();
 
   // Estados
   const [tabActual, setTabActual] = useState(0);
@@ -80,6 +86,7 @@ const MisTicketsPage = () => {
   const [dialogoAbierto, setDialogoAbierto] = useState(false);
   const [respuesta, setRespuesta] = useState('');
   const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
+  const [cambiandoEstado, setCambiandoEstado] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -163,6 +170,29 @@ const MisTicketsPage = () => {
       enqueueSnackbar('Error al enviar respuesta', { variant: 'error' });
     } finally {
       setEnviandoRespuesta(false);
+    }
+  };
+
+  const cambiarEstado = async (nuevoEstado) => {
+    setCambiandoEstado(true);
+
+    try {
+      const response = await api.put(`/tickets/${ticketSeleccionado.ticket.id}/estado`, {
+        estado: nuevoEstado,
+        comentario: `Estado cambiado a ${nuevoEstado}`
+      });
+
+      if (response.data.success) {
+        enqueueSnackbar('Estado actualizado exitosamente', { variant: 'success' });
+        // Recargar detalle y lista
+        await abrirDetalle(ticketSeleccionado.ticket.id);
+        await cargarTickets();
+      }
+    } catch (error) {
+      console.error('Error al cambiar estado:', error);
+      enqueueSnackbar('Error al cambiar estado', { variant: 'error' });
+    } finally {
+      setCambiandoEstado(false);
     }
   };
 
@@ -529,9 +559,16 @@ const MisTicketsPage = () => {
                             {tiempoTranscurrido(ticket.fecha_creacion)}
                           </Typography>
 
-                          {ticket.asignado_nombre && (
+                          {ticket.reportante_nombre && (
                             <Typography variant="caption" color="text.secondary" display="block">
                               <PersonIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                              Reportado por: {ticket.usuario_id === user?.id ? 'Tú' : ticket.reportante_nombre}
+                            </Typography>
+                          )}
+
+                          {ticket.asignado_nombre && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              <AssignmentIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
                               Asignado a: {ticket.asignado_nombre}
                             </Typography>
                           )}
@@ -599,32 +636,67 @@ const MisTicketsPage = () => {
               {/* Información del ticket */}
               <Paper elevation={1} sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
                 <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <Typography variant="caption" color="text.secondary">
-                      Estado:
-                    </Typography>
-                    <Chip
-                      label={ticketSeleccionado.ticket.estado.replace('_', ' ').toUpperCase()}
-                      size="small"
-                      sx={{
-                        bgcolor: obtenerColorEstado(ticketSeleccionado.ticket.estado),
-                        color: 'white',
-                        ml: 1,
-                      }}
-                    />
+                  <Grid item xs={12} md={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Estado</InputLabel>
+                      <Select
+                        value={ticketSeleccionado.ticket.estado}
+                        label="Estado"
+                        onChange={(e) => cambiarEstado(e.target.value)}
+                        disabled={cambiandoEstado}
+                        sx={{
+                          bgcolor: 'white',
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: obtenerColorEstado(ticketSeleccionado.ticket.estado),
+                            borderWidth: 2,
+                          },
+                        }}
+                      >
+                        <MenuItem value="activo">
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <ActiveIcon sx={{ color: '#2196F3' }} />
+                            <Typography>Activo</Typography>
+                          </Stack>
+                        </MenuItem>
+                        <MenuItem value="en_proceso">
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <TimeIcon sx={{ color: '#FF9800' }} />
+                            <Typography>En Proceso</Typography>
+                          </Stack>
+                        </MenuItem>
+                        <MenuItem value="resuelto">
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CheckIcon sx={{ color: '#4CAF50' }} />
+                            <Typography>Resuelto</Typography>
+                          </Stack>
+                        </MenuItem>
+                        <MenuItem value="cancelado">
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CancelIcon sx={{ color: '#9E9E9E' }} />
+                            <Typography>Cancelado</Typography>
+                          </Stack>
+                        </MenuItem>
+                        <MenuItem value="vencido">
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <WarningIcon sx={{ color: '#F44336' }} />
+                            <Typography>Vencido</Typography>
+                          </Stack>
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
                   </Grid>
 
-                  <Grid item xs={6}>
-                    <Typography variant="caption" color="text.secondary">
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
                       Prioridad:
                     </Typography>
                     <Chip
                       label={ticketSeleccionado.ticket.prioridad.toUpperCase()}
-                      size="small"
+                      size="medium"
                       sx={{
                         bgcolor: obtenerColorPrioridad(ticketSeleccionado.ticket.prioridad),
                         color: 'white',
-                        ml: 1,
+                        fontWeight: 'bold',
                       }}
                     />
                   </Grid>

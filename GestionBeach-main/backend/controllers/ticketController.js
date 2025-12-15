@@ -8,28 +8,43 @@ exports.crearTicket = async (req, res) => {
   try {
     const pool = await poolPromise;
 
+    console.log('📥 Datos recibidos en body:', req.body);
+    console.log('👤 Usuario autenticado:', req.user);
+
     const {
       asunto,
       mensaje,
-      nombre_reportante,
-      email_reportante,
-      telefono_reportante,
-      departamento,
       prioridad = 'media',
       categoria
     } = req.body;
 
-    // Validaciones
-    if (!asunto || !mensaje || !nombre_reportante || !email_reportante) {
-      return res.status(400).json({
+    // Verificar que el usuario esté autenticado
+    if (!req.user) {
+      console.error('❌ No hay usuario autenticado');
+      return res.status(401).json({
         success: false,
-        message: 'Faltan campos obligatorios'
+        message: 'Debes estar autenticado para crear un ticket'
       });
     }
 
-    // Obtener usuario_id y sucursal_id si está autenticado
-    const usuario_id = req.usuario?.id || null;
-    const sucursal_id = req.usuario?.sucursal_id || null;
+    // Obtener datos del usuario autenticado
+    const usuario_id = req.user.id;
+    const sucursal_id = req.user.sucursal_id || null;
+    const nombre_reportante = req.user.nombre_completo || req.user.username;
+    const email_reportante = null; // No se requiere email para usuarios autenticados
+    const telefono_reportante = null;
+    const departamento = null;
+
+    console.log('✅ Datos del ticket a crear:', { asunto, mensaje, prioridad, categoria, usuario_id, nombre_reportante });
+
+    // Validaciones
+    if (!asunto || !mensaje) {
+      console.error('❌ Faltan campos obligatorios');
+      return res.status(400).json({
+        success: false,
+        message: 'Asunto y mensaje son obligatorios'
+      });
+    }
 
     // Generar número de ticket usando el procedimiento almacenado
     const resultNumero = await pool.request()
@@ -122,19 +137,20 @@ exports.crearTicket = async (req, res) => {
 };
 
 // ============================================
-// OBTENER MIS TICKETS (PRIVADO)
+// OBTENER MIS TICKETS (PRIVADO) - Muestra TODOS los tickets
 // ============================================
 exports.obtenerMisTickets = async (req, res) => {
   try {
     const pool = await poolPromise;
-    const usuario_id = req.usuario.id;
+    const usuario_id = req.user.id;
     const { estado, limite = 50, pagina = 1 } = req.query;
 
-    let whereClause = 'WHERE t.usuario_id = @usuario_id';
-    const request = pool.request().input('usuario_id', sql.Int, usuario_id);
+    // Mostrar TODOS los tickets (no solo los del usuario)
+    let whereClause = '';
+    const request = pool.request();
 
     if (estado && estado !== 'todos') {
-      whereClause += ' AND t.estado = @estado';
+      whereClause = 'WHERE t.estado = @estado';
       request.input('estado', sql.VarChar(20), estado);
     }
 
@@ -143,34 +159,40 @@ exports.obtenerMisTickets = async (req, res) => {
     request.input('offset', sql.Int, parseInt(offset));
 
     const result = await request.query(`
-      SELECT
-        t.*,
-        s.nombre as sucursal_nombre,
-        u_asignado.nombre as asignado_nombre,
-        tc.nombre as categoria_nombre,
-        tc.color as categoria_color,
-        tc.icono as categoria_icono,
-        (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id) as num_respuestas,
-        (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id AND es_interno = 0) as num_respuestas_publicas
-      FROM tickets t
-      LEFT JOIN sucursales s ON t.sucursal_id = s.id
-      LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
-      LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
-      ${whereClause}
-      ORDER BY
-        CASE t.prioridad
-          WHEN 'critica' THEN 1
-          WHEN 'alta' THEN 2
-          WHEN 'media' THEN 3
-          WHEN 'baja' THEN 4
-        END,
-        t.fecha_creacion DESC
-      OFFSET @offset ROWS
-      FETCH NEXT @limite ROWS ONLY
+      SELECT * FROM (
+        SELECT TOP (@limite + @offset)
+          t.*,
+          s.nombre as sucursal_nombre,
+          u_asignado.nombre_completo as asignado_nombre,
+          u_reportante.nombre_completo as reportante_nombre,
+          tc.nombre as categoria_nombre,
+          tc.color as categoria_color,
+          tc.icono as categoria_icono,
+          (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id) as num_respuestas,
+          (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id AND es_interno = 0) as num_respuestas_publicas,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              CASE t.prioridad
+                WHEN 'critica' THEN 1
+                WHEN 'alta' THEN 2
+                WHEN 'media' THEN 3
+                WHEN 'baja' THEN 4
+              END,
+              t.fecha_creacion DESC
+          ) as RowNum
+        FROM tickets t
+        LEFT JOIN sucursales s ON t.sucursal_id = s.id
+        LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
+        LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
+        LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
+        ${whereClause}
+      ) AS ResultadosConFilas
+      WHERE RowNum > @offset
+      ORDER BY RowNum
     `);
 
     // Obtener conteo total
-    const countRequest = pool.request().input('usuario_id', sql.Int, usuario_id);
+    const countRequest = pool.request();
     if (estado && estado !== 'todos') {
       countRequest.input('estado', sql.VarChar(20), estado);
     }
@@ -238,38 +260,42 @@ exports.obtenerTodosLosTickets = async (req, res) => {
     request.input('offset', sql.Int, parseInt(offset));
 
     const result = await request.query(`
-      SELECT
-        t.*,
-        s.nombre as sucursal_nombre,
-        u_reportante.nombre as reportante_nombre,
-        u_asignado.nombre as asignado_nombre,
-        tc.nombre as categoria_nombre,
-        tc.color as categoria_color,
-        tc.icono as categoria_icono,
-        (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id) as num_respuestas
-      FROM tickets t
-      LEFT JOIN sucursales s ON t.sucursal_id = s.id
-      LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
-      LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
-      LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
-      ${whereClause}
-      ORDER BY
-        CASE t.estado
-          WHEN 'activo' THEN 1
-          WHEN 'en_proceso' THEN 2
-          WHEN 'vencido' THEN 3
-          WHEN 'resuelto' THEN 4
-          WHEN 'cancelado' THEN 5
-        END,
-        CASE t.prioridad
-          WHEN 'critica' THEN 1
-          WHEN 'alta' THEN 2
-          WHEN 'media' THEN 3
-          WHEN 'baja' THEN 4
-        END,
-        t.fecha_creacion DESC
-      OFFSET @offset ROWS
-      FETCH NEXT @limite ROWS ONLY
+      SELECT * FROM (
+        SELECT TOP (@limite + @offset)
+          t.*,
+          s.nombre as sucursal_nombre,
+          u_reportante.nombre_completo as reportante_nombre,
+          u_asignado.nombre_completo as asignado_nombre,
+          tc.nombre as categoria_nombre,
+          tc.color as categoria_color,
+          tc.icono as categoria_icono,
+          (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id) as num_respuestas,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              CASE t.estado
+                WHEN 'activo' THEN 1
+                WHEN 'en_proceso' THEN 2
+                WHEN 'vencido' THEN 3
+                WHEN 'resuelto' THEN 4
+                WHEN 'cancelado' THEN 5
+              END,
+              CASE t.prioridad
+                WHEN 'critica' THEN 1
+                WHEN 'alta' THEN 2
+                WHEN 'media' THEN 3
+                WHEN 'baja' THEN 4
+              END,
+              t.fecha_creacion DESC
+          ) as RowNum
+        FROM tickets t
+        LEFT JOIN sucursales s ON t.sucursal_id = s.id
+        LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
+        LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
+        LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
+        ${whereClause}
+      ) AS ResultadosConFilas
+      WHERE RowNum > @offset
+      ORDER BY RowNum
     `);
 
     // Conteo total
@@ -311,7 +337,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
   try {
     const pool = await poolPromise;
     const { id } = req.params;
-    const usuario_id = req.usuario?.id;
+    const usuario_id = req.user?.id;
 
     // Obtener ticket
     const ticketResult = await pool.request()
@@ -320,10 +346,8 @@ exports.obtenerDetalleTicket = async (req, res) => {
         SELECT
           t.*,
           s.nombre as sucursal_nombre,
-          u_reportante.nombre as reportante_nombre,
-          u_reportante.email as reportante_email,
-          u_asignado.nombre as asignado_nombre,
-          u_asignado.email as asignado_email,
+          u_reportante.nombre_completo as reportante_nombre,
+          u_asignado.nombre_completo as asignado_nombre,
           tc.nombre as categoria_nombre,
           tc.color as categoria_color,
           tc.icono as categoria_icono
@@ -345,7 +369,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
     const ticket = ticketResult.recordset[0];
 
     // Verificar permisos
-    const esAdmin = req.usuario?.perfil === 'SuperAdmin' || req.usuario?.perfil === 'Administrador';
+    const esAdmin = req.user?.perfil === 'SuperAdmin' || req.user?.perfil === 'Administrador';
     if (!esAdmin && ticket.usuario_id !== usuario_id) {
       return res.status(403).json({
         success: false,
@@ -356,7 +380,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
     // Obtener respuestas
     let whereRespuestas = '';
     if (!esAdmin) {
-      whereRespuestas = 'WHERE es_interno = 0';
+      whereRespuestas = 'AND es_interno = 0';
     }
 
     const respuestasResult = await pool.request()
@@ -364,11 +388,10 @@ exports.obtenerDetalleTicket = async (req, res) => {
       .query(`
         SELECT
           r.*,
-          u.nombre as usuario_nombre,
-          u.email as usuario_email
+          u.nombre_completo as nombre_usuario
         FROM ticket_respuestas r
         LEFT JOIN usuarios u ON r.usuario_id = u.id
-        WHERE r.ticket_id = @ticket_id ${whereRespuestas && 'AND ' + whereRespuestas}
+        WHERE r.ticket_id = @ticket_id ${whereRespuestas}
         ORDER BY r.fecha_creacion ASC
       `);
 
@@ -378,7 +401,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
       .query(`
         SELECT
           h.*,
-          u.nombre as usuario_nombre
+          u.nombre_completo as usuario_nombre
         FROM ticket_historial h
         LEFT JOIN usuarios u ON h.usuario_id = u.id
         WHERE h.ticket_id = @ticket_id
@@ -410,8 +433,10 @@ exports.responderTicket = async (req, res) => {
     const pool = await poolPromise;
     const { id } = req.params;
     const { mensaje, es_interno = false } = req.body;
-    const usuario_id = req.usuario.id;
-    const nombre_usuario = req.usuario.nombre;
+    const usuario_id = req.user.id;
+    const nombre_usuario = req.user.nombre_completo || req.user.username || 'Usuario';
+
+    console.log('📥 Responder ticket:', { ticket_id: id, usuario_id, nombre_usuario, mensaje });
 
     if (!mensaje) {
       return res.status(400).json({
@@ -466,7 +491,12 @@ exports.responderTicket = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error al responder ticket:', error);
+    console.error('❌ Error al responder ticket:', error);
+    console.error('❌ Detalles del error:', {
+      message: error.message,
+      stack: error.stack,
+      originalError: error.originalError
+    });
     res.status(500).json({
       success: false,
       message: 'Error al responder ticket',
@@ -483,7 +513,7 @@ exports.cambiarEstadoTicket = async (req, res) => {
     const pool = await poolPromise;
     const { id } = req.params;
     const { estado, comentario } = req.body;
-    const usuario_id = req.usuario.id;
+    const usuario_id = req.user.id;
 
     const estadosValidos = ['activo', 'en_proceso', 'resuelto', 'cancelado', 'vencido'];
     if (!estadosValidos.includes(estado)) {
@@ -557,7 +587,7 @@ exports.asignarTicket = async (req, res) => {
     const pool = await poolPromise;
     const { id } = req.params;
     const { asignado_a } = req.body;
-    const usuario_id = req.usuario.id;
+    const usuario_id = req.user.id;
 
     await pool.request()
       .input('id', sql.Int, id)
@@ -594,8 +624,8 @@ exports.asignarTicket = async (req, res) => {
 exports.obtenerEstadisticas = async (req, res) => {
   try {
     const pool = await poolPromise;
-    const usuario_id = req.usuario.id;
-    const esAdmin = req.usuario.perfil === 'SuperAdmin' || req.usuario.perfil === 'Administrador';
+    const usuario_id = req.user.id;
+    const esAdmin = req.user.perfil === 'SuperAdmin' || req.user.perfil === 'Administrador';
 
     let whereClause = '';
     if (!esAdmin) {

@@ -10,16 +10,20 @@ import {
   Divider,
   IconButton,
   useTheme,
-  alpha
+  alpha,
+  Fab,
+  Tooltip
 } from '@mui/material';
 import {
   WbSunny,
   Brightness3,
   WbTwilight,
   Refresh,
-  AutoAwesome
+  AutoAwesome,
+  ReportProblem as ReportProblemIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 // Frases motivacionales en español
 const frasesMotivacionales = [
@@ -268,6 +272,7 @@ const frasesMotivacionales = [
 const WelcomePage = () => {
   const theme = useTheme();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [greeting, setGreeting] = useState('');
   const [icon, setIcon] = useState(<WbSunny />);
   const [quote, setQuote] = useState(null);
@@ -478,6 +483,30 @@ const WelcomePage = () => {
           </Stack>
         </Fade>
       </Container>
+
+      {/* Botón flotante de Reportar Problema */}
+      <Tooltip title="Reportar Problema" placement="left">
+        <Fab
+          color="error"
+          aria-label="reportar problema"
+          onClick={() => navigate('/reportar-problema')}
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 1000,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+              transform: 'scale(1.1)',
+            },
+            transition: 'all 0.3s ease',
+            boxShadow: '0 4px 20px 0 rgba(102, 126, 234, 0.4)',
+          }}
+        >
+          <ReportProblemIcon />
+        </Fab>
+      </Tooltip>
     </Box>
   );
 };
