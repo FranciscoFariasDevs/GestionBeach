@@ -200,9 +200,7 @@ const RemuneracionesPage = () => {
   const [nuevoPeriodo, setNuevoPeriodo] = useState({
     mes: new Date().getMonth() + 1,
     anio: new Date().getFullYear(),
-    descripcion: '',
-    id_razon_social: '',
-    id_sucursal: ''
+    descripcion: ''
   });
   
   // Estados para tabs y configuración avanzada
@@ -558,9 +556,7 @@ const RemuneracionesPage = () => {
     setNuevoPeriodo({
       mes: new Date().getMonth() + 1,
       anio: new Date().getFullYear(),
-      descripcion: '',
-      id_razon_social: '',
-      id_sucursal: ''
+      descripcion: ''
     });
   };
 
@@ -569,26 +565,59 @@ const RemuneracionesPage = () => {
     try {
       setLoading(true);
       setSelectedPeriodo(periodo);
-      
+
+      // Resetear búsqueda de texto pero mantener filtros de razón social y sucursal
       setFiltroEmpleados('');
-      setFiltroRazonSocialDetalle('todos');
-      setFiltroSucursalDetalle('todos');
       setPaginaActual(1);
       setEmpleadosPorPagina(50);
-      
+
       console.log(`Cargando detalles del período ${periodo.id_periodo}...`);
-      
+      console.log('Razón social del período:', periodo.nombre_razon);
+      console.log('Sucursal del período:', periodo.sucursal_nombre);
+
       const response = await remuneracionesAPI.obtenerDatosPeriodo(periodo.id_periodo);
-      
+
       if (response.data.success) {
-        setSelectedPeriodo({
-          ...periodo,
-          datos: response.data.data
+        // Establecer filtros automáticamente basándose en el período seleccionado
+        const razonSocial = periodo.nombre_razon || 'todos';
+        const sucursal = periodo.sucursal_nombre || 'todos';
+
+        // Solo establecer filtros si el período tiene razón social o sucursal específica
+        if (razonSocial !== 'Sin Razón Social') {
+          setFiltroRazonSocialDetalle(razonSocial);
+        } else {
+          setFiltroRazonSocialDetalle('todos');
+        }
+
+        if (sucursal !== 'Sin Sucursal') {
+          setFiltroSucursalDetalle(sucursal);
+        } else {
+          setFiltroSucursalDetalle('todos');
+        }
+
+        // Filtrar datos según la razón social y sucursal del período
+        const datosFiltrados = response.data.data.filter(emp => {
+          const coincideRazon = razonSocial === 'todos' || razonSocial === 'Sin Razón Social' || emp.nombre_razon === razonSocial;
+          const coincideSucursal = sucursal === 'todos' || sucursal === 'Sin Sucursal' || emp.sucursal_nombre === sucursal;
+          return coincideRazon && coincideSucursal;
         });
+
+        // Actualizar el período con contadores reales
+        const periodoActualizado = {
+          ...periodo,
+          datos: response.data.data,
+          total_registros: datosFiltrados.length,
+          empleados_encontrados: datosFiltrados.length,
+          suma_liquidos: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
+          suma_total_haberes: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.total_haberes) || 0), 0),
+          suma_total_descuentos: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.total_descuentos) || 0), 0)
+        };
+
+        setSelectedPeriodo(periodoActualizado);
         setOpenViewDialog(true);
-        
+
         showSnackbar(
-          `Período cargado: ${response.data.data.length} registros encontrados`, 
+          `Período cargado: ${datosFiltrados.length} registros de ${razonSocial}${sucursal !== 'Sin Sucursal' && sucursal !== 'todos' ? ` - ${sucursal}` : ''}`,
           'success'
         );
       } else {
@@ -1162,24 +1191,51 @@ const RemuneracionesPage = () => {
   // Función para agrupar períodos
   const periodosAgrupados = React.useMemo(() => {
     const grupos = {};
-    
+
     periodosFiltrados.forEach(periodo => {
       const razonKey = periodo.nombre_razon || 'Sin Razón Social';
       const sucursalKey = periodo.sucursal_nombre || 'Sin Sucursal';
-      
+
       if (!grupos[razonKey]) {
         grupos[razonKey] = {};
       }
-      
+
       if (!grupos[razonKey][sucursalKey]) {
         grupos[razonKey][sucursalKey] = [];
       }
-      
+
       grupos[razonKey][sucursalKey].push(periodo);
     });
-    
+
     return grupos;
   }, [periodosFiltrados]);
+
+  // Función para obtener períodos únicos por mes/año (sin duplicados)
+  const periodosUnicos = React.useMemo(() => {
+    const unicos = new Map();
+
+    periodos.forEach(periodo => {
+      const key = `${periodo.mes}-${periodo.anio}`;
+
+      // Si ya existe este mes/año, solo lo agregamos si no tiene razón social/sucursal
+      // o si el existente tiene y este no tiene
+      if (!unicos.has(key)) {
+        unicos.set(key, periodo);
+      } else {
+        const existente = unicos.get(key);
+        // Preferir el período sin razón social/sucursal específica
+        if ((!periodo.nombre_razon || periodo.nombre_razon === 'Sin Razón Social') &&
+            (!periodo.sucursal_nombre || periodo.sucursal_nombre === 'Sin Sucursal')) {
+          unicos.set(key, periodo);
+        }
+      }
+    });
+
+    return Array.from(unicos.values()).sort((a, b) => {
+      if (a.anio !== b.anio) return b.anio - a.anio;
+      return b.mes - a.mes;
+    });
+  }, [periodos]);
 
   // Opciones para filtros en el modal de detalles
   const opcionesFiltroDetalle = React.useMemo(() => {
@@ -1457,154 +1513,289 @@ const RemuneracionesPage = () => {
     </Box>
   );
 
-  // COMPONENTE: Renderizar períodos cards (con funciones esenciales)
-  const renderPeriodosCards = () => (
-    <Grid container spacing={3}>
-      {periodosFiltrados.map((periodo) => (
-        <Grid item xs={12} sm={6} md={4} key={periodo.id_periodo}>
-          <Card sx={{ 
-            height: '100%',
-            transition: 'all 0.3s ease',
-            '&:hover': {
-              transform: 'translateY(-4px)',
-              boxShadow: '0 12px 35px rgba(0,0,0,0.15)'
-            },
-            border: '1px solid rgba(0,0,0,0.05)'
-          }}>
-            <CardHeader
-              avatar={
-                <Avatar sx={{ 
-                  bgcolor: '#f37d16', 
-                  width: 56, 
-                  height: 56,
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                  color: 'white'
-                }}>
-                  {obtenerInicialMes(periodo.mes)}
-                </Avatar>
-              }
-              title={
-                <Typography variant="h6" component="div">
-                  {periodo.descripcion}
-                </Typography>
-              }
-              subheader={
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {periodo.mes}/{periodo.anio}
-                  </Typography>
-                  {periodo.nombre_razon && periodo.nombre_razon !== 'Sin Razón Social' && (
-                    <Chip 
-                      label={periodo.nombre_razon} 
-                      size="small" 
-                      color="info"
-                      sx={{ mt: 0.5, mr: 0.5 }}
-                    />
-                  )}
-                  {periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' && (
-                    <Chip 
-                      label={periodo.sucursal_nombre} 
-                      size="small" 
-                      color="secondary"
-                      sx={{ mt: 0.5 }}
-                    />
-                  )}
-                </Box>
-              }
-              action={
-                <Chip 
-                  label={periodo.estado} 
-                  color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
+  // COMPONENTE: Renderizar un período individual (card)
+  const renderPeriodoCard = (periodo, index) => (
+    <Grid item xs={12} sm={6} md={4} key={`periodo-${periodo.id_periodo}-${periodo.mes}-${periodo.anio}-${index}`}>
+      <Card sx={{
+        height: '100%',
+        transition: 'all 0.3s ease',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: '0 12px 35px rgba(0,0,0,0.15)'
+        },
+        border: '1px solid rgba(0,0,0,0.05)'
+      }}>
+        <CardHeader
+          avatar={
+            <Avatar sx={{
+              bgcolor: '#f37d16',
+              width: 56,
+              height: 56,
+              fontSize: '1rem',
+              fontWeight: 'bold',
+              color: 'white'
+            }}>
+              {obtenerInicialMes(periodo.mes)}
+            </Avatar>
+          }
+          title={
+            <Typography variant="h6" component="div">
+              {periodo.descripcion}
+            </Typography>
+          }
+          subheader={
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                {periodo.mes}/{periodo.anio}
+              </Typography>
+              {periodo.sucursal_nombre && periodo.sucursal_nombre !== 'Sin Sucursal' && (
+                <Chip
+                  label={periodo.sucursal_nombre}
                   size="small"
+                  color="secondary"
+                  sx={{ mt: 0.5 }}
                 />
-              }
+              )}
+            </Box>
+          }
+          action={
+            <Chip
+              label={periodo.estado}
+              color={periodo.estado === 'ACTIVO' ? 'success' : 'default'}
+              size="small"
             />
-            <CardContent>
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="primary">
-                      {periodo.total_registros || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Registros
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="success.main">
-                      {periodo.empleados_encontrados || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Empleados
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={4}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="warning.main">
-                      {periodo.empleados_faltantes || 0}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Faltantes
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
+          }
+        />
+        <CardContent>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="primary">
+                  {periodo.total_registros || 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Registros
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="success.main">
+                  {periodo.empleados_encontrados || 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Empleados
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" color="warning.main">
+                  {periodo.empleados_faltantes || 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Faltantes
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
 
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Nómina:</strong> {formatMoney(periodo.suma_liquidos)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Haberes:</strong> {formatMoney(periodo.suma_total_haberes)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Total Descuentos:</strong> {formatMoney(periodo.suma_total_descuentos)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Cargado:</strong> {periodo.fecha_carga ? 
-                    new Date(periodo.fecha_carga).toLocaleDateString('es-CL') : 
-                    'N/A'
-                  }
-                </Typography>
-              </Box>
-              
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 0.5 }}>
-                <Tooltip title="Ver detalles">
-                  <IconButton size="small" color="primary" onClick={() => handleVerPeriodo(periodo)}>
-                    <VisibilityIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Análisis estadístico">
-                  <IconButton size="small" color="info" onClick={() => handleAnalisisPeriodo(periodo)}>
-                    <PieChartIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Editar período">
-                  <IconButton size="small" color="primary" onClick={() => handleEditarPeriodo(periodo)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Descargar datos">
-                  <IconButton size="small" color="success" onClick={() => descargarDatos(periodo)}>
-                    <DownloadIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Eliminar período">
-                  <IconButton size="small" color="error" onClick={() => handleEliminarPeriodo(periodo)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      ))}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Total Nómina:</strong> {formatMoney(periodo.suma_liquidos)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Total Haberes:</strong> {formatMoney(periodo.suma_total_haberes)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Total Descuentos:</strong> {formatMoney(periodo.suma_total_descuentos)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Cargado:</strong> {periodo.fecha_carga ?
+                new Date(periodo.fecha_carga).toLocaleDateString('es-CL') :
+                'N/A'
+              }
+            </Typography>
+          </Box>
+
+          <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 2, py: 0.5 }}>
+            <Typography variant="caption">
+              Haz clic en "Ver detalles" para ver contadores actualizados
+            </Typography>
+          </Alert>
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 0.5 }}>
+            <Tooltip title="Ver detalles">
+              <IconButton size="small" color="primary" onClick={() => handleVerPeriodo(periodo)}>
+                <VisibilityIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Análisis estadístico">
+              <IconButton size="small" color="info" onClick={() => handleAnalisisPeriodo(periodo)}>
+                <PieChartIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Editar período">
+              <IconButton size="small" color="primary" onClick={() => handleEditarPeriodo(periodo)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Descargar datos">
+              <IconButton size="small" color="success" onClick={() => descargarDatos(periodo)}>
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Eliminar período">
+              <IconButton size="small" color="error" onClick={() => handleEliminarPeriodo(periodo)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </CardContent>
+      </Card>
     </Grid>
   );
+
+  // COMPONENTE: Renderizar períodos agrupados por razón social
+  const renderPeriodosAgrupadosPorRazonSocial = () => {
+    if (periodosFiltrados.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 6 }}>
+          <InfoIcon sx={{ fontSize: 80, color: '#ccc', mb: 2 }} />
+          <Typography variant="h5" color="text.secondary">
+            No hay períodos para mostrar
+          </Typography>
+        </Box>
+      );
+    }
+
+    return (
+      <Box>
+        {Object.entries(periodosAgrupados).map(([razonSocial, sucursales], razonIndex) => {
+          // Calcular totales consolidados para toda la razón social
+          let totalEmpleados = 0;
+          let totalRegistros = 0;
+          let totalLiquidos = 0;
+          let totalHaberes = 0;
+          let totalDescuentos = 0;
+          let totalPeriodosRazon = 0;
+
+          Object.values(sucursales).forEach(periodos => {
+            periodos.forEach(periodo => {
+              totalRegistros += periodo.total_registros || 0;
+              totalEmpleados += periodo.empleados_encontrados || 0;
+              totalLiquidos += parseFloat(periodo.suma_liquidos) || 0;
+              totalHaberes += parseFloat(periodo.suma_total_haberes) || 0;
+              totalDescuentos += parseFloat(periodo.suma_total_descuentos) || 0;
+              totalPeriodosRazon++;
+            });
+          });
+
+          return (
+            <Accordion
+              key={`razon-${razonSocial}-${razonIndex}`}
+              defaultExpanded
+              sx={{
+                mb: 3,
+                border: '1px solid rgba(0,0,0,0.1)',
+                '&:before': { display: 'none' },
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  bgcolor: '#f5f5f5',
+                  borderBottom: '2px solid #f37d16',
+                  '&:hover': { bgcolor: '#eeeeee' }
+                }}
+              >
+                <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', gap: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
+                    <BusinessIcon sx={{ fontSize: 32, color: '#f37d16' }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h5" fontWeight="bold" color="primary">
+                        {razonSocial}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {totalPeriodosRazon} {totalPeriodosRazon === 1 ? 'período' : 'períodos'} • {Object.keys(sucursales).length} {Object.keys(sucursales).length === 1 ? 'sucursal' : 'sucursales'}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Totales consolidados */}
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+                    <Chip
+                      icon={<PeopleIcon />}
+                      label={`${totalEmpleados} empleados`}
+                      color="primary"
+                      size="small"
+                      sx={{ fontWeight: 'bold' }}
+                    />
+                    <Chip
+                      icon={<AssignmentIcon />}
+                      label={`${totalRegistros} registros`}
+                      color="info"
+                      size="small"
+                    />
+                    <Chip
+                      icon={<AttachMoneyIcon />}
+                      label={`Total: ${formatMoney(totalLiquidos)}`}
+                      color="success"
+                      size="small"
+                      sx={{ fontWeight: 'bold' }}
+                    />
+                    <Chip
+                      label={`Haberes: ${formatMoney(totalHaberes)}`}
+                      color="default"
+                      size="small"
+                    />
+                    <Chip
+                      label={`Descuentos: ${formatMoney(totalDescuentos)}`}
+                      color="warning"
+                      size="small"
+                    />
+                  </Box>
+                </Box>
+              </AccordionSummary>
+
+              <AccordionDetails sx={{ p: 3, bgcolor: '#fafafa' }}>
+                {Object.entries(sucursales).map(([sucursal, periodos], sucursalIndex) => (
+                  <Box key={`sucursal-${razonSocial}-${sucursal}-${sucursalIndex}`} sx={{ mb: 3 }}>
+                    {/* Header de sucursal si hay sucursales específicas */}
+                    {sucursal !== 'Sin Sucursal' && (
+                      <Box sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        mb: 2,
+                        pb: 1,
+                        borderBottom: '1px solid #ddd'
+                      }}>
+                        <StoreIcon sx={{ mr: 1, color: '#666' }} />
+                        <Typography variant="h6" color="text.primary">
+                          {sucursal}
+                        </Typography>
+                        <Chip
+                          label={`${periodos.length} ${periodos.length === 1 ? 'período' : 'períodos'}`}
+                          size="small"
+                          sx={{ ml: 2 }}
+                        />
+                      </Box>
+                    )}
+
+                    {/* Grid de períodos */}
+                    <Grid container spacing={3}>
+                      {periodos.map((periodo, periodoIndex) => renderPeriodoCard(periodo, periodoIndex))}
+                    </Grid>
+                  </Box>
+                ))}
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+      </Box>
+    );
+  };
 
   // NOTA: Debido a límites de espacio, las funciones renderFiltros, renderEstadisticas, renderPeriodosAgrupados
   // y todos los dialogs (ver período, análisis, editar, eliminar, crear período) se mantienen igual que en el archivo original.
@@ -1692,7 +1883,7 @@ const RemuneracionesPage = () => {
         </Button>
       </Box>
 
-      {/* Vista de períodos simplificada */}
+      {/* Vista de períodos agrupados por razón social */}
       <Paper>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 6 }}>
@@ -1700,7 +1891,7 @@ const RemuneracionesPage = () => {
           </Box>
         ) : (
           <Box sx={{ p: 3 }}>
-            {renderPeriodosCards()}
+            {renderPeriodosAgrupadosPorRazonSocial()}
           </Box>
         )}
       </Paper>
@@ -1729,20 +1920,55 @@ const RemuneracionesPage = () => {
 
           {/* Paso 0: Seleccionar período */}
           {activeStep === 0 && (
-            <FormControl fullWidth>
-              <InputLabel>Período</InputLabel>
-              <Select
-                value={periodoSeleccionado}
-                onChange={(e) => setPeriodoSeleccionado(e.target.value)}
-                label="Período"
-              >
-                {periodos.map(periodo => (
-                  <MenuItem key={periodo.id_periodo} value={periodo.id_periodo}>
-                    {periodo.descripcion}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Box>
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  Selecciona el mes/año del período. La razón social se especificará en el paso de configuración de porcentajes.
+                </Typography>
+              </Alert>
+              <FormControl fullWidth>
+                <InputLabel>Período</InputLabel>
+                <Select
+                  value={periodoSeleccionado}
+                  onChange={(e) => setPeriodoSeleccionado(e.target.value)}
+                  label="Período"
+                >
+                  {periodosUnicos.map((periodo, index) => (
+                    <MenuItem
+                      key={`select-periodo-unico-${periodo.id_periodo}-${index}`}
+                      value={periodo.id_periodo}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CalendarTodayIcon sx={{ fontSize: 20, color: '#f37d16' }} />
+                        <Typography variant="body1" fontWeight="bold">
+                          {periodo.descripcion || `${obtenerInicialMes(periodo.mes)} ${periodo.anio}`}
+                        </Typography>
+                        {periodo.total_registros > 0 && (
+                          <Chip
+                            label={`${periodo.total_registros} registros`}
+                            size="small"
+                            color="primary"
+                            sx={{ ml: 1 }}
+                          />
+                        )}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {periodoSeleccionado && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Período seleccionado:</strong> {periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.descripcion ||
+                      `${obtenerInicialMes(periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.mes)} ${periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.anio}`}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    Continúa al siguiente paso para cargar el archivo Excel
+                  </Typography>
+                </Alert>
+              )}
+            </Box>
           )}
 
           {/* Paso 1: Cargar archivo */}
@@ -1871,6 +2097,341 @@ const RemuneracionesPage = () => {
               {loading ? 'Procesando...' : 'Procesar Nómina'}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog Ver Detalles */}
+      <Dialog
+        open={openViewDialog}
+        onClose={handleCloseViewDialog}
+        maxWidth="xl"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography variant="h5" fontWeight="bold">
+                Detalles del Período: {selectedPeriodo?.descripcion}
+              </Typography>
+              {selectedPeriodo && (
+                <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+                  <Chip
+                    icon={<PeopleIcon />}
+                    label={`${selectedPeriodo.total_registros || 0} registros`}
+                    color="primary"
+                    size="small"
+                  />
+                  <Chip
+                    icon={<AttachMoneyIcon />}
+                    label={`Total: ${formatMoney(selectedPeriodo.suma_liquidos || 0)}`}
+                    color="success"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </Box>
+            <IconButton onClick={handleCloseViewDialog}>
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {selectedPeriodo?.datos && (
+            <Box>
+              {/* Filtros */}
+              <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField
+                  placeholder="Buscar por nombre o RUT..."
+                  value={filtroEmpleados}
+                  onChange={(e) => setFiltroEmpleados(e.target.value)}
+                  size="small"
+                  sx={{ flexGrow: 1, minWidth: 250 }}
+                />
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Razón Social</InputLabel>
+                  <Select
+                    value={filtroRazonSocialDetalle}
+                    onChange={(e) => setFiltroRazonSocialDetalle(e.target.value)}
+                    label="Razón Social"
+                  >
+                    <MenuItem value="todos">Todas</MenuItem>
+                    {opcionesFiltroDetalle.razonesSociales.map(razon => (
+                      <MenuItem key={razon} value={razon}>{razon}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Sucursal</InputLabel>
+                  <Select
+                    value={filtroSucursalDetalle}
+                    onChange={(e) => setFiltroSucursalDetalle(e.target.value)}
+                    label="Sucursal"
+                  >
+                    <MenuItem value="todos">Todas</MenuItem>
+                    {opcionesFiltroDetalle.sucursales.map(sucursal => (
+                      <MenuItem key={sucursal} value={sucursal}>{sucursal}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+
+              {/* Tabla */}
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>RUT</strong></TableCell>
+                      <TableCell><strong>Nombre</strong></TableCell>
+                      <TableCell><strong>Razón Social</strong></TableCell>
+                      <TableCell><strong>Sucursal</strong></TableCell>
+                      <TableCell align="right"><strong>Líquido a Pagar</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {empleadosPaginados.map((emp, index) => (
+                      <TableRow key={`emp-${emp.rut_empleado}-${index}`}>
+                        <TableCell>{emp.rut_empleado}</TableCell>
+                        <TableCell>{emp.nombre_empleado || emp.nombre_completo}</TableCell>
+                        <TableCell>{emp.nombre_razon}</TableCell>
+                        <TableCell>{emp.sucursal_nombre}</TableCell>
+                        <TableCell align="right">{formatMoney(emp.liquido_pagar)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Paginación */}
+              <TablePagination
+                component="div"
+                count={empleadosFiltrados.length}
+                page={paginaActual - 1}
+                onPageChange={(e, newPage) => setPaginaActual(newPage + 1)}
+                rowsPerPage={empleadosPorPagina}
+                onRowsPerPageChange={(e) => {
+                  setEmpleadosPorPagina(parseInt(e.target.value, 10));
+                  setPaginaActual(1);
+                }}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                labelRowsPerPage="Filas por página:"
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseViewDialog}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog Análisis */}
+      <Dialog
+        open={openAnalysisDialog}
+        onClose={() => setOpenAnalysisDialog(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Typography variant="h5" fontWeight="bold">
+            Análisis Estadístico
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {reporteAnalisis && (
+            <Box sx={{ mt: 2 }}>
+              <Grid container spacing={3}>
+                <Grid item xs={12} sm={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" color="primary">Total Registros</Typography>
+                      <Typography variant="h3">{reporteAnalisis.total_registros || 0}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" color="success.main">Total Nómina</Typography>
+                      <Typography variant="h3">{formatMoney(reporteAnalisis.total_nomina)}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12}>
+                  <Alert severity="info">
+                    <Typography>
+                      Promedio por empleado: {formatMoney(reporteAnalisis.promedio_empleado)}
+                    </Typography>
+                  </Alert>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenAnalysisDialog(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog Editar */}
+      <Dialog
+        open={openEditDialog}
+        onClose={() => setOpenEditDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Typography variant="h5" fontWeight="bold">
+            Editar Período
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {selectedPeriodo && (
+            <Box sx={{ mt: 2 }}>
+              <TextField
+                fullWidth
+                label="Descripción"
+                value={selectedPeriodo.descripcion || ''}
+                onChange={(e) => setSelectedPeriodo({...selectedPeriodo, descripcion: e.target.value})}
+                sx={{ mb: 2 }}
+              />
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>Estado</InputLabel>
+                <Select
+                  value={selectedPeriodo.estado || 'ACTIVO'}
+                  onChange={(e) => setSelectedPeriodo({...selectedPeriodo, estado: e.target.value})}
+                  label="Estado"
+                >
+                  <MenuItem value="ACTIVO">Activo</MenuItem>
+                  <MenuItem value="CERRADO">Cerrado</MenuItem>
+                  <MenuItem value="PROCESADO">Procesado</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditDialog(false)}>Cancelar</Button>
+          <Button
+            onClick={() => guardarEdicion(selectedPeriodo)}
+            variant="contained"
+            disabled={loading}
+          >
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog Eliminar */}
+      <Dialog
+        open={openDeleteDialog}
+        onClose={() => setOpenDeleteDialog(false)}
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          <Typography variant="h5" fontWeight="bold" color="error">
+            Confirmar Eliminación
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Esta acción no se puede deshacer
+          </Alert>
+          <Typography>
+            ¿Está seguro que desea eliminar el período <strong>{selectedPeriodo?.descripcion}</strong>?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Se eliminarán {selectedPeriodo?.total_registros || 0} registros asociados.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDeleteDialog(false)}>Cancelar</Button>
+          <Button
+            onClick={confirmarEliminacion}
+            variant="contained"
+            color="error"
+            disabled={loading}
+          >
+            Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog Crear Período */}
+      <Dialog
+        open={openCreatePeriodoDialog}
+        onClose={() => setOpenCreatePeriodoDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Typography variant="h5" fontWeight="bold">
+            Crear Nuevo Período
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mt: 2, mb: 3 }}>
+            <Typography variant="body2">
+              <strong>Importante:</strong> El período se creará para todas las sucursales.
+              Cuando subas la nómina, especificarás la razón social correspondiente.
+            </Typography>
+          </Alert>
+          <Box sx={{ mt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Mes *</InputLabel>
+                  <Select
+                    value={nuevoPeriodo.mes}
+                    onChange={(e) => setNuevoPeriodo({...nuevoPeriodo, mes: e.target.value})}
+                    label="Mes *"
+                  >
+                    <MenuItem value={1}>Enero</MenuItem>
+                    <MenuItem value={2}>Febrero</MenuItem>
+                    <MenuItem value={3}>Marzo</MenuItem>
+                    <MenuItem value={4}>Abril</MenuItem>
+                    <MenuItem value={5}>Mayo</MenuItem>
+                    <MenuItem value={6}>Junio</MenuItem>
+                    <MenuItem value={7}>Julio</MenuItem>
+                    <MenuItem value={8}>Agosto</MenuItem>
+                    <MenuItem value={9}>Septiembre</MenuItem>
+                    <MenuItem value={10}>Octubre</MenuItem>
+                    <MenuItem value={11}>Noviembre</MenuItem>
+                    <MenuItem value={12}>Diciembre</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  fullWidth
+                  label="Año *"
+                  type="number"
+                  value={nuevoPeriodo.anio}
+                  onChange={(e) => setNuevoPeriodo({...nuevoPeriodo, anio: parseInt(e.target.value)})}
+                  inputProps={{ min: 2020, max: 2030 }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Descripción (opcional)"
+                  value={nuevoPeriodo.descripcion}
+                  onChange={(e) => setNuevoPeriodo({...nuevoPeriodo, descripcion: e.target.value})}
+                  placeholder="Ej: Nómina Agosto 2024"
+                  helperText="Si no especificas, se generará automáticamente"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenCreatePeriodoDialog(false)}>Cancelar</Button>
+          <Button
+            onClick={crearPeriodo}
+            variant="contained"
+            disabled={loading || !nuevoPeriodo.mes || !nuevoPeriodo.anio}
+          >
+            Crear Período
+          </Button>
         </DialogActions>
       </Dialog>
 

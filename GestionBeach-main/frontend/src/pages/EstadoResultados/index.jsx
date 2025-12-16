@@ -362,14 +362,18 @@ const EstadoResultadosPage = () => {
   const loadComprasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
-      console.log('📦 Cargando compras desde controlador centralizado...');
-      
+      console.log('📦 Cargando compras para:', {
+        sucursal: selectedSucursal,
+        razonSocial: selectedRazonSocial,
+        periodo: `${fechaDesde} - ${fechaHasta}`
+      });
+
       const comprasResponse = await api.get('/estado-resultados/compras', {
         params: {
           fecha_desde: fechaDesde,
           fecha_hasta: fechaHasta,
           sucursal_id: selectedSucursal,
-          razon_social_id: selectedRazonSocial || 'todos'
+          razon_social_id: selectedRazonSocial === 'todos' ? 'todos' : selectedRazonSocial
         }
       });
       
@@ -431,15 +435,20 @@ const EstadoResultadosPage = () => {
     try {
       const mesSeleccionado = selectedMonth.getMonth() + 1;
       const anioSeleccionado = selectedMonth.getFullYear();
-      
-      console.log('👥 Cargando remuneraciones CON CLASIFICACIÓN AUTOMÁTICA ADMIN/VENTAS...');
-      
+
+      console.log('👥 Cargando remuneraciones para:', {
+        mes: mesSeleccionado,
+        anio: anioSeleccionado,
+        sucursal: selectedSucursal,
+        razonSocial: selectedRazonSocial
+      });
+
       const remuneracionesResponse = await api.get('/estado-resultados/remuneraciones', {
         params: {
           anio: anioSeleccionado,
           mes: mesSeleccionado,
           sucursal_id: selectedSucursal,
-          razon_social_id: selectedRazonSocial || 'todos'
+          razon_social_id: selectedRazonSocial === 'todos' ? 'todos' : selectedRazonSocial
         }
       });
       
@@ -504,16 +513,21 @@ const EstadoResultadosPage = () => {
   const loadVentasData = async () => {
     try {
       const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
-      console.log('🛒 Cargando ventas para sucursal:', selectedSucursal);
-      
+      console.log('🛒 Cargando ventas para:', {
+        sucursal: selectedSucursal,
+        razonSocial: selectedRazonSocial,
+        periodo: `${fechaDesde} - ${fechaHasta}`
+      });
+
       const ventasBody = {
         sucursal_id: parseInt(selectedSucursal),
+        razon_social_id: selectedRazonSocial && selectedRazonSocial !== 'todos' ? parseInt(selectedRazonSocial) : null,
         start_date: fechaDesde,
         end_date: fechaHasta
       };
-      
+
       console.log('📤 Enviando datos a /ventas:', ventasBody);
-      
+
       const ventasResponse = await api.post('/ventas', ventasBody);
       
       console.log('🔥 Respuesta ventas (POST):', ventasResponse.data);
