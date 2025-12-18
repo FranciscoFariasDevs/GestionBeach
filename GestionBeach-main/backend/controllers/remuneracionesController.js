@@ -49,17 +49,7 @@ exports.obtenerPeriodos = async (req, res) => {
     const pool = await poolPromise;
     
     let baseQuery = `
-      ;WITH sucursal_unica AS (
-        SELECT 
-          ESU.id_empleado,
-          SU.id AS id_sucursal,
-          SU.nombre AS sucursal_nombre,
-          ROW_NUMBER() OVER (PARTITION BY ESU.id_empleado ORDER BY SU.id) AS rn
-        FROM empleados_sucursales ESU
-        INNER JOIN sucursales SU 
-          ON SU.id = ESU.id_sucursal
-      )
-      SELECT 
+      SELECT
         p.id_periodo,
         p.mes,
         p.anio,
@@ -69,33 +59,26 @@ exports.obtenerPeriodos = async (req, res) => {
         p.fecha_creacion,
         ISNULL(RS.nombre_razon, 'Sin Razón Social') as nombre_razon,
         ISNULL(RS.id, 0) as id_razon_social,
-        ISNULL(su.sucursal_nombre, 'Sin Sucursal') as sucursal_nombre,
-        ISNULL(su.id_sucursal, 0) as id_sucursal,
+        ISNULL(SU.nombre, 'Sin Sucursal') as sucursal_nombre,
+        ISNULL(SU.id, 0) as id_sucursal,
         COUNT(dr.id) AS total_registros,
         COUNT(DISTINCT dr.rut_empleado) AS empleados_unicos,
         ISNULL(SUM(dr.sueldo_base), 0) AS suma_sueldos_base,
         ISNULL(SUM(dr.total_haberes), 0) AS suma_total_haberes,
         ISNULL(SUM(dr.total_descuentos), 0) AS suma_total_descuentos,
-        ISNULL(SUM(dr.liquido_pagar), 0) AS suma_liquidos,
-        CASE 
-          WHEN COUNT(dr.id) = 0 THEN 0
-          ELSE COUNT(CASE WHEN emp.id IS NOT NULL THEN 1 END)
-        END AS empleados_encontrados,
-        CASE 
-          WHEN COUNT(dr.id) = 0 THEN 0
-          ELSE COUNT(CASE WHEN emp.id IS NULL THEN 1 END)
-        END AS empleados_faltantes
+        ISNULL(SUM(dr.liquido_pagar), 0) AS suma_liquidos
       FROM periodos_remuneracion p
-      LEFT JOIN datos_remuneraciones dr 
+      LEFT JOIN datos_remuneraciones dr
         ON p.id_periodo = dr.id_periodo
       LEFT JOIN empleados emp
-        ON REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
+        ON REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') =
            REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-      LEFT JOIN razones_sociales RS 
+      LEFT JOIN razones_sociales RS
         ON RS.id = emp.id_razon_social
-      LEFT JOIN sucursal_unica su 
-        ON su.id_empleado = emp.id
-        AND su.rn = 1
+      LEFT JOIN empleados_sucursales ESU
+        ON ESU.id_empleado = emp.id
+      LEFT JOIN sucursales SU
+        ON SU.id = ESU.id_sucursal
     `;
     
     const whereConditions = [];
@@ -107,7 +90,7 @@ exports.obtenerPeriodos = async (req, res) => {
     }
     
     if (sucursal_id && sucursal_id !== 'todos') {
-      whereConditions.push('su.id_sucursal = @sucursal_id');
+      whereConditions.push('SU.id = @sucursal_id');
       request.input('sucursal_id', sql.Int, parseInt(sucursal_id));
     }
     
@@ -126,12 +109,12 @@ exports.obtenerPeriodos = async (req, res) => {
     }
     
     baseQuery += `
-      GROUP BY 
-        p.id_periodo, p.mes, p.anio, p.descripcion, p.estado, 
+      GROUP BY
+        p.id_periodo, p.mes, p.anio, p.descripcion, p.estado,
         p.fecha_carga, p.fecha_creacion, RS.nombre_razon, RS.id,
-        su.sucursal_nombre, su.id_sucursal
-      ORDER BY 
-        p.anio DESC, p.mes DESC, RS.nombre_razon, su.sucursal_nombre
+        SU.nombre, SU.id
+      ORDER BY
+        p.anio DESC, p.mes DESC, RS.nombre_razon, SU.nombre
     `;
     
     console.log('🔍 Filtros aplicados:', { razon_social_id, sucursal_id, anio, estado });

@@ -2357,4 +2357,174 @@ exports.cambiarPassword = async (req, res) => {
   }
 };
 
+// 🔥 NUEVO: Validar qué RUTs no existen en el sistema
+exports.validarRuts = async (req, res) => {
+  try {
+    console.log('🔍 Validando RUTs...');
+    const { ruts } = req.body;
+
+    if (!ruts || !Array.isArray(ruts)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere un array de RUTs'
+      });
+    }
+
+    const pool = await poolPromise;
+    const empleadosEncontrados = [];
+    const empleadosNoEncontrados = [];
+
+    for (const rut of ruts) {
+      const rutLimpio = String(rut).replace(/[.\-\s]/g, '').toUpperCase();
+
+      const result = await pool.request()
+        .input('rut', sql.VarChar, rutLimpio)
+        .query(`
+          SELECT id, rut, nombre, apellido
+          FROM empleados
+          WHERE REPLACE(REPLACE(REPLACE(UPPER(rut), '.', ''), '-', ''), ' ', '') = @rut
+        `);
+
+      if (result.recordset.length > 0) {
+        empleadosEncontrados.push(rutLimpio);
+      } else {
+        empleadosNoEncontrados.push(rutLimpio);
+      }
+    }
+
+    console.log(`✅ ${empleadosEncontrados.length} empleados encontrados, ${empleadosNoEncontrados.length} no encontrados`);
+
+    return res.json({
+      success: true,
+      data: {
+        empleados_encontrados: empleadosEncontrados,
+        empleados_no_encontrados: empleadosNoEncontrados
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error al validar RUTs:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al validar RUTs',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
+// 🔥 NUEVO: Crear múltiples empleados con razón social y sucursales
+exports.crearMultiple = async (req, res) => {
+  try {
+    console.log('👥 Creando múltiples empleados...');
+    const { empleados } = req.body;
+
+    if (!empleados || !Array.isArray(empleados)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere un array de empleados'
+      });
+    }
+
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+
+    try {
+      await transaction.begin();
+
+      const empleadosCreados = [];
+      const errores = [];
+
+      for (const empleado of empleados) {
+        try {
+          const { rut, nombre_completo, id_razon_social, sucursales } = empleado;
+
+          if (!rut || !nombre_completo || !id_razon_social || !sucursales || sucursales.length === 0) {
+            errores.push({ rut, error: 'Datos incompletos' });
+            continue;
+          }
+
+          // Limpiar RUT
+          const rutLimpio = String(rut).replace(/[.\-\s]/g, '').toUpperCase();
+
+          // Dividir nombre completo en nombre y apellido
+          const partes = String(nombre_completo).trim().split(' ');
+          const nombre = partes[0] || 'Sin Nombre';
+          const apellido = partes.slice(1).join(' ') || 'Sin Apellido';
+
+          // Verificar si el empleado ya existe
+          const existeResult = await transaction.request()
+            .input('rut', sql.VarChar, rutLimpio)
+            .query(`
+              SELECT id FROM empleados
+              WHERE REPLACE(REPLACE(REPLACE(UPPER(rut), '.', ''), '-', ''), ' ', '') = @rut
+            `);
+
+          if (existeResult.recordset.length > 0) {
+            errores.push({ rut: rutLimpio, error: 'Ya existe' });
+            continue;
+          }
+
+          // Crear empleado
+          const resultEmpleado = await transaction.request()
+            .input('rut', sql.VarChar, rutLimpio)
+            .input('nombre', sql.VarChar, nombre)
+            .input('apellido', sql.VarChar, apellido)
+            .input('id_razon_social', sql.Int, id_razon_social)
+            .query(`
+              INSERT INTO empleados (rut, nombre, apellido, id_razon_social, activo, created_at, updated_at)
+              VALUES (@rut, @nombre, @apellido, @id_razon_social, 1, GETDATE(), GETDATE());
+              SELECT SCOPE_IDENTITY() as id_empleado;
+            `);
+
+          const idEmpleado = resultEmpleado.recordset[0].id_empleado;
+
+          // Asignar sucursales
+          for (const idSucursal of sucursales) {
+            await transaction.request()
+              .input('id_empleado', sql.Int, idEmpleado)
+              .input('id_sucursal', sql.Int, idSucursal)
+              .query(`
+                INSERT INTO empleados_sucursales (id_empleado, id_sucursal, created_at)
+                VALUES (@id_empleado, @id_sucursal, GETDATE())
+              `);
+          }
+
+          empleadosCreados.push({
+            id_empleado: idEmpleado,
+            rut: rutLimpio,
+            nombre_completo: `${nombre} ${apellido}`
+          });
+
+          console.log(`✅ Empleado creado: ${nombre} ${apellido} (${rutLimpio})`);
+        } catch (empError) {
+          console.error(`❌ Error al crear empleado ${empleado.rut}:`, empError);
+          errores.push({ rut: empleado.rut, error: empError.message });
+        }
+      }
+
+      await transaction.commit();
+
+      console.log(`✅ ${empleadosCreados.length} empleados creados, ${errores.length} errores`);
+
+      return res.json({
+        success: true,
+        message: `${empleadosCreados.length} empleado(s) creado(s) correctamente`,
+        data: {
+          empleados_creados: empleadosCreados,
+          errores: errores
+        }
+      });
+    } catch (transactionError) {
+      await transaction.rollback();
+      throw transactionError;
+    }
+  } catch (error) {
+    console.error('❌ Error al crear múltiples empleados:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al crear empleados',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+    });
+  }
+};
+
 module.exports = exports;

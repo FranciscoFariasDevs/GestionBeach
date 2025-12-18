@@ -243,10 +243,11 @@ exports.obtenerRemuneraciones = async (req, res) => {
     });
     
     // 🔥 QUERY CON CTE PARA CONTAR SUCURSALES Y CLASIFICAR EMPLEADOS
+    // 🔧 MODIFICADO: Cambiar INNER JOIN a LEFT JOIN para incluir empleados sin sucursal explícita
     let remuneracionesQuery = `
       WITH EmpleadoSucursales AS (
         -- CTE para contar cuántas sucursales tiene cada empleado
-        SELECT 
+        SELECT
           id_empleado,
           COUNT(DISTINCT id_sucursal) as num_sucursales,
           STRING_AGG(CAST(id_sucursal AS VARCHAR), ',') as sucursales_ids
@@ -254,9 +255,9 @@ exports.obtenerRemuneraciones = async (req, res) => {
         WHERE activo = 1
         GROUP BY id_empleado
       )
-      SELECT 
+      SELECT
         -- Datos de remuneración
-        dr.liquido_pagar, 
+        dr.liquido_pagar,
         dr.seguro_cesantia,
         dr.sueldo_base,
         dr.total_haberes,
@@ -266,81 +267,81 @@ exports.obtenerRemuneraciones = async (req, res) => {
         dr.rut_empleado,
         dr.nombre_empleado,
         dr.total_costo,
-        
+
         -- Datos del período
         pr.mes,
         pr.anio,
         pr.id_periodo,
-        
+
         -- Datos de empleado y sucursal
-        es.id_sucursal,
+        COALESCE(es.id_sucursal, @sucursal_id) as id_sucursal,
         e.id AS id_empleado,
         e.id_razon_social,
-        s.nombre as sucursal_nombre,
+        COALESCE(s.nombre, 'Sucursal Seleccionada') as sucursal_nombre,
         rs.nombre_razon,
         e.nombre as empleado_nombre,
         e.apellido as empleado_apellido,
-        
+
         -- 🔥 CLASIFICACIÓN AUTOMÁTICA
         COALESCE(ems.num_sucursales, 1) as num_sucursales,
         ems.sucursales_ids,
-        CASE 
+        CASE
           WHEN COALESCE(ems.num_sucursales, 1) > 1 THEN 'ADMINISTRATIVO'
           ELSE 'VENTAS'
         END as tipo_empleado,
-        
+
         -- 🔥 CALCULAR PORCIÓN DEL SUELDO PARA ESTA SUCURSAL
         -- Si es administrativo (múltiples sucursales), dividir entre todas
         -- Si es ventas (una sucursal), asignar el 100%
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.liquido_pagar AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.liquido_pagar AS DECIMAL(18,2))
         END as liquido_pagar_asignado,
-        
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.total_descuentos AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.total_descuentos AS DECIMAL(18,2))
         END as descuentos_asignados,
-        
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.sueldo_base AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.sueldo_base AS DECIMAL(18,2))
         END as sueldo_base_asignado,
-        
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.total_haberes AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.total_haberes AS DECIMAL(18,2))
         END as total_haberes_asignado,
-        
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.total_imponibles AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.total_imponibles AS DECIMAL(18,2))
         END as total_imponibles_asignado,
-        
-        CASE 
-          WHEN COALESCE(ems.num_sucursales, 1) > 1 
+
+        CASE
+          WHEN COALESCE(ems.num_sucursales, 1) > 1
           THEN CAST(dr.imposiciones AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
           ELSE CAST(dr.imposiciones AS DECIMAL(18,2))
         END as imposiciones_asignadas
-        
-      FROM datos_remuneraciones AS dr 
+
+      FROM datos_remuneraciones AS dr
       INNER JOIN periodos_remuneracion AS pr ON pr.id_periodo = dr.id_periodo
-      INNER JOIN empleados AS e ON 
-        REPLACE(REPLACE(REPLACE(UPPER(e.rut), '.', ''), '-', ''), ' ', '') = 
+      INNER JOIN empleados AS e ON
+        REPLACE(REPLACE(REPLACE(UPPER(e.rut), '.', ''), '-', ''), ' ', '') =
         REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-      INNER JOIN empleados_sucursales AS es ON es.id_empleado = e.id AND es.activo = 1
+      LEFT JOIN empleados_sucursales AS es ON es.id_empleado = e.id AND es.activo = 1 AND es.id_sucursal = @sucursal_id
       LEFT JOIN EmpleadoSucursales ems ON ems.id_empleado = e.id
       LEFT JOIN sucursales s ON es.id_sucursal = s.id
       LEFT JOIN razones_sociales rs ON e.id_razon_social = rs.id
       WHERE pr.anio = @anio
         AND pr.mes = @mes
-        AND es.id_sucursal = @sucursal_id
         AND (dr.liquido_pagar IS NOT NULL OR dr.seguro_cesantia IS NOT NULL)
+        AND (es.id_sucursal = @sucursal_id OR es.id_sucursal IS NULL OR ems.num_sucursales > 1)
     `;
     
     const request = pool.request()

@@ -61,6 +61,10 @@ router.get('/search', authMiddleware, empleadosController.searchEmpleados);
 // Validación de RUT
 router.post('/validate-rut', authMiddleware, empleadosController.validateRut);
 
+// 🔥 NUEVAS RUTAS: Validar RUTs y crear empleados múltiples
+router.post('/validar-ruts', authMiddleware, empleadosController.validarRuts);
+router.post('/crear-multiple', authMiddleware, empleadosController.crearMultiple);
+
 // ✅ RUTA PARA ASIGNACIÓN MASIVA DE RAZÓN SOCIAL (MOVIDA ARRIBA)
 router.put('/razon-social-masiva', authMiddleware, empleadosController.updateRazonSocialMasiva);
 

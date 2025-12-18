@@ -1143,11 +1143,283 @@ const EstadoResultadosPage = () => {
   }, [gastosAdministrativos, gastosVenta, otrosGastos, hasChanges]);
   
   const handleExportExcel = () => {
-    enqueueSnackbar('Exportando a Excel...', { variant: 'info' });
+    if (!data) {
+      enqueueSnackbar('No hay datos para exportar', { variant: 'warning' });
+      return;
+    }
+
+    try {
+      // Importar XLSX dinámicamente si no está disponible
+      import('xlsx').then((XLSX) => {
+        // Preparar datos para el estado de resultados
+        const estadoResultadosData = [
+          ['ESTADO DE RESULTADOS'],
+          [''],
+          ['Empresa:', data.sucursal],
+          ['Período:', data.periodo],
+          ['Fecha:', new Date().toLocaleDateString('es-CL')],
+          [''],
+          ['INGRESOS'],
+          ['Ventas', formatCurrency(data.ingresos.ventas)],
+          ['Otros Ingresos', formatCurrency(data.ingresos.otrosIngresos.total)],
+          ['Total Ingresos', formatCurrency(data.ingresos.totalIngresos)],
+          [''],
+          ['COSTOS'],
+          ['Costo de Ventas', formatCurrency(data.costos.costoVentas)],
+          ['Merma Venta', formatCurrency(data.costos.mermaVenta)],
+          ['Total Costos', formatCurrency(data.costos.totalCostos)],
+          [''],
+          ['UTILIDAD BRUTA', formatCurrency(data.utilidadBruta)],
+          [''],
+          ['GASTOS OPERATIVOS'],
+          [''],
+          ['Gastos de Ventas:'],
+          ['  Sueldos', formatCurrency(data.gastosOperativos.gastosVenta.sueldos)],
+          ['  Fletes', formatCurrency(data.gastosOperativos.gastosVenta.fletes)],
+          ['  Finiquitos', formatCurrency(data.gastosOperativos.gastosVenta.finiquitos)],
+          ['  Mantenciones', formatCurrency(data.gastosOperativos.gastosVenta.mantenciones)],
+          ['  Publicidad', formatCurrency(data.gastosOperativos.gastosVenta.publicidad)],
+          ['Total Gastos Venta', formatCurrency(data.gastosOperativos.gastosVenta.total)],
+          [''],
+          ['Gastos Administrativos:'],
+          ['  Sueldos', formatCurrency(data.gastosOperativos.gastosAdministrativos.sueldos)],
+          ['  Seguros', formatCurrency(data.gastosOperativos.gastosAdministrativos.seguros)],
+          ['  Gastos Comunes', formatCurrency(data.gastosOperativos.gastosAdministrativos.gastosComunes)],
+          ['  Electricidad', formatCurrency(data.gastosOperativos.gastosAdministrativos.electricidad)],
+          ['  Agua', formatCurrency(data.gastosOperativos.gastosAdministrativos.agua)],
+          ['  Telefonía', formatCurrency(data.gastosOperativos.gastosAdministrativos.telefonia)],
+          ['  Otros', formatCurrency(data.gastosOperativos.gastosAdministrativos.otros)],
+          ['Total Gastos Admin.', formatCurrency(data.gastosOperativos.gastosAdministrativos.total)],
+          [''],
+          ['TOTAL GASTOS OPERATIVOS', formatCurrency(data.gastosOperativos.totalGastosOperativos)],
+          [''],
+          ['UTILIDAD OPERATIVA', formatCurrency(data.utilidadOperativa)],
+          ['Costo Arriendo', formatCurrency(data.costoArriendo)],
+          ['Otros Ingresos Financieros', formatCurrency(data.otrosIngresosFinancieros)],
+          [''],
+          ['UTILIDAD ANTES DE IMPUESTOS', formatCurrency(data.utilidadAntesImpuestos)],
+          ['Impuestos (19%)', formatCurrency(data.impuestos)],
+          [''],
+          ['UTILIDAD NETA', formatCurrency(data.utilidadNeta)]
+        ];
+
+        // Crear hoja de cálculo
+        const ws = XLSX.utils.aoa_to_sheet(estadoResultadosData);
+
+        // Configurar anchos de columnas
+        ws['!cols'] = [
+          { wch: 35 }, // Columna A (Conceptos)
+          { wch: 20 }  // Columna B (Valores)
+        ];
+
+        // Aplicar estilos básicos (negrita para títulos)
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cell_address = { c: C, r: R };
+            const cell_ref = XLSX.utils.encode_cell(cell_address);
+            if (!ws[cell_ref]) continue;
+
+            // Aplicar negrita a títulos principales
+            if (ws[cell_ref].v && typeof ws[cell_ref].v === 'string') {
+              if (ws[cell_ref].v.includes('ESTADO DE RESULTADOS') ||
+                  ws[cell_ref].v.includes('INGRESOS') ||
+                  ws[cell_ref].v.includes('COSTOS') ||
+                  ws[cell_ref].v.includes('UTILIDAD') ||
+                  ws[cell_ref].v.includes('GASTOS OPERATIVOS') ||
+                  ws[cell_ref].v.includes('TOTAL')) {
+                ws[cell_ref].s = { font: { bold: true } };
+              }
+            }
+          }
+        }
+
+        // Agregar hoja de resumen de remuneraciones si existe
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Estado de Resultados');
+
+        // Si hay datos de remuneraciones, agregar hoja adicional
+        if (datosRemuneraciones && datosRemuneraciones.resumen) {
+          const remData = [
+            ['RESUMEN DE REMUNERACIONES'],
+            [''],
+            ['Período:', data.periodo],
+            [''],
+            ['TOTALES'],
+            ['Total Empleados', datosRemuneraciones.resumen.cantidad_empleados || 0],
+            ['Total Pago', formatCurrency(datosRemuneraciones.resumen.total_pago || 0)],
+            ['Total Cargo', formatCurrency(datosRemuneraciones.resumen.total_cargo || 0)],
+            [''],
+            ['COSTOS PATRONALES'],
+            ['Caja Compensación', formatCurrency(datosRemuneraciones.resumen.total_caja_compensacion || 0)],
+            ['AFC', formatCurrency(datosRemuneraciones.resumen.total_afc || 0)],
+            ['SIS', formatCurrency(datosRemuneraciones.resumen.total_sis || 0)],
+            ['ACH', formatCurrency(datosRemuneraciones.resumen.total_ach || 0)],
+            ['Imposiciones', formatCurrency(datosRemuneraciones.resumen.total_imposiciones_patronales || 0)]
+          ];
+
+          if (datosRemuneraciones.resumen.administrativos && datosRemuneraciones.resumen.ventas) {
+            remData.push(
+              [''],
+              ['CLASIFICACIÓN'],
+              ['Administrativos:', formatCurrency(datosRemuneraciones.resumen.administrativos.total_cargo || 0)],
+              ['  Empleados', datosRemuneraciones.resumen.administrativos.cantidad_empleados_unicos || 0],
+              ['Ventas:', formatCurrency(datosRemuneraciones.resumen.ventas.total_cargo || 0)],
+              ['  Empleados', datosRemuneraciones.resumen.ventas.cantidad_empleados_unicos || 0]
+            );
+          }
+
+          const wsRem = XLSX.utils.aoa_to_sheet(remData);
+          wsRem['!cols'] = [{ wch: 30 }, { wch: 20 }];
+          XLSX.utils.book_append_sheet(wb, wsRem, 'Remuneraciones');
+        }
+
+        // Generar y descargar archivo
+        const fileName = `Estado_Resultados_${data.sucursal}_${data.periodo.replace(/ /g, '_')}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        enqueueSnackbar('Excel exportado correctamente', { variant: 'success' });
+      }).catch(error => {
+        console.error('Error al cargar XLSX:', error);
+        enqueueSnackbar('Error al exportar Excel', { variant: 'error' });
+      });
+    } catch (error) {
+      console.error('Error al exportar Excel:', error);
+      enqueueSnackbar('Error al exportar Excel', { variant: 'error' });
+    }
   };
-  
+
   const handlePrint = () => {
+    if (!data) {
+      enqueueSnackbar('No hay datos para imprimir', { variant: 'warning' });
+      return;
+    }
+
+    // Crear estilos para impresión
+    const printStyles = `
+      @media print {
+        @page {
+          size: letter;
+          margin: 1.5cm;
+        }
+
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        /* Ocultar elementos no necesarios */
+        header, nav, .MuiAppBar-root, button, .no-print {
+          display: none !important;
+        }
+
+        /* Ajustar contenedor principal */
+        .print-container {
+          page-break-inside: avoid;
+        }
+
+        /* Evitar saltos de página en secciones importantes */
+        .print-section {
+          page-break-inside: avoid;
+          margin-bottom: 1rem;
+        }
+
+        /* Títulos */
+        h1, h2, h3, h4, h5, h6 {
+          page-break-after: avoid;
+          color: #000 !important;
+        }
+
+        /* Tablas */
+        table {
+          page-break-inside: avoid;
+          width: 100%;
+          border-collapse: collapse;
+        }
+
+        table td, table th {
+          padding: 8px;
+          border: 1px solid #ddd;
+        }
+
+        /* Cards y contenedores */
+        .MuiCard-root, .MuiPaper-root {
+          box-shadow: none !important;
+          border: 1px solid #ddd !important;
+          page-break-inside: avoid;
+          margin-bottom: 1rem;
+        }
+
+        /* Fondos */
+        .MuiCardHeader-root {
+          background-color: #f5f5f5 !important;
+          border-bottom: 2px solid #333 !important;
+        }
+
+        /* Tipografía */
+        * {
+          font-size: 11pt !important;
+          line-height: 1.4 !important;
+        }
+
+        h1 { font-size: 18pt !important; }
+        h2 { font-size: 16pt !important; }
+        h3 { font-size: 14pt !important; }
+        h4 { font-size: 12pt !important; }
+
+        /* Saltos de página estratégicos */
+        .page-break-before {
+          page-break-before: always;
+        }
+
+        .page-break-after {
+          page-break-after: always;
+        }
+
+        /* Evitar que imágenes/gráficos se corten */
+        img, svg {
+          page-break-inside: avoid;
+          max-width: 100%;
+        }
+
+        /* Grid responsive para impresión */
+        .MuiGrid-container {
+          display: block !important;
+        }
+
+        .MuiGrid-item {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+      }
+    `;
+
+    // Inyectar estilos de impresión
+    const styleElement = document.createElement('style');
+    styleElement.innerHTML = printStyles;
+    document.head.appendChild(styleElement);
+
+    // Agregar clases para impresión
+    const mainContent = document.querySelector('main') || document.body;
+    mainContent.classList.add('print-container');
+
+    // Marcar secciones importantes
+    const sections = document.querySelectorAll('.MuiCard-root, .MuiPaper-root');
+    sections.forEach(section => {
+      section.classList.add('print-section');
+    });
+
+    // Imprimir
     window.print();
+
+    // Limpiar después de imprimir
+    setTimeout(() => {
+      document.head.removeChild(styleElement);
+      mainContent.classList.remove('print-container');
+      sections.forEach(section => {
+        section.classList.remove('print-section');
+      });
+    }, 1000);
   };
   
   const handleSaveResultados = async () => {

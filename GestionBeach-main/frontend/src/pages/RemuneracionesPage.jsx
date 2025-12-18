@@ -215,6 +215,9 @@ const RemuneracionesPage = () => {
   // NUEVOS ESTADOS PARA FILTRADO ESPECÍFICO
   const [filtroRazonSocialDetalle, setFiltroRazonSocialDetalle] = useState('todos');
   const [filtroSucursalDetalle, setFiltroSucursalDetalle] = useState('todos');
+
+  // 🔥 NUEVO: Filtro de período
+  const [filtroPeriodo, setFiltroPeriodo] = useState(null);
   
   // Estados para Snackbar mejorado
   const [snackbar, setSnackbar] = useState({
@@ -222,6 +225,12 @@ const RemuneracionesPage = () => {
     message: '',
     severity: 'success'
   });
+
+  // 🔥 MODAL UNIFICADO: Para empleados sin sucursal Y empleados que no existen
+  const [openValidacionUnificadaDialog, setOpenValidacionUnificadaDialog] = useState(false);
+  const [empleadosSinSucursal, setEmpleadosSinSucursal] = useState([]);
+  const [empleadosNoEncontrados, setEmpleadosNoEncontrados] = useState([]);
+  const [datosEmpleados, setDatosEmpleados] = useState({}); // Para ambos casos
 
   // FUNCIÓN SHOWSNACKBAR
   const showSnackbar = useCallback((message, severity = 'success') => {
@@ -419,6 +428,137 @@ const RemuneracionesPage = () => {
     cargarPeriodos();
   }, [cargarPeriodos]);
 
+  // 🔥 FUNCIÓN UNIFICADA: Verificar empleados sin sucursal al cargar
+  const verificarEmpleadosSinSucursal = useCallback(async () => {
+    try {
+      console.log('🔍 Verificando empleados sin sucursal...');
+      const response = await api.get('/empleados/sin-sucursal');
+
+      if (response.data.success && response.data.data && response.data.data.length > 0) {
+        console.log(`⚠️ Se encontraron ${response.data.data.length} empleados sin sucursal`);
+        setEmpleadosSinSucursal(response.data.data);
+        setEmpleadosNoEncontrados([]); // Limpiar por si acaso
+        setOpenValidacionUnificadaDialog(true);
+
+        showSnackbar(
+          `Atención: ${response.data.data.length} empleado(s) sin sucursal asignada. Debe completar la información.`,
+          'warning'
+        );
+      } else {
+        console.log('✅ Todos los empleados tienen sucursal asignada');
+      }
+    } catch (err) {
+      console.error('Error al verificar empleados sin sucursal:', err);
+      // No mostrar error al usuario si falla esta verificación
+    }
+  }, [showSnackbar]);
+
+  // EFFECT PARA VERIFICAR EMPLEADOS SIN SUCURSAL AL CARGAR
+  useEffect(() => {
+    if (periodos.length > 0) {
+      verificarEmpleadosSinSucursal();
+    }
+  }, [periodos, verificarEmpleadosSinSucursal]);
+
+  // 🔥 FUNCIÓN UNIFICADA: Manejar cambios en datos de empleados
+  const handleDatosEmpleadoChange = (identificador, campo, valor) => {
+    setDatosEmpleados(prev => ({
+      ...prev,
+      [identificador]: {
+        ...prev[identificador],
+        [campo]: valor
+      }
+    }));
+  };
+
+  // 🔥 FUNCIÓN UNIFICADA: Guardar empleados (crear Y asignar sucursales)
+  const guardarEmpleadosUnificado = async () => {
+    try {
+      setLoading(true);
+
+      let mensajesExito = [];
+
+      // 1. CREAR empleados que no existen
+      if (empleadosNoEncontrados.length > 0) {
+        // Validar que todos tengan razón social y sucursales
+        const faltanDatos = empleadosNoEncontrados.filter(emp => {
+          const datos = datosEmpleados[emp.rut];
+          return !datos || !datos.id_razon_social || !datos.sucursales || datos.sucursales.length === 0;
+        });
+
+        if (faltanDatos.length > 0) {
+          showSnackbar('Todos los empleados nuevos deben tener razón social y al menos una sucursal', 'warning');
+          return;
+        }
+
+        // Crear empleados
+        const empleadosACrear = empleadosNoEncontrados.map(emp => ({
+          rut: emp.rut,
+          nombre_completo: emp.nombre_completo,
+          ...datosEmpleados[emp.rut]
+        }));
+
+        console.log('Creando empleados:', empleadosACrear);
+        const responseCrear = await api.post('/empleados/crear-multiple', { empleados: empleadosACrear });
+
+        if (responseCrear.data.success) {
+          mensajesExito.push(`${empleadosACrear.length} empleado(s) creado(s)`);
+        } else {
+          throw new Error(responseCrear.data.message || 'Error al crear empleados');
+        }
+      }
+
+      // 2. ASIGNAR sucursales a empleados existentes sin sucursal
+      if (empleadosSinSucursal.length > 0) {
+        // Validar que todos tengan al menos una sucursal
+        const faltanSucursales = empleadosSinSucursal.filter(emp => {
+          const datos = datosEmpleados[emp.id_empleado];
+          return !datos || !datos.sucursales || datos.sucursales.length === 0;
+        });
+
+        if (faltanSucursales.length > 0) {
+          showSnackbar('Todos los empleados deben tener al menos una sucursal asignada', 'warning');
+          return;
+        }
+
+        // Asignar sucursales
+        const asignaciones = empleadosSinSucursal.map(emp => ({
+          id_empleado: emp.id_empleado,
+          sucursales: datosEmpleados[emp.id_empleado].sucursales
+        }));
+
+        console.log('Asignando sucursales:', asignaciones);
+        const responseAsignar = await api.post('/empleados/asignar-sucursales', { asignaciones });
+
+        if (responseAsignar.data.success) {
+          mensajesExito.push(`Sucursales asignadas a ${asignaciones.length} empleado(s)`);
+        } else {
+          throw new Error(responseAsignar.data.message || 'Error al asignar sucursales');
+        }
+      }
+
+      // Mostrar mensaje de éxito y cerrar modal
+      showSnackbar(mensajesExito.join(' y '), 'success');
+      setOpenValidacionUnificadaDialog(false);
+      setEmpleadosSinSucursal([]);
+      setEmpleadosNoEncontrados([]);
+      setDatosEmpleados({});
+
+      // Recargar períodos
+      await cargarPeriodos();
+
+      // Si venimos de procesar nómina, continuar
+      if (empleadosNoEncontrados.length > 0) {
+        procesarExcel();
+      }
+    } catch (err) {
+      console.error('Error al guardar empleados:', err);
+      showSnackbar(err.response?.data?.message || 'Error al guardar empleados', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // FUNCIONES PARA MANEJO DE FILTROS
   const handleFiltroChange = (campo, valor) => {
     setFiltros(prev => ({
@@ -603,11 +743,13 @@ const RemuneracionesPage = () => {
         });
 
         // Actualizar el período con contadores reales
+        const empleadosUnicos = new Set(datosFiltrados.map(emp => emp.rut_empleado)).size;
+
         const periodoActualizado = {
           ...periodo,
           datos: response.data.data,
           total_registros: datosFiltrados.length,
-          empleados_encontrados: datosFiltrados.length,
+          empleados_unicos: empleadosUnicos,
           suma_liquidos: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.liquido_pagar) || 0), 0),
           suma_total_haberes: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.total_haberes) || 0), 0),
           suma_total_descuentos: datosFiltrados.reduce((sum, emp) => sum + (parseFloat(emp.total_descuentos) || 0), 0)
@@ -1015,6 +1157,67 @@ const RemuneracionesPage = () => {
       return;
     }
 
+    // 🔥 VALIDACIÓN UNIFICADA: Verificar empleados sin sucursal Y empleados que no existen
+    try {
+      let problemasEncontrados = false;
+      let sinSucursal = [];
+      let noExisten = [];
+
+      // 1. Verificar empleados sin sucursal
+      const responseSinSucursal = await api.get('/empleados/sin-sucursal');
+      if (responseSinSucursal.data.success && responseSinSucursal.data.data && responseSinSucursal.data.data.length > 0) {
+        sinSucursal = responseSinSucursal.data.data;
+        problemasEncontrados = true;
+      }
+
+      // 2. Verificar empleados que no existen
+      const rutsExcel = excelData
+        .map(fila => fila[mapeoColumnas.rut_empleado])
+        .filter(rut => rut && String(rut).trim().length >= 8);
+
+      const responseValidacion = await api.post('/empleados/validar-ruts', { ruts: rutsExcel });
+
+      if (responseValidacion.data.success && responseValidacion.data.data.empleados_no_encontrados.length > 0) {
+        const noEncontradosRuts = responseValidacion.data.data.empleados_no_encontrados;
+
+        // Extraer datos del Excel
+        noExisten = noEncontradosRuts.map(rutNoEncontrado => {
+          const filaExcel = excelData.find(fila => {
+            const rutFila = String(fila[mapeoColumnas.rut_empleado] || '').replace(/[.\-\s]/g, '').toUpperCase();
+            const rutBuscado = String(rutNoEncontrado).replace(/[.\-\s]/g, '').toUpperCase();
+            return rutFila === rutBuscado;
+          });
+
+          return {
+            rut: rutNoEncontrado,
+            nombre_completo: filaExcel ? filaExcel[mapeoColumnas.nombre_empleado] : 'Sin nombre'
+          };
+        });
+
+        problemasEncontrados = true;
+      }
+
+      // Si hay problemas, mostrar modal unificado
+      if (problemasEncontrados) {
+        setEmpleadosSinSucursal(sinSucursal);
+        setEmpleadosNoEncontrados(noExisten);
+        setOpenValidacionUnificadaDialog(true);
+
+        let mensaje = 'No se puede procesar la nómina: ';
+        const problemas = [];
+        if (noExisten.length > 0) problemas.push(`${noExisten.length} empleado(s) no existe(n)`);
+        if (sinSucursal.length > 0) problemas.push(`${sinSucursal.length} sin sucursal`);
+        mensaje += problemas.join(', ');
+
+        showSnackbar(mensaje, 'error');
+        return;
+      }
+    } catch (err) {
+      console.error('Error al validar empleados:', err);
+      showSnackbar('Error al validar empleados. Intente nuevamente.', 'error');
+      return;
+    }
+
     setLoading(true);
     setActiveStep(5);
     setUploadProgress(0);
@@ -1085,15 +1288,11 @@ const RemuneracionesPage = () => {
         
         // 🔥 CAMBIO: NO VALIDAR EMPLEADOS SIN ASIGNACIÓN
         let mensaje = `Procesamiento exitoso con porcentajes: ${resultado.procesados}/${resultado.total_filas} registros`;
-        
+
         if (resultado.empleados_creados > 0) {
           mensaje += `\n${resultado.empleados_creados} empleados nuevos creados`;
         }
-        
-        if (resultado.empleados_encontrados > 0) {
-          mensaje += `\n${resultado.empleados_encontrados} empleados existentes`;
-        }
-        
+
         if (resultado.errores > 0) {
           mensaje += `\n${resultado.errores} registros con errores`;
         }
@@ -1183,12 +1382,23 @@ const RemuneracionesPage = () => {
   // CÁLCULOS MEJORADOS
   const periodosFiltrados = React.useMemo(() => {
     return periodos.filter(periodo => {
-      if (filtroEstado === 'todos') return true;
-      return periodo.estado === filtroEstado;
-    });
-  }, [periodos, filtroEstado]);
+      // Filtro por estado
+      if (filtroEstado !== 'todos' && periodo.estado !== filtroEstado) {
+        return false;
+      }
 
-  // Función para agrupar períodos
+      // 🔥 Filtro por período específico (mes/año)
+      if (filtroPeriodo) {
+        if (periodo.mes !== filtroPeriodo.mes || periodo.anio !== filtroPeriodo.anio) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [periodos, filtroEstado, filtroPeriodo]);
+
+  // Función para agrupar períodos por razón social y sucursal
   const periodosAgrupados = React.useMemo(() => {
     const grupos = {};
 
@@ -1217,8 +1427,6 @@ const RemuneracionesPage = () => {
     periodos.forEach(periodo => {
       const key = `${periodo.mes}-${periodo.anio}`;
 
-      // Si ya existe este mes/año, solo lo agregamos si no tiene razón social/sucursal
-      // o si el existente tiene y este no tiene
       if (!unicos.has(key)) {
         unicos.set(key, periodo);
       } else {
@@ -1568,7 +1776,7 @@ const RemuneracionesPage = () => {
         />
         <CardContent>
           <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={4}>
+            <Grid item xs={6}>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h4" color="primary">
                   {periodo.total_registros || 0}
@@ -1578,23 +1786,13 @@ const RemuneracionesPage = () => {
                 </Typography>
               </Box>
             </Grid>
-            <Grid item xs={4}>
+            <Grid item xs={6}>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h4" color="success.main">
-                  {periodo.empleados_encontrados || 0}
+                  {periodo.empleados_unicos || 0}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Empleados
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={4}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" color="warning.main">
-                  {periodo.empleados_faltantes || 0}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Faltantes
+                  Empleados Únicos
                 </Typography>
               </Box>
             </Grid>
@@ -1683,7 +1881,7 @@ const RemuneracionesPage = () => {
           Object.values(sucursales).forEach(periodos => {
             periodos.forEach(periodo => {
               totalRegistros += periodo.total_registros || 0;
-              totalEmpleados += periodo.empleados_encontrados || 0;
+              totalEmpleados += periodo.empleados_unicos || 0;
               totalLiquidos += parseFloat(periodo.suma_liquidos) || 0;
               totalHaberes += parseFloat(periodo.suma_total_haberes) || 0;
               totalDescuentos += parseFloat(periodo.suma_total_descuentos) || 0;
@@ -1694,7 +1892,7 @@ const RemuneracionesPage = () => {
           return (
             <Accordion
               key={`razon-${razonSocial}-${razonIndex}`}
-              defaultExpanded
+              defaultExpanded={false}
               sx={{
                 mb: 3,
                 border: '1px solid rgba(0,0,0,0.1)',
@@ -1762,6 +1960,17 @@ const RemuneracionesPage = () => {
               <AccordionDetails sx={{ p: 3, bgcolor: '#fafafa' }}>
                 {Object.entries(sucursales).map(([sucursal, periodos], sucursalIndex) => (
                   <Box key={`sucursal-${razonSocial}-${sucursal}-${sucursalIndex}`} sx={{ mb: 3 }}>
+                    {/* Advertencia para empleados sin sucursal */}
+                    {sucursal === 'Sin Sucursal' && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        <Typography variant="body2" fontWeight="bold">
+                          Empleados sin sucursal detectados
+                        </Typography>
+                        <Typography variant="body2">
+                          Estos registros contienen empleados sin sucursal asignada. Los totales pueden no reflejar correctamente la distribución por sucursal. Por favor, asigne sucursales a estos empleados.
+                        </Typography>
+                      </Alert>
+                    )}
                     {/* Header de sucursal si hay sucursales específicas */}
                     {sucursal !== 'Sin Sucursal' && (
                       <Box sx={{
@@ -1882,6 +2091,56 @@ const RemuneracionesPage = () => {
           Procesar Nómina
         </Button>
       </Box>
+
+      {/* 🔥 Filtro de período */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={6}>
+            <Autocomplete
+              options={periodos}
+              getOptionLabel={(option) => `${option.mes}/${option.anio} - ${option.descripcion || 'Sin descripción'}`}
+              value={filtroPeriodo}
+              onChange={(event, newValue) => setFiltroPeriodo(newValue)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Filtrar por período"
+                  placeholder="Selecciona un período..."
+                  InputProps={{
+                    ...params.InputProps,
+                    startAdornment: (
+                      <>
+                        <InputAdornment position="start">
+                          <CalendarTodayIcon />
+                        </InputAdornment>
+                        {params.InputProps.startAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Button
+              startIcon={<ClearAllIcon />}
+              onClick={() => setFiltroPeriodo(null)}
+              disabled={!filtroPeriodo}
+              variant="outlined"
+            >
+              Limpiar filtro
+            </Button>
+            {filtroPeriodo && (
+              <Chip
+                label={`Mostrando: ${filtroPeriodo.mes}/${filtroPeriodo.anio}`}
+                color="primary"
+                sx={{ ml: 2 }}
+                onDelete={() => setFiltroPeriodo(null)}
+              />
+            )}
+          </Grid>
+        </Grid>
+      </Paper>
 
       {/* Vista de períodos agrupados por razón social */}
       <Paper>
@@ -2431,6 +2690,131 @@ const RemuneracionesPage = () => {
             disabled={loading || !nuevoPeriodo.mes || !nuevoPeriodo.anio}
           >
             Crear Período
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Unificado de Validación de Empleados */}
+      <Dialog
+        open={openValidacionUnificadaDialog}
+        onClose={() => {}}
+        maxWidth="lg"
+        fullWidth
+        disableEscapeKeyDown
+      >
+        <DialogTitle>
+          <Typography variant="h5" fontWeight="bold">
+            {empleadosNoEncontrados.length + empleadosSinSucursal.length} problema(s) detectado(s)
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {/* SECCIÓN 1: Empleados que NO EXISTEN */}
+          {empleadosNoEncontrados.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PersonAddIcon color="error" />
+                Empleados que no existen ({empleadosNoEncontrados.length})
+              </Typography>
+              <Alert severity="error" sx={{ mb: 2 }}>
+                Los siguientes empleados no están registrados. Debe asignarles razón social y sucursales.
+              </Alert>
+
+              {empleadosNoEncontrados.map((empleado) => (
+                <Card key={empleado.rut} sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={4}>
+                        <Typography variant="subtitle2" color="text.secondary">Empleado</Typography>
+                        <Typography variant="body1" fontWeight="bold">{empleado.nombre_completo}</Typography>
+                        <Typography variant="body2" color="text.secondary">RUT: {empleado.rut}</Typography>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FormControl fullWidth required size="small">
+                          <InputLabel>Razón Social *</InputLabel>
+                          <Select
+                            value={datosEmpleados[empleado.rut]?.id_razon_social || ''}
+                            onChange={(e) => handleDatosEmpleadoChange(empleado.rut, 'id_razon_social', e.target.value)}
+                            label="Razón Social *"
+                          >
+                            {razonesSociales.map(rs => (
+                              <MenuItem key={rs.id} value={rs.id}>{rs.nombre_razon}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <Autocomplete
+                          multiple
+                          size="small"
+                          options={sucursales}
+                          getOptionLabel={(option) => option.nombre}
+                          value={sucursales.filter(s => (datosEmpleados[empleado.rut]?.sucursales || []).includes(s.id))}
+                          onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.rut, 'sucursales', newValue.map(v => v.id))}
+                          renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
+                          renderTags={(value, getTagProps) =>
+                            value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
+                          }
+                        />
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+
+          {/* SECCIÓN 2: Empleados SIN SUCURSAL */}
+          {empleadosSinSucursal.length > 0 && (
+            <Box>
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <WarningIcon color="warning" />
+                Empleados sin sucursal ({empleadosSinSucursal.length})
+              </Typography>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Estos empleados existen pero no tienen sucursal asignada. Debe asignarles al menos una.
+              </Alert>
+
+              {empleadosSinSucursal.map((empleado) => (
+                <Card key={empleado.id_empleado} sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle2" color="text.secondary">Empleado</Typography>
+                        <Typography variant="body1" fontWeight="bold">{empleado.nombre_completo || `${empleado.nombre} ${empleado.apellido}`}</Typography>
+                        <Typography variant="body2" color="text.secondary">RUT: {empleado.rut}</Typography>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <Autocomplete
+                          multiple
+                          size="small"
+                          options={sucursales}
+                          getOptionLabel={(option) => option.nombre}
+                          value={sucursales.filter(s => (datosEmpleados[empleado.id_empleado]?.sucursales || []).includes(s.id))}
+                          onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.id_empleado, 'sucursales', newValue.map(v => v.id))}
+                          renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
+                          renderTags={(value, getTagProps) =>
+                            value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
+                          }
+                        />
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setOpenValidacionUnificadaDialog(false)} disabled={loading}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={guardarEmpleadosUnificado}
+            variant="contained"
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+          >
+            {loading ? 'Guardando...' : 'Guardar y Continuar'}
           </Button>
         </DialogActions>
       </Dialog>
