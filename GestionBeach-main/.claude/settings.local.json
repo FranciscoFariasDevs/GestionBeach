@@ -21,7 +21,8 @@
       "Bash(tail:*)",
       "Bash(del \"C:\\Users\\Administrador\\Downloads\\GestionBeach-main (1)\\.git\\index.lock\")",
       "Bash(node -e:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []

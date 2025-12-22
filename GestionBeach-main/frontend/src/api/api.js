@@ -118,7 +118,9 @@ const requiresAuth = (url) => {
     '/webpay/',                           // 💳 Webpay (todas las rutas)
     '/codigos-descuento/validar',        // 🎫 Validar códigos de descuento
     '/codigos-descuento/incrementar-uso', // 🎫 Incrementar uso de códigos
-    '/concurso-piscinas'                  // 🏊 Concurso público
+    '/concurso-piscinas',                  // 🏊 Concurso público
+     '/auth/login',         // 🔐 AGREGAR ESTA (CRÍTICO)
+    '/auth/logout', 
   ];
 
   return !publicRoutes.some(route => url.includes(route));

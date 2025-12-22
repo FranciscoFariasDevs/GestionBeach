@@ -32,6 +32,9 @@ router.get('/admin/todos', authMiddleware, ticketController.obtenerTodosLosTicke
 // Obtener mis tickets
 router.get('/mis-tickets', authMiddleware, ticketController.obtenerMisTickets);
 
+// Obtener notificaciones de tickets resueltos
+router.get('/mis-notificaciones', authMiddleware, ticketController.obtenerNotificacionesTickets);
+
 // Obtener detalle de un ticket
 router.get('/:id', authMiddleware, ticketController.obtenerDetalleTicket);
 

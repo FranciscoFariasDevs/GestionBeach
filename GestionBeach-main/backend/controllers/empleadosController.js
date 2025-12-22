@@ -1149,8 +1149,8 @@ exports.updateEmpleado = async (req, res) => {
                   .input('id_empleado', sql.Int, id)
                   .input('id_sucursal', sql.Int, sucursalIdNum)
                   .query(`
-                    UPDATE empleados_sucursales 
-                    SET activo = 1, updated_at = GETDATE()
+                    UPDATE empleados_sucursales
+                    SET activo = 1
                     WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
                   `);
               } else {
@@ -1512,8 +1512,8 @@ exports.updateEmpleadoSucursales = async (req, res) => {
               .input('id_empleado', sql.Int, id)
               .input('id_sucursal', sql.Int, sucursalIdNum)
               .query(`
-                UPDATE empleados_sucursales 
-                SET activo = 1, updated_at = GETDATE()
+                UPDATE empleados_sucursales
+                SET activo = 1
                 WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
               `);
           } else {
@@ -2483,8 +2483,8 @@ exports.crearMultiple = async (req, res) => {
               .input('id_empleado', sql.Int, idEmpleado)
               .input('id_sucursal', sql.Int, idSucursal)
               .query(`
-                INSERT INTO empleados_sucursales (id_empleado, id_sucursal, created_at)
-                VALUES (@id_empleado, @id_sucursal, GETDATE())
+                INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, created_at)
+                VALUES (@id_empleado, @id_sucursal, 1, GETDATE())
               `);
           }
 

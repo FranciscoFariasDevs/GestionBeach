@@ -335,13 +335,18 @@ exports.obtenerRemuneraciones = async (req, res) => {
         REPLACE(REPLACE(REPLACE(UPPER(e.rut), '.', ''), '-', ''), ' ', '') =
         REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
       LEFT JOIN empleados_sucursales AS es ON es.id_empleado = e.id AND es.activo = 1 AND es.id_sucursal = @sucursal_id
-      LEFT JOIN EmpleadoSucursales ems ON ems.id_empleado = e.id
+      LEFT JOIN (
+        SELECT id_empleado, COUNT(*) as num_sucursales
+        FROM empleados_sucursales
+        WHERE activo = 1
+        GROUP BY id_empleado
+      ) ems ON ems.id_empleado = e.id
       LEFT JOIN sucursales s ON es.id_sucursal = s.id
       LEFT JOIN razones_sociales rs ON e.id_razon_social = rs.id
       WHERE pr.anio = @anio
         AND pr.mes = @mes
         AND (dr.liquido_pagar IS NOT NULL OR dr.seguro_cesantia IS NOT NULL)
-        AND (es.id_sucursal = @sucursal_id OR es.id_sucursal IS NULL OR ems.num_sucursales > 1)
+        AND es.id_sucursal = @sucursal_id
     `;
     
     const request = pool.request()

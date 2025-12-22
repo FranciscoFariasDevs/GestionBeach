@@ -165,6 +165,7 @@ exports.obtenerMisTickets = async (req, res) => {
           s.nombre as sucursal_nombre,
           u_asignado.nombre_completo as asignado_nombre,
           u_reportante.nombre_completo as reportante_nombre,
+          u_resuelto.nombre_completo as resuelto_nombre,
           tc.nombre as categoria_nombre,
           tc.color as categoria_color,
           tc.icono as categoria_icono,
@@ -184,6 +185,7 @@ exports.obtenerMisTickets = async (req, res) => {
         LEFT JOIN sucursales s ON t.sucursal_id = s.id
         LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
         LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
+        LEFT JOIN usuarios u_resuelto ON t.resuelto_por = u_resuelto.id
         LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
         ${whereClause}
       ) AS ResultadosConFilas
@@ -348,6 +350,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
           s.nombre as sucursal_nombre,
           u_reportante.nombre_completo as reportante_nombre,
           u_asignado.nombre_completo as asignado_nombre,
+          u_resuelto.nombre_completo as resuelto_nombre,
           tc.nombre as categoria_nombre,
           tc.color as categoria_color,
           tc.icono as categoria_icono
@@ -355,6 +358,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
         LEFT JOIN sucursales s ON t.sucursal_id = s.id
         LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
         LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
+        LEFT JOIN usuarios u_resuelto ON t.resuelto_por = u_resuelto.id
         LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
         WHERE t.id = @id
       `);
@@ -544,6 +548,8 @@ exports.cambiarEstadoTicket = async (req, res) => {
 
     if (estado === 'resuelto') {
       query += ', fecha_resolucion = GETDATE()';
+      // Guardar quién resolvió el ticket
+      query += `, resuelto_por = ${usuario_id}`;
       // Calcular tiempo de resolución
       const minutos = Math.floor((new Date() - new Date(ticket.fecha_creacion)) / 60000);
       query += `, tiempo_resolucion_minutos = ${minutos}`;
@@ -574,6 +580,49 @@ exports.cambiarEstadoTicket = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado',
+      error: error.message
+    });
+  }
+};
+
+// ============================================
+// OBTENER NOTIFICACIONES DE TICKETS RESUELTOS (solo para el usuario que creó el ticket)
+// ============================================
+exports.obtenerNotificacionesTickets = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const usuario_id = req.user.id;
+
+    // Obtener tickets resueltos del usuario que aún no han sido "leídos"
+    // Consideramos "recientes" los resueltos en los últimos 7 días
+    const result = await pool.request()
+      .input('usuario_id', sql.Int, usuario_id)
+      .query(`
+        SELECT
+          t.id,
+          t.numero_ticket,
+          t.asunto,
+          t.estado,
+          t.fecha_resolucion,
+          u_resuelto.nombre_completo as resuelto_por_nombre
+        FROM tickets t
+        LEFT JOIN usuarios u_resuelto ON t.resuelto_por = u_resuelto.id
+        WHERE t.usuario_id = @usuario_id
+          AND t.estado = 'resuelto'
+          AND t.fecha_resolucion >= DATEADD(day, -7, GETDATE())
+        ORDER BY t.fecha_resolucion DESC
+      `);
+
+    res.json({
+      success: true,
+      notificaciones: result.recordset
+    });
+
+  } catch (error) {
+    console.error('Error al obtener notificaciones de tickets:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener notificaciones',
       error: error.message
     });
   }

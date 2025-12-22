@@ -1765,9 +1765,26 @@ async function crearEmpleadoSiNoExisteConUnicode(transaction, datosExtraidos) {
         SELECT SCOPE_IDENTITY() as nuevo_id;
       `);
 
-    console.log(`👤 Empleado creado con Unicode: ${nombreCompleto} (${rutLimpio})`);
-    
-    return { esNuevo: true, id: resultado.recordset[0].nuevo_id };
+    const nuevoId = resultado.recordset[0].nuevo_id;
+    console.log(`👤 Empleado creado con Unicode: ${nombreCompleto} (${rutLimpio}) - ID: ${nuevoId}`);
+
+    // 🆕 CREAR ENTRADA EN empleados_sucursales si hay sucursal
+    if (datosExtraidos.id_sucursal) {
+      try {
+        await transaction.request()
+          .input('id_empleado', sql.Int, nuevoId)
+          .input('id_sucursal', sql.Int, datosExtraidos.id_sucursal)
+          .query(`
+            INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, created_at)
+            VALUES (@id_empleado, @id_sucursal, 1, GETDATE())
+          `);
+        console.log(`✅ Empleado asignado a sucursal ID: ${datosExtraidos.id_sucursal}`);
+      } catch (sucError) {
+        console.error('⚠️ Error asignando sucursal al empleado:', sucError.message);
+      }
+    }
+
+    return { esNuevo: true, id: nuevoId };
   } catch (error) {
     console.error('Error creando empleado:', error.message);
     return { esNuevo: false, id: null };

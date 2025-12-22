@@ -573,6 +573,13 @@ const MisTicketsPage = () => {
                             </Typography>
                           )}
 
+                          {ticket.resuelto_nombre && ticket.estado === 'resuelto' && (
+                            <Typography variant="caption" color="success.main" display="block" fontWeight="bold">
+                              <CheckIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                              Resuelto por: {ticket.resuelto_nombre}
+                            </Typography>
+                          )}
+
                           {ticket.num_respuestas > 0 && (
                             <Typography variant="caption" color="primary" display="block" fontWeight="bold">
                               💬 {ticket.num_respuestas} respuesta{ticket.num_respuestas > 1 ? 's' : ''}
@@ -711,6 +718,14 @@ const MisTicketsPage = () => {
                     <Grid item xs={12}>
                       <Typography variant="caption" color="text.secondary">
                         Asignado a: <strong>{ticketSeleccionado.ticket.asignado_nombre}</strong>
+                      </Typography>
+                    </Grid>
+                  )}
+
+                  {ticketSeleccionado.ticket.resuelto_nombre && ticketSeleccionado.ticket.estado === 'resuelto' && (
+                    <Grid item xs={12}>
+                      <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                        ✓ Resuelto por: <strong>{ticketSeleccionado.ticket.resuelto_nombre}</strong>
                       </Typography>
                     </Grid>
                   )}

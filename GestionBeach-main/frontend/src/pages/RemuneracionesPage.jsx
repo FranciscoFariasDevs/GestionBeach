@@ -432,21 +432,17 @@ const RemuneracionesPage = () => {
   const verificarEmpleadosSinSucursal = useCallback(async () => {
     try {
       console.log('🔍 Verificando empleados sin sucursal...');
-      const response = await api.get('/empleados/sin-sucursal');
-
-      if (response.data.success && response.data.data && response.data.data.length > 0) {
-        console.log(`⚠️ Se encontraron ${response.data.data.length} empleados sin sucursal`);
-        setEmpleadosSinSucursal(response.data.data);
-        setEmpleadosNoEncontrados([]); // Limpiar por si acaso
-        setOpenValidacionUnificadaDialog(true);
-
-        showSnackbar(
-          `Atención: ${response.data.data.length} empleado(s) sin sucursal asignada. Debe completar la información.`,
-          'warning'
-        );
-      } else {
-        console.log('✅ Todos los empleados tienen sucursal asignada');
-      }
+      // NOTA: Endpoint deshabilitado temporalmente - verificación ocurre durante el procesamiento
+      // const response = await api.get('/empleados/sin-sucursal');
+      // if (response.data.success && response.data.data && response.data.data.length > 0) {
+      //   console.log(`⚠️ Se encontraron ${response.data.data.length} empleados sin sucursal`);
+      //   setEmpleadosSinSucursal(response.data.data);
+      //   setEmpleadosNoEncontrados([]);
+      //   setOpenValidacionUnificadaDialog(true);
+      //   showSnackbar(`Atención: ${response.data.data.length} empleado(s) sin sucursal asignada.`, 'warning');
+      // } else {
+      //   console.log('✅ Todos los empleados tienen sucursal asignada');
+      // }
     } catch (err) {
       console.error('Error al verificar empleados sin sucursal:', err);
       // No mostrar error al usuario si falla esta verificación
@@ -1147,6 +1143,24 @@ const RemuneracionesPage = () => {
       return;
     }
 
+    // Validar que los IDs sean números válidos
+    const periodoId = parseInt(periodoSeleccionado, 10);
+    const razonSocialId = parseInt(razonSocialSeleccionada, 10);
+
+    if (isNaN(periodoId) || periodoId <= 0) {
+      showSnackbar('ID de período inválido', 'error');
+      console.error('Período seleccionado inválido:', periodoSeleccionado);
+      return;
+    }
+
+    if (isNaN(razonSocialId) || razonSocialId <= 0) {
+      showSnackbar('ID de razón social inválido', 'error');
+      console.error('Razón social seleccionada inválida:', razonSocialSeleccionada);
+      return;
+    }
+
+    console.log('✅ Validación de IDs exitosa:', { periodoId, razonSocialId });
+
     if (!porcentajesValidos) {
       showSnackbar('Debe configurar al menos un porcentaje válido', 'error');
       return;
@@ -1157,18 +1171,18 @@ const RemuneracionesPage = () => {
       return;
     }
 
-    // 🔥 VALIDACIÓN UNIFICADA: Verificar empleados sin sucursal Y empleados que no existen
+    // 🔥 VALIDACIÓN UNIFICADA: Verificar empleados que no existen
     try {
       let problemasEncontrados = false;
       let sinSucursal = [];
       let noExisten = [];
 
-      // 1. Verificar empleados sin sucursal
-      const responseSinSucursal = await api.get('/empleados/sin-sucursal');
-      if (responseSinSucursal.data.success && responseSinSucursal.data.data && responseSinSucursal.data.data.length > 0) {
-        sinSucursal = responseSinSucursal.data.data;
-        problemasEncontrados = true;
-      }
+      // 1. Verificar empleados sin sucursal (DESHABILITADO - endpoint no existe)
+      // const responseSinSucursal = await api.get('/empleados/sin-sucursal');
+      // if (responseSinSucursal.data.success && responseSinSucursal.data.data && responseSinSucursal.data.data.length > 0) {
+      //   sinSucursal = responseSinSucursal.data.data;
+      //   problemasEncontrados = true;
+      // }
 
       // 2. Verificar empleados que no existen
       const rutsExcel = excelData
@@ -1276,8 +1290,8 @@ const RemuneracionesPage = () => {
         datosExcel: datosConvertidos,
         archivoNombre: excelFile.name,
         validarDuplicados,
-        id_periodo: periodoSeleccionado,
-        id_razon_social: razonSocialSeleccionada,
+        id_periodo: periodoId,
+        id_razon_social: razonSocialId,
         mapeoColumnas: mapeoColumnas,
         porcentajes: porcentajes
       });
@@ -1374,8 +1388,14 @@ const RemuneracionesPage = () => {
   }, []);
 
   const obtenerInicialMes = useCallback((numeroMes) => {
-    const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 
+    const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN',
                    'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+    return meses[numeroMes - 1] || 'N/A';
+  }, []);
+
+  const obtenerNombreMesCompleto = useCallback((numeroMes) => {
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     return meses[numeroMes - 1] || 'N/A';
   }, []);
 
@@ -1428,14 +1448,22 @@ const RemuneracionesPage = () => {
       const key = `${periodo.mes}-${periodo.anio}`;
 
       if (!unicos.has(key)) {
-        unicos.set(key, periodo);
+        // Crear un período consolidado con descripción en formato "Mes Año"
+        const periodoConsolidado = {
+          ...periodo,
+          descripcion: `${obtenerNombreMesCompleto(periodo.mes)} ${periodo.anio}`,
+          // Mantener el primer id_periodo encontrado para este mes/año
+          id_periodo: periodo.id_periodo,
+          // Agregar flag para indicar que es consolidado
+          esConsolidado: true,
+          // Contar total de registros de todos los períodos de este mes/año
+          total_registros: periodo.total_registros || 0
+        };
+        unicos.set(key, periodoConsolidado);
       } else {
+        // Si ya existe, sumar los registros
         const existente = unicos.get(key);
-        // Preferir el período sin razón social/sucursal específica
-        if ((!periodo.nombre_razon || periodo.nombre_razon === 'Sin Razón Social') &&
-            (!periodo.sucursal_nombre || periodo.sucursal_nombre === 'Sin Sucursal')) {
-          unicos.set(key, periodo);
-        }
+        existente.total_registros = (existente.total_registros || 0) + (periodo.total_registros || 0);
       }
     });
 
@@ -1443,7 +1471,7 @@ const RemuneracionesPage = () => {
       if (a.anio !== b.anio) return b.anio - a.anio;
       return b.mes - a.mes;
     });
-  }, [periodos]);
+  }, [periodos, obtenerNombreMesCompleto]);
 
   // Opciones para filtros en el modal de detalles
   const opcionesFiltroDetalle = React.useMemo(() => {
@@ -2097,8 +2125,9 @@ const RemuneracionesPage = () => {
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={6}>
             <Autocomplete
-              options={periodos}
-              getOptionLabel={(option) => `${option.mes}/${option.anio} - ${option.descripcion || 'Sin descripción'}`}
+              options={periodosUnicos}
+              getOptionLabel={(option) => option.descripcion || `${obtenerNombreMesCompleto(option.mes)} ${option.anio}`}
+              isOptionEqualToValue={(option, value) => option.id_periodo === value.id_periodo}
               value={filtroPeriodo}
               onChange={(event, newValue) => setFiltroPeriodo(newValue)}
               renderInput={(params) => (
@@ -2200,7 +2229,7 @@ const RemuneracionesPage = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <CalendarTodayIcon sx={{ fontSize: 20, color: '#f37d16' }} />
                         <Typography variant="body1" fontWeight="bold">
-                          {periodo.descripcion || `${obtenerInicialMes(periodo.mes)} ${periodo.anio}`}
+                          {periodo.descripcion}
                         </Typography>
                         {periodo.total_registros > 0 && (
                           <Chip
@@ -2219,8 +2248,7 @@ const RemuneracionesPage = () => {
               {periodoSeleccionado && (
                 <Alert severity="success" sx={{ mt: 2 }}>
                   <Typography variant="body2">
-                    <strong>Período seleccionado:</strong> {periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.descripcion ||
-                      `${obtenerInicialMes(periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.mes)} ${periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.anio}`}
+                    <strong>Período seleccionado:</strong> {periodosUnicos.find(p => p.id_periodo === periodoSeleccionado)?.descripcion}
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 0.5 }}>
                     Continúa al siguiente paso para cargar el archivo Excel

@@ -44,20 +44,21 @@ export const PROFILE_MAP = {
   14: 'jefe_local',
   15: 'solo_lectura',
   16: 'administrador',
-  17: 'encargada_turno_lord'
+  17: 'encargada_turno_lord',
+  18: 'administrador_cabanas'
 };
 
 // Definir permisos por perfil
 export const PERMISSIONS_BY_PROFILE = {
   super_admin: {
-    // Super Admin: Acceso total (incluye Tickets)
+    // Super Admin: Acceso total (incluye Tickets - EXCLUSIVO)
     modules: Object.values(MODULES),
     actions: [ACTIONS.manage] // Puede hacer todo
   },
 
   administrador: {
-    // Administrador: Igual que Super Admin (incluye Tickets)
-    modules: Object.values(MODULES),
+    // Administrador: Acceso total EXCEPTO Tickets (reservado para Super Admin)
+    modules: Object.values(MODULES).filter(m => m !== MODULES.TICKETS),
     actions: [ACTIONS.manage]
   },
   
@@ -141,6 +142,16 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
+  },
+
+  administrador_cabanas: {
+    // Administrador de Cabañas: Gestión completa de cabañas y reservas
+    modules: [
+      MODULES.DASHBOARD,
+      MODULES.CABANAS,
+      MODULES.CORREO
+    ],
+    actions: [ACTIONS.manage] // Acceso completo a cabañas
   }
 };
 

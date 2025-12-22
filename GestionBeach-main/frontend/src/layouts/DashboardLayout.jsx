@@ -60,6 +60,7 @@ import {
   Warning as WarningIcon,
   ConfirmationNumber as ConfirmationNumberIcon,
   ReportProblem as ReportProblemIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -187,6 +188,7 @@ export default function DashboardLayout() {
   // Estados para notificaciones de inventario
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [ticketNotifications, setTicketNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
 
   const handleDrawerOpen = () => {
@@ -268,20 +270,55 @@ export default function DashboardLayout() {
     try {
       const response = await api.get('/inventario/notificaciones');
       if (response.data.success) {
-        setNotifications(response.data.data);
-        setNotificationCount(response.data.data.length);
+        let filteredNotifications = response.data.data;
+
+        // Filtrar notificaciones de supermercado solo para encargada de turno (perfil_id: 17)
+        // Otros perfiles NO deben ver notificaciones de supermercado
+        if (user?.perfilId !== 17) {
+          filteredNotifications = filteredNotifications.filter(notif =>
+            !notif.sucursal || !notif.sucursal.toLowerCase().includes('supermercado')
+          );
+        }
+
+        setNotifications(filteredNotifications);
+        updateNotificationCount(filteredNotifications);
       }
     } catch (error) {
       console.error('Error al cargar notificaciones:', error);
     }
   };
 
+  // Cargar notificaciones de tickets resueltos
+  const fetchTicketNotifications = async () => {
+    try {
+      const response = await api.get('/tickets/mis-notificaciones');
+      if (response.data.success) {
+        setTicketNotifications(response.data.notificaciones || []);
+        updateNotificationCount(null, response.data.notificaciones || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar notificaciones de tickets:', error);
+    }
+  };
+
+  // Actualizar el conteo total de notificaciones
+  const updateNotificationCount = (inventoryNotifs = notifications, ticketNotifs = ticketNotifications) => {
+    const total = (inventoryNotifs?.length || 0) + (ticketNotifs?.length || 0);
+    setNotificationCount(total);
+  };
+
   // Cargar notificaciones al montar el componente y cada 5 minutos
   useEffect(() => {
-    fetchInventoryNotifications();
-    const interval = setInterval(fetchInventoryNotifications, 5 * 60 * 1000); // 5 minutos
-    return () => clearInterval(interval);
-  }, []);
+    if (user) {
+      fetchInventoryNotifications();
+      fetchTicketNotifications();
+      const interval = setInterval(() => {
+        fetchInventoryNotifications();
+        fetchTicketNotifications();
+      }, 5 * 60 * 1000); // 5 minutos
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   // Definir todos los elementos del menú (ANTES del filtrado)
   const allMenuItems = [
@@ -445,66 +482,91 @@ export default function DashboardLayout() {
             <Paper sx={{ width: 360, maxHeight: 480 }}>
               <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Typography variant="h6" fontWeight="bold">
-                  Notificaciones de Inventario
+                  Notificaciones
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {notificationCount} alertas activas
                 </Typography>
               </Box>
               <List sx={{ p: 0, maxHeight: 380, overflow: 'auto' }}>
-                {notifications.length === 0 ? (
+                {notifications.length === 0 && ticketNotifications.length === 0 ? (
                   <Box sx={{ p: 3, textAlign: 'center' }}>
                     <Typography variant="body2" color="text.secondary">
                       No hay notificaciones
                     </Typography>
                   </Box>
                 ) : (
-                  notifications.map((notification, index) => (
-                    <ListItem
-                      key={index}
-                      button
-                      onClick={() => handleNotificationClick(notification)}
-                      sx={{
-                        borderBottom: 1,
-                        borderColor: 'divider',
-                        '&:hover': { bgcolor: 'action.hover' }
-                      }}
-                    >
-                      <ListItemIcon>
-                        <WarningIcon color={notification.tipo === 'vencido' ? 'error' : 'warning'} />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={notification.titulo}
-                        secondary={
-                          <>
-                            <Typography variant="body2" component="span">
-                              {notification.descripcion}
-                            </Typography>
-                            <br />
-                            <Typography variant="caption" color="text.secondary">
-                              Sucursal: {notification.sucursal}
-                            </Typography>
-                          </>
-                        }
-                      />
-                    </ListItem>
-                  ))
+                  <>
+                    {/* Notificaciones de Tickets Resueltos */}
+                    {ticketNotifications.map((ticket, index) => (
+                      <ListItem
+                        key={`ticket-${index}`}
+                        button
+                        onClick={() => {
+                          navigate('/mis-tickets');
+                          handleNotificationsClose();
+                        }}
+                        sx={{
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          '&:hover': { bgcolor: 'action.hover' },
+                          bgcolor: '#e8f5e9'
+                        }}
+                      >
+                        <ListItemIcon>
+                          <CheckCircleIcon color="success" />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={`Ticket ${ticket.numero_ticket} resuelto`}
+                          secondary={
+                            <>
+                              <Typography variant="body2" component="span">
+                                {ticket.asunto}
+                              </Typography>
+                              <br />
+                              <Typography variant="caption" color="text.secondary">
+                                Resuelto por: {ticket.resuelto_por_nombre || 'Sistema'}
+                              </Typography>
+                            </>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+
+                    {/* Notificaciones de Inventario */}
+                    {notifications.map((notification, index) => (
+                      <ListItem
+                        key={`inv-${index}`}
+                        button
+                        onClick={() => handleNotificationClick(notification)}
+                        sx={{
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          '&:hover': { bgcolor: 'action.hover' }
+                        }}
+                      >
+                        <ListItemIcon>
+                          <WarningIcon color={notification.tipo === 'vencido' ? 'error' : 'warning'} />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={notification.titulo}
+                          secondary={
+                            <>
+                              <Typography variant="body2" component="span">
+                                {notification.descripcion}
+                              </Typography>
+                              <br />
+                              <Typography variant="caption" color="text.secondary">
+                                Sucursal: {notification.sucursal}
+                              </Typography>
+                            </>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </>
                 )}
               </List>
-              {notifications.length > 0 && (
-                <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}>
-                  <Button
-                    fullWidth
-                    variant="text"
-                    onClick={() => {
-                      navigate('/inventario');
-                      handleNotificationsClose();
-                    }}
-                  >
-                    Ver todos en Inventario
-                  </Button>
-                </Box>
-              )}
             </Paper>
           </Popover>
         </Toolbar>
