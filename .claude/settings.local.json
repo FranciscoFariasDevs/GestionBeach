@@ -38,7 +38,8 @@
       "Bash(git add:*)",
       "Bash(git rm:*)",
       "Bash(git clean:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(Select-String -Pattern \"Con remuneraciones pero sin sucursal\",\"RESUMEN FINAL\",\"Total procesados\",\"Sin sucursal:\" -Context 0,2)"
     ],
     "deny": [],
     "ask": []

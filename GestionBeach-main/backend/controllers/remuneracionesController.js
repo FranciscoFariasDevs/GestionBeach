@@ -449,17 +449,39 @@ exports.asignarRazonSocialYSucursal = async (req, res) => {
         }
         
         if (id_sucursal) {
-          await transaction.request()
-            .input('id_empleado', sql.Int, id_empleado)
-            .query('DELETE FROM empleados_sucursales WHERE id_empleado = @id_empleado');
-          
-          await transaction.request()
+          // 🔥 FIX: NO ELIMINAR TODAS LAS SUCURSALES
+          // Verificar si la relación ya existe
+          const existeResult = await transaction.request()
             .input('id_empleado', sql.Int, id_empleado)
             .input('id_sucursal', sql.Int, id_sucursal)
             .query(`
-              INSERT INTO empleados_sucursales (id_empleado, id_sucursal, created_at)
-              VALUES (@id_empleado, @id_sucursal, GETDATE())
+              SELECT COUNT(*) as count
+              FROM empleados_sucursales
+              WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
             `);
+
+          if (existeResult.recordset[0].count > 0) {
+            // Reactivar relación existente
+            await transaction.request()
+              .input('id_empleado', sql.Int, id_empleado)
+              .input('id_sucursal', sql.Int, id_sucursal)
+              .query(`
+                UPDATE empleados_sucursales
+                SET activo = 1, updated_at = GETDATE()
+                WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
+              `);
+            console.log(`✅ Sucursal ${id_sucursal} reactivada para empleado ${id_empleado}`);
+          } else {
+            // Crear nueva relación CON campo activo
+            await transaction.request()
+              .input('id_empleado', sql.Int, id_empleado)
+              .input('id_sucursal', sql.Int, id_sucursal)
+              .query(`
+                INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, created_at)
+                VALUES (@id_empleado, @id_sucursal, 1, GETDATE())
+              `);
+            console.log(`✅ Sucursal ${id_sucursal} asignada a empleado ${id_empleado}`);
+          }
         }
         
         empleadosActualizados++;

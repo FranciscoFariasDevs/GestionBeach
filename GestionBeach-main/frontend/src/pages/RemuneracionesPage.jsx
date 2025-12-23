@@ -232,6 +232,10 @@ const RemuneracionesPage = () => {
   const [empleadosNoEncontrados, setEmpleadosNoEncontrados] = useState([]);
   const [datosEmpleados, setDatosEmpleados] = useState({}); // Para ambos casos
 
+  // 🔥 NUEVO: Detalles de empleado individual
+  const [openDetalleEmpleadoDialog, setOpenDetalleEmpleadoDialog] = useState(false);
+  const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState(null);
+
   // FUNCIÓN SHOWSNACKBAR
   const showSnackbar = useCallback((message, severity = 'success') => {
     setSnackbar({ open: false, message: '', severity: 'success' });
@@ -780,6 +784,17 @@ const RemuneracionesPage = () => {
     setEmpleadosPorPagina(50);
   };
 
+  // 🔥 NUEVO: Función para ver detalles de un empleado
+  const handleVerDetalleEmpleado = (empleado) => {
+    setEmpleadoSeleccionado(empleado);
+    setOpenDetalleEmpleadoDialog(true);
+  };
+
+  const handleCloseDetalleEmpleado = () => {
+    setOpenDetalleEmpleadoDialog(false);
+    setEmpleadoSeleccionado(null);
+  };
+
   const handleAnalisisPeriodo = async (periodo) => {
     try {
       setLoading(true);
@@ -1301,7 +1316,7 @@ const RemuneracionesPage = () => {
         setResultadoProcesamiento(resultado);
         
         // 🔥 CAMBIO: NO VALIDAR EMPLEADOS SIN ASIGNACIÓN
-        let mensaje = `Procesamiento exitoso con porcentajes: ${resultado.procesados}/${resultado.total_filas} registros`;
+        let mensaje = `Procesado correctamente: ${resultado.procesados}/${resultado.total_filas} registros`;
 
         if (resultado.empleados_creados > 0) {
           mensaje += `\n${resultado.empleados_creados} empleados nuevos creados`;
@@ -2476,7 +2491,17 @@ const RemuneracionesPage = () => {
                   </TableHead>
                   <TableBody>
                     {empleadosPaginados.map((emp, index) => (
-                      <TableRow key={`emp-${emp.rut_empleado}-${index}`}>
+                      <TableRow
+                        key={`emp-${emp.rut_empleado}-${index}`}
+                        hover
+                        onClick={() => handleVerDetalleEmpleado(emp)}
+                        sx={{
+                          cursor: 'pointer',
+                          '&:hover': {
+                            backgroundColor: 'action.hover'
+                          }
+                        }}
+                      >
                         <TableCell>{emp.rut_empleado}</TableCell>
                         <TableCell>{emp.nombre_empleado || emp.nombre_completo}</TableCell>
                         <TableCell>{emp.nombre_razon}</TableCell>
@@ -2844,6 +2869,183 @@ const RemuneracionesPage = () => {
           >
             {loading ? 'Guardando...' : 'Guardar y Continuar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔥 NUEVO: Dialog Detalles Completos del Empleado */}
+      <Dialog
+        open={openDetalleEmpleadoDialog}
+        onClose={handleCloseDetalleEmpleado}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" fontWeight="bold">
+              Detalles de Remuneración
+            </Typography>
+            <IconButton onClick={handleCloseDetalleEmpleado} size="small">
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {empleadoSeleccionado && (
+            <Box sx={{ mt: 2 }}>
+              {/* Información del Empleado */}
+              <Paper sx={{ p: 2, mb: 3, bgcolor: 'primary.main', color: 'white' }}>
+                <Typography variant="h6" gutterBottom>
+                  {empleadoSeleccionado.nombre_empleado || empleadoSeleccionado.nombre_completo}
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">RUT: {empleadoSeleccionado.rut_empleado}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">Razón Social: {empleadoSeleccionado.nombre_razon}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="body2">Sucursal: {empleadoSeleccionado.sucursal_nombre}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Haberes */}
+              <Paper sx={{ p: 2, mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="success.main">
+                  💵 Haberes
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Sueldo Base:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.sueldo_base || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Horas Extras:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.horas_extras || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Gratificación Legal:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.gratificacion_legal || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Otros Imponibles:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.otros_imponibles || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Asignación Familiar:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.asignacion_familiar || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Otros No Imponibles:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.otros_no_imponibles || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Typography variant="body2" color="text.secondary">Total Haberes:</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="success.main">{formatMoney(empleadoSeleccionado.total_haberes || 0)}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Descuentos */}
+              <Paper sx={{ p: 2, mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="error.main">
+                  💸 Descuentos
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Previsión (AFP):</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.descuento_prevision || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Salud:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.descuento_salud || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Impuesto Único:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.impuesto_unico || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Seguro Cesantía:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.seguro_cesantia || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Otros Descuentos Legales:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.otros_descuentos_legales || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Descuentos Varios:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.descuentos_varios || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Typography variant="body2" color="text.secondary">Total Descuentos:</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="error.main">{formatMoney(empleadoSeleccionado.total_descuentos || 0)}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Costos Patronales */}
+              <Paper sx={{ p: 2, mb: 2 }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="warning.main">
+                  💼 Costos Patronales
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Caja Compensación:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.caja_compensacion || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">AFC:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.afc || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">SIS:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.sis || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">ACH:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.ach || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">Imposiciones Patronales:</Typography>
+                    <Typography variant="body1" fontWeight="medium">{formatMoney(empleadoSeleccionado.imposiciones || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Typography variant="body2" color="text.secondary">Total Costos Patronales:</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="warning.main">
+                      {formatMoney(
+                        (empleadoSeleccionado.caja_compensacion || 0) +
+                        (empleadoSeleccionado.afc || 0) +
+                        (empleadoSeleccionado.sis || 0) +
+                        (empleadoSeleccionado.ach || 0) +
+                        (empleadoSeleccionado.imposiciones || 0)
+                      )}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Resultado Final */}
+              <Paper sx={{ p: 2, bgcolor: 'info.main', color: 'white' }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">Líquido a Pagar:</Typography>
+                    <Typography variant="h5" fontWeight="bold">{formatMoney(empleadoSeleccionado.liquido_pagar || 0)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2">Total Costo Empresa:</Typography>
+                    <Typography variant="h5" fontWeight="bold">{formatMoney(empleadoSeleccionado.total_costo || 0)}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDetalleEmpleado}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

@@ -374,7 +374,7 @@ router.get('/reportes/proveedores', authMiddleware, async (req, res) => {
         AVG(fe.MONTO_TOTAL) as promedio_factura,
         MIN(fe.FECHA_EMISION) as primera_factura,
         MAX(fe.FECHA_EMISION) as ultima_factura,
-        STRING_AGG(DISTINCT fe.id_centro_costo, ', ') as centros_costos_utilizados,
+        '' as centros_costos_utilizados,
         COUNT(CASE WHEN fe.estado = 'PROCESADA' THEN 1 END) as facturas_procesadas,
         COUNT(CASE WHEN ISNULL(fe.estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 END) as facturas_pendientes
       FROM TB_FACTURA_ENCABEZADO fe
@@ -626,15 +626,20 @@ router.get('/sistema/verificar', authMiddleware, async (req, res) => {
     
     // Verificar índices para optimización
     const indicesCheck = await pool.request().query(`
-      SELECT 
+      SELECT
         i.name as indice_nombre,
-        STRING_AGG(c.name, ', ') as columnas
+        STUFF((
+          SELECT ', ' + c2.name
+          FROM sys.index_columns ic2
+          INNER JOIN sys.columns c2 ON ic2.object_id = c2.object_id AND ic2.column_id = c2.column_id
+          WHERE ic2.object_id = i.object_id AND ic2.index_id = i.index_id
+          ORDER BY ic2.index_column_id
+          FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') as columnas
       FROM sys.indexes i
-      INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-      INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
       INNER JOIN sys.tables t ON i.object_id = t.object_id
       WHERE t.name = 'TB_FACTURA_ENCABEZADO' AND i.name IS NOT NULL
-      GROUP BY i.name
+      GROUP BY i.object_id, i.index_id, i.name
       ORDER BY i.name
     `);
     

@@ -242,19 +242,9 @@ exports.obtenerRemuneraciones = async (req, res) => {
       razon_social_id: razon_social_id || 'todos'
     });
     
-    // 🔥 QUERY CON CTE PARA CONTAR SUCURSALES Y CLASIFICAR EMPLEADOS
+    // 🔥 QUERY PARA CLASIFICAR EMPLEADOS POR NÚMERO DE SUCURSALES
     // 🔧 MODIFICADO: Cambiar INNER JOIN a LEFT JOIN para incluir empleados sin sucursal explícita
     let remuneracionesQuery = `
-      WITH EmpleadoSucursales AS (
-        -- CTE para contar cuántas sucursales tiene cada empleado
-        SELECT
-          id_empleado,
-          COUNT(DISTINCT id_sucursal) as num_sucursales,
-          STRING_AGG(CAST(id_sucursal AS VARCHAR), ',') as sucursales_ids
-        FROM empleados_sucursales
-        WHERE activo = 1
-        GROUP BY id_empleado
-      )
       SELECT
         -- Datos de remuneración
         dr.liquido_pagar,
@@ -262,6 +252,7 @@ exports.obtenerRemuneraciones = async (req, res) => {
         dr.sueldo_base,
         dr.total_haberes,
         dr.total_descuentos,
+        dr.descuentos_varios,
         dr.total_imponibles,
         dr.imposiciones,
         dr.rut_empleado,
@@ -284,7 +275,6 @@ exports.obtenerRemuneraciones = async (req, res) => {
 
         -- 🔥 CLASIFICACIÓN AUTOMÁTICA
         COALESCE(ems.num_sucursales, 1) as num_sucursales,
-        ems.sucursales_ids,
         CASE
           WHEN COALESCE(ems.num_sucursales, 1) > 1 THEN 'ADMINISTRATIVO'
           ELSE 'VENTAS'
@@ -301,8 +291,8 @@ exports.obtenerRemuneraciones = async (req, res) => {
 
         CASE
           WHEN COALESCE(ems.num_sucursales, 1) > 1
-          THEN CAST(dr.total_descuentos AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
-          ELSE CAST(dr.total_descuentos AS DECIMAL(18,2))
+          THEN CAST(dr.descuentos_varios AS DECIMAL(18,2)) / CAST(ems.num_sucursales AS DECIMAL(18,2))
+          ELSE CAST(dr.descuentos_varios AS DECIMAL(18,2))
         END as descuentos_asignados,
 
         CASE
@@ -450,24 +440,26 @@ exports.obtenerRemuneraciones = async (req, res) => {
     };
     
     let porcentajesAplicados = null;
-    
-    if (razon_social_id && razon_social_id !== 'todos') {
-      try {
-        const periodoResult = await pool.request()
-          .input('anio', sql.Int, parseInt(anio))
-          .input('mes', sql.Int, parseInt(mes))
-          .query('SELECT id_periodo FROM periodos_remuneracion WHERE anio = @anio AND mes = @mes');
 
-        if (periodoResult.recordset.length > 0) {
-          const id_periodo = periodoResult.recordset[0].id_periodo;
-          
+    // 🔥 CALCULAR COSTOS PATRONALES - FUNCIONA CON O SIN FILTRO DE RAZÓN SOCIAL
+    try {
+      const periodoResult = await pool.request()
+        .input('anio', sql.Int, parseInt(anio))
+        .input('mes', sql.Int, parseInt(mes))
+        .query('SELECT id_periodo FROM periodos_remuneracion WHERE anio = @anio AND mes = @mes');
+
+      if (periodoResult.recordset.length > 0) {
+        const id_periodo = periodoResult.recordset[0].id_periodo;
+
+        // Si hay filtro de razón social, usar ese
+        if (razon_social_id && razon_social_id !== 'todos') {
           const porcentajesResult = await pool.request()
             .input('id_periodo', sql.Int, id_periodo)
             .input('id_razon_social', sql.Int, parseInt(razon_social_id))
             .query(`
               SELECT caja_compen, afc, sis, ach, imposiciones
               FROM porcentajes_por_periodo
-              WHERE id_periodo = @id_periodo 
+              WHERE id_periodo = @id_periodo
               AND id_razon_social = @id_razon_social
               AND activo = 1
             `);
@@ -475,14 +467,13 @@ exports.obtenerRemuneraciones = async (req, res) => {
           if (porcentajesResult.recordset.length > 0) {
             const porcentajes = porcentajesResult.recordset[0];
             porcentajesAplicados = porcentajes;
-            
-            console.log('📊 Aplicando porcentajes:', porcentajes);
-            
+
+            console.log('📊 Aplicando porcentajes de razón social filtrada:', porcentajes);
+
             result.recordset.forEach(rem => {
-              // Usar los valores ya asignados (divididos si es administrativo)
               const imponibleAsignado = parseFloat(rem.total_imponibles_asignado || 0);
               const imposicionesAsignadas = parseFloat(rem.imposiciones_asignadas || 0);
-              
+
               const costos = {
                 caja: (imponibleAsignado * parseFloat(porcentajes.caja_compen || 0)) / 100,
                 afc: (imponibleAsignado * parseFloat(porcentajes.afc || 0)) / 100,
@@ -490,7 +481,7 @@ exports.obtenerRemuneraciones = async (req, res) => {
                 ach: (imposicionesAsignadas * parseFloat(porcentajes.ach || 0)) / 100,
                 imposiciones: (imponibleAsignado * parseFloat(porcentajes.imposiciones || 0)) / 100
               };
-              
+
               if (rem.tipo_empleado === 'ADMINISTRATIVO') {
                 costosPatronalesAdmin.total_caja_compensacion += costos.caja;
                 costosPatronalesAdmin.total_afc += costos.afc;
@@ -505,15 +496,75 @@ exports.obtenerRemuneraciones = async (req, res) => {
                 costosPatronalesVentas.total_imposiciones_patronales += costos.imposiciones;
               }
             });
-            
-            console.log('✅ Costos patronales calculados por tipo');
-          } else {
-            console.log('⚠️ No se encontraron porcentajes configurados para este período');
+
+            console.log('✅ Costos patronales calculados (con filtro de razón social)');
           }
+        } else {
+          // 🔥 SIN FILTRO: Calcular costos patronales por empleado según su razón social
+          console.log('📊 Calculando costos patronales por razón social de cada empleado...');
+
+          // Agrupar empleados por razón social
+          const empleadosPorRazonSocial = {};
+          result.recordset.forEach(rem => {
+            const rsId = rem.id_razon_social;
+            if (rsId) {
+              if (!empleadosPorRazonSocial[rsId]) {
+                empleadosPorRazonSocial[rsId] = [];
+              }
+              empleadosPorRazonSocial[rsId].push(rem);
+            }
+          });
+
+          // Para cada razón social, obtener porcentajes y calcular
+          for (const rsId in empleadosPorRazonSocial) {
+            const porcentajesResult = await pool.request()
+              .input('id_periodo', sql.Int, id_periodo)
+              .input('id_razon_social', sql.Int, parseInt(rsId))
+              .query(`
+                SELECT caja_compen, afc, sis, ach, imposiciones
+                FROM porcentajes_por_periodo
+                WHERE id_periodo = @id_periodo
+                AND id_razon_social = @id_razon_social
+                AND activo = 1
+              `);
+
+            if (porcentajesResult.recordset.length > 0) {
+              const porcentajes = porcentajesResult.recordset[0];
+
+              empleadosPorRazonSocial[rsId].forEach(rem => {
+                const imponibleAsignado = parseFloat(rem.total_imponibles_asignado || 0);
+                const imposicionesAsignadas = parseFloat(rem.imposiciones_asignadas || 0);
+
+                const costos = {
+                  caja: (imponibleAsignado * parseFloat(porcentajes.caja_compen || 0)) / 100,
+                  afc: (imponibleAsignado * parseFloat(porcentajes.afc || 0)) / 100,
+                  sis: (imponibleAsignado * parseFloat(porcentajes.sis || 0)) / 100,
+                  ach: (imposicionesAsignadas * parseFloat(porcentajes.ach || 0)) / 100,
+                  imposiciones: (imponibleAsignado * parseFloat(porcentajes.imposiciones || 0)) / 100
+                };
+
+                if (rem.tipo_empleado === 'ADMINISTRATIVO') {
+                  costosPatronalesAdmin.total_caja_compensacion += costos.caja;
+                  costosPatronalesAdmin.total_afc += costos.afc;
+                  costosPatronalesAdmin.total_sis += costos.sis;
+                  costosPatronalesAdmin.total_ach += costos.ach;
+                  costosPatronalesAdmin.total_imposiciones_patronales += costos.imposiciones;
+                } else {
+                  costosPatronalesVentas.total_caja_compensacion += costos.caja;
+                  costosPatronalesVentas.total_afc += costos.afc;
+                  costosPatronalesVentas.total_sis += costos.sis;
+                  costosPatronalesVentas.total_ach += costos.ach;
+                  costosPatronalesVentas.total_imposiciones_patronales += costos.imposiciones;
+                }
+              });
+            }
+          }
+
+          console.log('✅ Costos patronales calculados (por razón social de cada empleado)');
         }
-      } catch (error) {
-        console.log('⚠️ No se pudieron calcular costos patronales:', error.message);
       }
+    } catch (error) {
+      console.log('⚠️ No se pudieron calcular costos patronales:', error.message);
     }
     
     const totalCostosPatronalesAdmin = 
