@@ -2552,29 +2552,75 @@ const RemuneracionesPage = () => {
           {reporteAnalisis && (
             <Box sx={{ mt: 2 }}>
               <Grid container spacing={3}>
-                <Grid item xs={12} sm={6}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Card>
                     <CardContent>
-                      <Typography variant="h6" color="primary">Total Registros</Typography>
-                      <Typography variant="h3">{reporteAnalisis.total_registros || 0}</Typography>
+                      <Typography variant="h6" color="primary">Total Empleados</Typography>
+                      <Typography variant="h3">{reporteAnalisis.resumen?.total_empleados || 0}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" color="success.main">Total Líquidos</Typography>
+                      <Typography variant="h3">{formatMoney(reporteAnalisis.resumen?.suma_liquidos || 0)}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" color="warning.main">Total Costos</Typography>
+                      <Typography variant="h3">{formatMoney(reporteAnalisis.resumen?.suma_total_costos || 0)}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Card>
                     <CardContent>
-                      <Typography variant="h6" color="success.main">Total Nómina</Typography>
-                      <Typography variant="h3">{formatMoney(reporteAnalisis.total_nomina)}</Typography>
+                      <Typography variant="h6" color="info.main">Total Haberes</Typography>
+                      <Typography variant="h3">{formatMoney(reporteAnalisis.resumen?.suma_total_haberes || 0)}</Typography>
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12}>
-                  <Alert severity="info">
-                    <Typography>
-                      Promedio por empleado: {formatMoney(reporteAnalisis.promedio_empleado)}
-                    </Typography>
-                  </Alert>
+                <Grid item xs={12} sm={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" color="error.main">Total Descuentos</Typography>
+                      <Typography variant="h3">{formatMoney(reporteAnalisis.resumen?.suma_total_descuentos || 0)}</Typography>
+                    </CardContent>
+                  </Card>
                 </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Card sx={{ bgcolor: 'primary.light', color: 'white' }}>
+                    <CardContent>
+                      <Typography variant="h6">Sueldo Promedio</Typography>
+                      <Typography variant="h3">
+                        {formatMoney((reporteAnalisis.resumen?.suma_sueldos_base || 0) / (reporteAnalisis.resumen?.total_empleados || 1))}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Card sx={{ bgcolor: 'success.light', color: 'white' }}>
+                    <CardContent>
+                      <Typography variant="h6">Líquido Promedio</Typography>
+                      <Typography variant="h3">
+                        {formatMoney((reporteAnalisis.resumen?.suma_liquidos || 0) / (reporteAnalisis.resumen?.total_empleados || 1))}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                {reporteAnalisis.resumen?.sueldo_minimo && reporteAnalisis.resumen?.sueldo_maximo && (
+                  <Grid item xs={12}>
+                    <Alert severity="info">
+                      <Typography variant="body2">
+                        <strong>Rango Salarial:</strong> {formatMoney(reporteAnalisis.resumen.sueldo_minimo)} - {formatMoney(reporteAnalisis.resumen.sueldo_maximo)}
+                      </Typography>
+                    </Alert>
+                  </Grid>
+                )}
               </Grid>
             </Box>
           )}

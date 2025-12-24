@@ -241,6 +241,9 @@ const waterSplash = keyframes`
 `;
 
 const ConcursoPiscinasPage = () => {
+  // Toggle para activar/desactivar el concurso
+  const CONCURSO_ACTIVO = true; // Cambiar a false cuando termine el concurso
+
   const { enqueueSnackbar } = useSnackbar();
 
   // Estados del formulario
@@ -495,6 +498,269 @@ const ConcursoPiscinasPage = () => {
     setParticipacionExitosa(false);
     setDatosExtraidos(null);
   };
+
+  // Pantalla de finalización cuando el concurso ha terminado
+  if (!CONCURSO_ACTIVO) {
+    return (
+      <>
+        {/* Pantalla de intro con logo cayendo */}
+        {showIntro && (
+          <Box
+            sx={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'linear-gradient(135deg, #E3F9FF 0%, #B3E5FC 25%, #81D4FA 50%, #4FC3F7 75%, #29B6F6 100%)',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                background: 'white',
+                borderRadius: 6,
+                padding: 4,
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.2)',
+                animation: `${logoFall} 1.8s ease-out forwards`,
+              }}
+            >
+              <Box
+                component="img"
+                src={logoIntro}
+                alt="Logo"
+                sx={{
+                  maxWidth: { xs: '60vw', md: '40vw', lg: '30vw' },
+                  maxHeight: '50vh',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </Box>
+          </Box>
+        )}
+
+        {/* Contenido de finalización */}
+        <Box
+          sx={{
+            minHeight: '100vh',
+            background: 'linear-gradient(135deg, #E3F9FF 0%, #B3E5FC 25%, #81D4FA 50%, #4FC3F7 75%, #29B6F6 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+            opacity: showIntro ? 0 : 1,
+            transition: 'opacity 0.5s ease-in',
+          }}
+        >
+          {/* Formas decorativas de fondo */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -100,
+              right: -100,
+              width: 400,
+              height: 400,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%)',
+              zIndex: 0,
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: -150,
+              left: -100,
+              width: 500,
+              height: 500,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%)',
+              zIndex: 0,
+            }}
+          />
+
+          <Container maxWidth="md" sx={{ position: 'relative', zIndex: 2 }}>
+            <Fade in timeout={800}>
+              <Card
+                sx={{
+                  background: 'white',
+                  borderRadius: 4,
+                  boxShadow: '0 20px 60px rgba(0, 0, 0, 0.15)',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '6px',
+                    background: 'linear-gradient(90deg, #FFD700 0%, #FF6B35 50%, #00D4FF 100%)',
+                  },
+                }}
+              >
+                <CardContent sx={{ p: { xs: 4, md: 6 } }}>
+                  <Box sx={{ textAlign: 'center' }}>
+                    {/* Icono principal */}
+                    <Box
+                      sx={{
+                        display: 'inline-block',
+                        mb: 3,
+                        animation: `${fallFromSky} 1.2s ease-out, ${rotate} 3s linear infinite 1.2s`,
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={estrellaIcon}
+                        alt="Estrella"
+                        sx={{
+                          width: 120,
+                          height: 120,
+                          filter: 'drop-shadow(0 8px 16px rgba(255, 215, 0, 0.6))',
+                        }}
+                      />
+                    </Box>
+
+                    {/* Título */}
+                    <Typography
+                      variant="h2"
+                      sx={{
+                        fontWeight: 900,
+                        color: '#FF6B35',
+                        mb: 3,
+                        fontSize: { xs: '2rem', md: '3rem' },
+                        textShadow: '0 4px 20px rgba(255, 107, 53, 0.3)',
+                        letterSpacing: '-1px',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      ¡Concurso Finalizado!
+                    </Typography>
+
+                    {/* Mensaje principal */}
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 600,
+                        color: '#333',
+                        mb: 4,
+                        fontSize: { xs: '1.1rem', md: '1.3rem' },
+                        lineHeight: 1.6,
+                        px: { xs: 2, md: 4 },
+                      }}
+                    >
+                      Este concurso ha llegado a su fin. Se hará un streaming por Facebook{' '}
+                      <strong style={{ color: '#00D4FF' }}>"Ferreterías Beach"</strong> en donde daremos los 4 ganadores.
+                    </Typography>
+
+                    {/* Imagen decorativa */}
+                    <Box
+                      sx={{
+                        mb: 4,
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+                        border: '4px solid #FFD700',
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={beachPiscinaImg}
+                        alt="Piscina Premio"
+                        sx={{
+                          width: '100%',
+                          maxHeight: '400px',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    </Box>
+
+                    {/* Botón Facebook */}
+                    <Button
+                      variant="contained"
+                      size="large"
+                      href="https://www.facebook.com/ferreterias.beach"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      startIcon={
+                        <Box
+                          component="span"
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 28,
+                            height: 28,
+                            borderRadius: '50%',
+                            bgcolor: 'white',
+                            color: '#1877F2',
+                            fontSize: '1.2rem',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          f
+                        </Box>
+                      }
+                      sx={{
+                        py: 2,
+                        px: 5,
+                        fontSize: '1.2rem',
+                        fontWeight: 800,
+                        background: 'linear-gradient(135deg, #1877F2 0%, #0C63D4 100%)',
+                        color: 'white',
+                        borderRadius: 50,
+                        boxShadow: '0 8px 24px rgba(24, 119, 242, 0.4)',
+                        textTransform: 'none',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: '-100%',
+                          width: '100%',
+                          height: '100%',
+                          background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+                          animation: `${shimmer} 2s infinite`,
+                        },
+                        '&:hover': {
+                          transform: 'translateY(-4px)',
+                          boxShadow: '0 12px 32px rgba(24, 119, 242, 0.5)',
+                          background: 'linear-gradient(135deg, #0C63D4 0%, #1877F2 100%)',
+                        },
+                        transition: 'all 0.3s ease',
+                      }}
+                    >
+                      Ver Streaming en Facebook
+                    </Button>
+
+                    {/* Mensaje de agradecimiento */}
+                    <Typography
+                      variant="body1"
+                      sx={{
+                        mt: 4,
+                        fontWeight: 600,
+                        color: '#666',
+                        fontSize: { xs: '0.95rem', md: '1rem' },
+                      }}
+                    >
+                      ¡Gracias a todos por participar! 🎉
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Fade>
+          </Container>
+        </Box>
+      </>
+    );
+  }
 
   return (
     <>
