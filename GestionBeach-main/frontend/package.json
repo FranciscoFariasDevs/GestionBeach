@@ -50,7 +50,9 @@
     "recharts": "^2.15.2",
     "shepherd.js": "^13.0.3",
     "web-vitals": "^2.1.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "jspdf": "^2.5.2",
+    "html2canvas": "^1.4.1"
   },
   "scripts": {
     "start": "react-scripts start",

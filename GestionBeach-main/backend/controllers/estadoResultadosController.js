@@ -1132,7 +1132,7 @@ exports.enviarEstadoResultados = async (req, res) => {
 exports.listarEstadosResultados = async (req, res) => {
   try {
     console.log('📋 Listando estados de resultados...');
-    const { sucursal_id, mes, anio, estado, limit = 50, offset = 0 } = req.query;
+    const { sucursal_id, razon_social_id, mes, anio, estado, limit = 50, offset = 0 } = req.query;
 
     const pool = await poolPromise;
     let query = `
@@ -1157,6 +1157,11 @@ exports.listarEstadosResultados = async (req, res) => {
       request.input('sucursal_id', sql.Int, sucursal_id);
     }
 
+    if (razon_social_id) {
+      query += ' AND razon_social_id = @razon_social_id';
+      request.input('razon_social_id', sql.Int, razon_social_id);
+    }
+
     if (mes) {
       query += ' AND mes = @mes';
       request.input('mes', sql.Int, mes);
@@ -1174,12 +1179,10 @@ exports.listarEstadosResultados = async (req, res) => {
 
     query += `
       ORDER BY anio DESC, mes DESC, fecha_creacion DESC
-      OFFSET @offset ROWS
-      FETCH NEXT @limit ROWS ONLY
     `;
 
-    request.input('offset', sql.Int, parseInt(offset));
-    request.input('limit', sql.Int, parseInt(limit));
+    // No usar OFFSET/FETCH para mejor compatibilidad
+    // En su lugar, simplemente limitamos en la aplicación si es necesario
 
     const result = await request.query(query);
 

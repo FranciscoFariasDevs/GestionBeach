@@ -39,7 +39,9 @@
       "Bash(git rm:*)",
       "Bash(git clean:*)",
       "Bash(git commit:*)",
-      "Bash(Select-String -Pattern \"Con remuneraciones pero sin sucursal\",\"RESUMEN FINAL\",\"Total procesados\",\"Sin sucursal:\" -Context 0,2)"
+      "Bash(Select-String -Pattern \"Con remuneraciones pero sin sucursal\",\"RESUMEN FINAL\",\"Total procesados\",\"Sin sucursal:\" -Context 0,2)",
+      "Bash(del \"C:\\\\Users\\\\Administrador\\\\Downloads\\\\GestionBeach-main \\(1\\)\\\\GestionBeach-main\\\\frontend\\\\src\\\\pages\\\\HistoricosPage.jsx\")",
+      "Bash(timeout 120 npm run build)"
     ],
     "deny": [],
     "ask": []

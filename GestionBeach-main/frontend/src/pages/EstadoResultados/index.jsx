@@ -31,7 +31,15 @@ import {
   Chip,
   LinearProgress,
   Divider,
-  Stack
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Container,
+  alpha,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -53,6 +61,15 @@ import PercentIcon from '@mui/icons-material/Percent';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import CalendarIcon from '@mui/icons-material/CalendarMonth';
+import StoreIcon from '@mui/icons-material/Store';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HistoryIcon from '@mui/icons-material/History';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import CloseIcon from '@mui/icons-material/Close';
+import BusinessIcon from '@mui/icons-material/Business';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
@@ -93,6 +110,27 @@ function TabPanel(props) {
     </div>
   );
 }
+
+// Funciones auxiliares para Históricos
+const getNombreMes = (mes) => {
+  const meses = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+  return meses[mes - 1] || '';
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return '-';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('es-CL', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 // Componente para mostrar costos patronales
 const CostosPatronalesCard = ({ data }) => {
@@ -289,8 +327,1017 @@ const CostosPatronalesCard = ({ data }) => {
   );
 };
 
+// Componente de Históricos
+const HistoricosTab = ({ sucursalesDisponibles }) => {
+  const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+
+  // Estados
+  const [loading, setLoading] = useState(false);
+  const [historicos, setHistoricos] = useState([]);
+  const [selectedHistorico, setSelectedHistorico] = useState(null);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [razonesSocialesDisponibles, setRazonesSocialesDisponibles] = useState([]);
+
+  // Filtros
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+
+  const [anioFiltro, setAnioFiltro] = useState(currentYear);
+  const [mesFiltro, setMesFiltro] = useState(currentMonth);
+  const [sucursalFiltro, setSucursalFiltro] = useState('');
+  const [razonSocialFiltro, setRazonSocialFiltro] = useState('');
+  const [estadoFiltro, setEstadoFiltro] = useState('');
+
+  // Generar lista de años (últimos 5 años)
+  const anios = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
+  // Cargar razones sociales
+  useEffect(() => {
+    const cargarRazonesSociales = async () => {
+      try {
+        const response = await api.get('/estado-resultados/razones-sociales');
+        if (response.data && response.data.success) {
+          setRazonesSocialesDisponibles(response.data.data || []);
+        }
+      } catch (error) {
+        console.error('Error al cargar razones sociales:', error);
+      }
+    };
+    cargarRazonesSociales();
+  }, []);
+
+  const cargarHistoricos = async () => {
+    try {
+      setLoading(true);
+      const params = {
+        anio: anioFiltro,
+        mes: mesFiltro,
+      };
+
+      if (sucursalFiltro) {
+        params.sucursal_id = sucursalFiltro;
+      }
+
+      if (razonSocialFiltro) {
+        params.razon_social_id = razonSocialFiltro;
+      }
+
+      if (estadoFiltro) {
+        params.estado = estadoFiltro;
+      }
+
+      const response = await api.get('/estado-resultados', { params });
+
+      if (response.data.success) {
+        setHistoricos(response.data.data || []);
+      } else {
+        enqueueSnackbar('Error al cargar históricos', { variant: 'error' });
+      }
+    } catch (error) {
+      console.error('Error al cargar históricos:', error);
+      enqueueSnackbar('Error al cargar históricos', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerDetalle = (historico) => {
+    setSelectedHistorico(historico);
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setSelectedHistorico(null);
+  };
+
+  const handleExportarPDF = async () => {
+    try {
+      // Importar jsPDF y html2canvas dinámicamente
+      const jsPDF = (await import('jspdf')).default;
+      const html2canvas = (await import('html2canvas')).default;
+
+      // Obtener el elemento a exportar
+      const elemento = document.getElementById('estado-resultados-print');
+      if (!elemento) {
+        enqueueSnackbar('Error al obtener el contenido para exportar', { variant: 'error' });
+        return;
+      }
+
+      // Mostrar loading
+      enqueueSnackbar('Generando PDF...', { variant: 'info' });
+
+      // Convertir el elemento a canvas con mejor calidad
+      const canvas = await html2canvas(elemento, {
+        scale: 1.5,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: elemento.scrollWidth,
+        windowHeight: elemento.scrollHeight
+      });
+
+      // Crear PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+
+      // Calcular dimensiones manteniendo aspecto
+      const ratio = pdfWidth / imgWidth;
+      const scaledHeight = imgHeight * ratio;
+
+      // Agregar imagen en múltiples páginas si es necesario
+      let heightLeft = scaledHeight;
+      let position = 0;
+
+      // Primera página
+      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight);
+      heightLeft -= pdfHeight;
+
+      // Páginas adicionales
+      while (heightLeft > 0) {
+        position = -(scaledHeight - heightLeft);
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      // Generar nombre de archivo
+      const nombreArchivo = `Estado_Resultados_${selectedHistorico.sucursal_nombre}_${getNombreMes(selectedHistorico.mes)}_${selectedHistorico.anio}.pdf`;
+
+      // Guardar PDF
+      pdf.save(nombreArchivo);
+      enqueueSnackbar('PDF exportado exitosamente', { variant: 'success' });
+    } catch (error) {
+      console.error('Error al exportar PDF:', error);
+      enqueueSnackbar('Error al exportar a PDF', { variant: 'error' });
+    }
+  };
+
+  const limpiarFiltros = () => {
+    setAnioFiltro(currentYear);
+    setMesFiltro(currentMonth);
+    setSucursalFiltro('');
+    setRazonSocialFiltro('');
+    setEstadoFiltro('');
+  };
+
+  return (
+    <Box>
+      {/* Filtros */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight={600} gutterBottom sx={{ mb: 2 }}>
+            Filtros
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Año</InputLabel>
+                <Select
+                  value={anioFiltro}
+                  onChange={(e) => setAnioFiltro(e.target.value)}
+                  label="Año"
+                >
+                  {anios.map((anio) => (
+                    <MenuItem key={anio} value={anio}>
+                      {anio}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Mes</InputLabel>
+                <Select
+                  value={mesFiltro}
+                  onChange={(e) => setMesFiltro(e.target.value)}
+                  label="Mes"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((mes) => (
+                    <MenuItem key={mes} value={mes}>
+                      {getNombreMes(mes)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Sucursal (Opcional)</InputLabel>
+                <Select
+                  value={sucursalFiltro}
+                  onChange={(e) => setSucursalFiltro(e.target.value)}
+                  label="Sucursal (Opcional)"
+                >
+                  <MenuItem value="">Todas</MenuItem>
+                  {sucursalesDisponibles.map((sucursal) => (
+                    <MenuItem key={sucursal.id} value={sucursal.id.toString()}>
+                      {sucursal.nombre}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Razón Social (Opcional)</InputLabel>
+                <Select
+                  value={razonSocialFiltro}
+                  onChange={(e) => setRazonSocialFiltro(e.target.value)}
+                  label="Razón Social (Opcional)"
+                >
+                  <MenuItem value="">Todas</MenuItem>
+                  {razonesSocialesDisponibles.map((razon) => (
+                    <MenuItem key={razon.id} value={razon.id.toString()}>
+                      {razon.nombre_razon}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={1.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Estado</InputLabel>
+                <Select
+                  value={estadoFiltro}
+                  onChange={(e) => setEstadoFiltro(e.target.value)}
+                  label="Estado"
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  <MenuItem value="borrador">Borrador</MenuItem>
+                  <MenuItem value="enviado">Enviado</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={1.5}>
+              <Button
+                variant="outlined"
+                fullWidth
+                startIcon={<RefreshIcon />}
+                onClick={limpiarFiltros}
+                size="small"
+              >
+                Limpiar
+              </Button>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={1}>
+              <Button
+                variant="contained"
+                fullWidth
+                startIcon={<RefreshIcon />}
+                onClick={cargarHistoricos}
+                size="small"
+              >
+                Buscar
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Resumen */}
+      {!loading && historicos.length > 0 && (
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <StoreIcon color="primary" />
+                  <Box>
+                    <Typography variant="h4" fontWeight={700}>
+                      {historicos.length}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Estados de Resultados
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <CheckCircleIcon color="success" />
+                  <Box>
+                    <Typography variant="h4" fontWeight={700}>
+                      {historicos.filter(h => h.estado === 'enviado').length}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Enviados
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <EditIcon color="warning" />
+                  <Box>
+                    <Typography variant="h4" fontWeight={700}>
+                      {historicos.filter(h => h.estado === 'borrador').length}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Borradores
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <Card>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <AttachMoneyIcon color="success" />
+                  <Box>
+                    <Typography variant="h6" fontWeight={700}>
+                      {formatCurrency(historicos.reduce((sum, h) => sum + (h.ventas || 0), 0))}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Ventas
+                    </Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Tabla de históricos */}
+      <Card>
+        <CardContent>
+          {loading ? (
+            <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
+              <CircularProgress />
+            </Box>
+          ) : historicos.length === 0 ? (
+            <Alert severity="info">
+              No se encontraron estados de resultados guardados para los filtros seleccionados.
+            </Alert>
+          ) : (
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Período</strong></TableCell>
+                    <TableCell><strong>Sucursal</strong></TableCell>
+                    <TableCell><strong>Razón Social</strong></TableCell>
+                    <TableCell align="right"><strong>Ventas</strong></TableCell>
+                    <TableCell align="right"><strong>Costos</strong></TableCell>
+                    <TableCell align="right"><strong>Utilidad Neta</strong></TableCell>
+                    <TableCell align="center"><strong>Estado</strong></TableCell>
+                    <TableCell><strong>Creado Por</strong></TableCell>
+                    <TableCell><strong>Fecha Creación</strong></TableCell>
+                    <TableCell align="center"><strong>Acciones</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {historicos.map((historico) => (
+                    <TableRow
+                      key={historico.id}
+                      hover
+                      sx={{
+                        '&:hover': {
+                          backgroundColor: alpha(theme.palette.primary.main, 0.05),
+                        },
+                      }}
+                    >
+                      <TableCell>
+                        <Chip
+                          icon={<CalendarIcon />}
+                          label={`${getNombreMes(historico.mes)} ${historico.anio}`}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>{historico.sucursal_nombre || '-'}</TableCell>
+                      <TableCell>{historico.razon_social_nombre || '-'}</TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={600} color="success.main">
+                          {formatCurrency(historico.ventas)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={600} color="error.main">
+                          {formatCurrency(historico.total_costos)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography
+                          fontWeight={700}
+                          color={historico.utilidad_neta >= 0 ? 'success.main' : 'error.main'}
+                        >
+                          {formatCurrency(historico.utilidad_neta)}
+                          {historico.utilidad_neta >= 0 ? (
+                            <TrendingUpIcon fontSize="small" sx={{ ml: 0.5, verticalAlign: 'middle' }} />
+                          ) : (
+                            <TrendingDownIcon fontSize="small" sx={{ ml: 0.5, verticalAlign: 'middle' }} />
+                          )}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip
+                          label={historico.estado === 'enviado' ? 'Enviado' : 'Borrador'}
+                          color={historico.estado === 'enviado' ? 'success' : 'warning'}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>{historico.creado_por || '-'}</TableCell>
+                      <TableCell>{formatDate(historico.fecha_creacion)}</TableCell>
+                      <TableCell align="center">
+                        <Tooltip title="Ver Detalle">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => handleVerDetalle(historico)}
+                          >
+                            <VisibilityIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Dialog de detalle */}
+      <Dialog
+        open={openDialog}
+        onClose={handleCloseDialog}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: 'linear-gradient(to bottom, #ffffff 0%, #f8f9fa 100%)',
+          }
+        }}
+      >
+        <DialogTitle sx={{
+          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+          color: 'white',
+          pb: 3
+        }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Box display="flex" alignItems="center" gap={2}>
+              <BusinessIcon sx={{ fontSize: 40 }} />
+              <Box>
+                <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>
+                  Estado de Resultados
+                </Typography>
+                {selectedHistorico && (
+                  <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                    {selectedHistorico.sucursal_nombre} - {getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+            <Box display="flex" gap={1} alignItems="center">
+              {selectedHistorico && (
+                <Chip
+                  label={selectedHistorico.estado === 'enviado' ? 'Enviado' : 'Borrador'}
+                  color={selectedHistorico.estado === 'enviado' ? 'success' : 'warning'}
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                    px: 1
+                  }}
+                  icon={selectedHistorico.estado === 'enviado' ? <CheckCircleIcon /> : <EditIcon />}
+                />
+              )}
+              <IconButton
+                onClick={handleCloseDialog}
+                sx={{
+                  color: 'white',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers id="estado-resultados-print">
+          {selectedHistorico && (
+            <Box>
+              {/* Resumen Ejecutivo */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper sx={{
+                    p: 2,
+                    background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
+                    color: 'white',
+                    borderRadius: 2,
+                    boxShadow: 3
+                  }}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
+                      💰 Total Ingresos
+                    </Typography>
+                    <Typography variant="h5" fontWeight={900}>
+                      {formatCurrency(selectedHistorico.total_ingresos)}
+                    </Typography>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper sx={{
+                    p: 2,
+                    background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
+                    color: 'white',
+                    borderRadius: 2,
+                    boxShadow: 3
+                  }}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
+                      📦 Total Costos
+                    </Typography>
+                    <Typography variant="h5" fontWeight={900}>
+                      {formatCurrency(selectedHistorico.total_costos)}
+                    </Typography>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper sx={{
+                    p: 2,
+                    background: 'linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)',
+                    color: 'white',
+                    borderRadius: 2,
+                    boxShadow: 3
+                  }}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
+                      💼 Gastos Operativos
+                    </Typography>
+                    <Typography variant="h5" fontWeight={900}>
+                      {formatCurrency(selectedHistorico.total_gastos_operativos)}
+                    </Typography>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper sx={{
+                    p: 2,
+                    background: selectedHistorico.utilidad_neta >= 0
+                      ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)'
+                      : 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
+                    color: 'white',
+                    borderRadius: 2,
+                    boxShadow: 4,
+                    border: '2px solid',
+                    borderColor: selectedHistorico.utilidad_neta >= 0 ? '#38ef7d' : '#f45c43'
+                  }}>
+                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 700 }}>
+                      {selectedHistorico.utilidad_neta >= 0 ? '✅' : '❌'} UTILIDAD NETA
+                    </Typography>
+                    <Typography variant="h4" fontWeight={900}>
+                      {formatCurrency(selectedHistorico.utilidad_neta)}
+                    </Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              {/* Información General en tabla */}
+              <TableContainer component={Paper} sx={{ mb: 3 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell colSpan={4}>
+                        <Typography variant="subtitle1" fontWeight={700}>
+                          Información General
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600, width: '25%' }}>Período</TableCell>
+                      <TableCell>{getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}</TableCell>
+                      <TableCell sx={{ fontWeight: 600, width: '25%' }}>Estado</TableCell>
+                      <TableCell>{selectedHistorico.estado === 'enviado' ? 'Enviado' : 'Borrador'}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Sucursal</TableCell>
+                      <TableCell>{selectedHistorico.sucursal_nombre || '-'}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Razón Social</TableCell>
+                      <TableCell>{selectedHistorico.razon_social_nombre || 'Sin especificar'}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* INGRESOS */}
+              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'success.main' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'success.main' }}>
+                      <TableCell colSpan={2}>
+                        <Typography variant="subtitle1" fontWeight={800} color="white">
+                          💰 INGRESOS
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Ventas</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: 'success.dark', fontSize: '1.1rem' }}>
+                        {formatCurrency(selectedHistorico.ventas)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Otros Ingresos (Fletes)</TableCell>
+                      <TableCell align="right" sx={{ color: 'success.main' }}>
+                        {formatCurrency(selectedHistorico.otros_ingresos_fletes || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Otros Ingresos Financieros</TableCell>
+                      <TableCell align="right" sx={{ color: 'success.main' }}>
+                        {formatCurrency(selectedHistorico.otros_ingresos_financieros || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'success.dark' }}>
+                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL INGRESOS</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
+                        {formatCurrency(selectedHistorico.total_ingresos)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* COSTOS */}
+              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'error.main' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'error.main' }}>
+                      <TableCell colSpan={2}>
+                        <Typography variant="subtitle1" fontWeight={800} color="white">
+                          📦 COSTOS
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Costo de Ventas</TableCell>
+                      <TableCell align="right" sx={{ color: 'error.dark', fontWeight: 700 }}>
+                        {formatCurrency(selectedHistorico.costo_ventas || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Compras Totales</TableCell>
+                      <TableCell align="right" sx={{ color: 'error.main' }}>
+                        {formatCurrency(selectedHistorico.compras_totales || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Merma de Venta</TableCell>
+                      <TableCell align="right" sx={{ color: 'error.main' }}>
+                        {formatCurrency(selectedHistorico.merma_venta || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'error.dark' }}>
+                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL COSTOS</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
+                        {formatCurrency(selectedHistorico.total_costos)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* GASTOS ADMINISTRATIVOS */}
+              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'warning.main' }}>
+                      <TableCell colSpan={2}>
+                        <Typography variant="subtitle1" fontWeight={800} color="white">
+                          🏢 GASTOS ADMINISTRATIVOS
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Sueldos Admin.</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.dark', fontWeight: 700 }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_sueldos || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Seguros</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_seguros || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Gastos Comunes</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_gastos_comunes || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Electricidad</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_electricidad || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Agua</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_agua || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Telefonía</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_telefonia || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Otros Admin.</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_otros || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'warning.dark' }}>
+                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS ADMINISTRATIVOS</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
+                        {formatCurrency(selectedHistorico.gastos_admin_total || 0)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* GASTOS DE VENTA */}
+              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'info.main' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'info.main' }}>
+                      <TableCell colSpan={2}>
+                        <Typography variant="subtitle1" fontWeight={800} color="white">
+                          🛒 GASTOS DE VENTA
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Sueldos Ventas</TableCell>
+                      <TableCell align="right" sx={{ color: 'info.dark', fontWeight: 700 }}>
+                        {formatCurrency(selectedHistorico.gastos_venta_sueldos || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Fletes</TableCell>
+                      <TableCell align="right" sx={{ color: 'info.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_venta_fletes || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Publicidad</TableCell>
+                      <TableCell align="right" sx={{ color: 'info.main' }}>
+                        {formatCurrency(selectedHistorico.gastos_venta_publicidad || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'info.dark' }}>
+                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS DE VENTA</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.1rem' }}>
+                        {formatCurrency(selectedHistorico.gastos_venta_total || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'secondary.dark' }}>
+                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS OPERATIVOS</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
+                        {formatCurrency(selectedHistorico.total_gastos_operativos)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* UTILIDADES */}
+              <TableContainer component={Paper} sx={{
+                mb: 3,
+                border: '3px solid',
+                borderColor: selectedHistorico.utilidad_neta >= 0 ? 'success.main' : 'error.main',
+                boxShadow: 4
+              }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: selectedHistorico.utilidad_neta >= 0 ? 'success.main' : 'error.main' }}>
+                      <TableCell colSpan={2}>
+                        <Typography variant="h6" fontWeight={900} color="white">
+                          📊 UTILIDADES
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Bruta</TableCell>
+                      <TableCell align="right" sx={{
+                        color: selectedHistorico.utilidad_bruta >= 0 ? 'success.dark' : 'error.dark',
+                        fontWeight: 800,
+                        fontSize: '1.1rem'
+                      }}>
+                        {selectedHistorico.utilidad_bruta >= 0 ? '📈 ' : '📉 '}
+                        {formatCurrency(selectedHistorico.utilidad_bruta)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Operativa</TableCell>
+                      <TableCell align="right" sx={{
+                        color: selectedHistorico.utilidad_operativa >= 0 ? 'success.dark' : 'error.dark',
+                        fontWeight: 800,
+                        fontSize: '1.1rem'
+                      }}>
+                        {selectedHistorico.utilidad_operativa >= 0 ? '📈 ' : '📉 '}
+                        {formatCurrency(selectedHistorico.utilidad_operativa)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Antes Impuestos</TableCell>
+                      <TableCell align="right" sx={{
+                        color: (selectedHistorico.utilidad_antes_impuestos || 0) >= 0 ? 'success.dark' : 'error.dark',
+                        fontWeight: 800,
+                        fontSize: '1.1rem'
+                      }}>
+                        {(selectedHistorico.utilidad_antes_impuestos || 0) >= 0 ? '📈 ' : '📉 '}
+                        {formatCurrency(selectedHistorico.utilidad_antes_impuestos || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow sx={{
+                      bgcolor: selectedHistorico.utilidad_neta >= 0 ? 'success.dark' : 'error.dark',
+                      '& td': { borderBottom: 'none' }
+                    }}>
+                      <TableCell sx={{ fontWeight: 900, fontSize: '1.3rem', color: 'white', py: 2 }}>
+                        💰 UTILIDAD NETA
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, fontSize: '1.5rem', color: 'white', py: 2 }}>
+                        {selectedHistorico.utilidad_neta >= 0 ? '✅ ' : '❌ '}
+                        {formatCurrency(selectedHistorico.utilidad_neta)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Información Adicional */}
+              <TableContainer component={Paper} sx={{ mb: 3 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell colSpan={4}>
+                        <Typography variant="subtitle1" fontWeight={700}>
+                          INFORMACIÓN ADICIONAL
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Número de Facturas</TableCell>
+                      <TableCell>{selectedHistorico.numero_facturas || 0}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Número de Ventas</TableCell>
+                      <TableCell>{selectedHistorico.numero_ventas || 0}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Empleados Admin.</TableCell>
+                      <TableCell>{selectedHistorico.empleados_admin || 0}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Empleados Ventas</TableCell>
+                      <TableCell>{selectedHistorico.empleados_ventas || 0}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>Total Compras (Valor)</TableCell>
+                      <TableCell>{formatCurrency(selectedHistorico.total_compras_valor || 0)}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Total Remuneraciones (Valor)</TableCell>
+                      <TableCell>{formatCurrency(selectedHistorico.total_remuneraciones_valor || 0)}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {selectedHistorico.observaciones && (
+                <TableContainer component={Paper} sx={{ mb: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'warning.50' }}>
+                        <TableCell>
+                          <Typography variant="subtitle2" fontWeight={700} color="warning.dark">
+                            Observaciones
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>{selectedHistorico.observaciones}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+
+              {selectedHistorico.notas && (
+                <TableContainer component={Paper} sx={{ mb: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: 'info.50' }}>
+                        <TableCell>
+                          <Typography variant="subtitle2" fontWeight={700} color="info.dark">
+                            Notas
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>{selectedHistorico.notas}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, bgcolor: 'grey.50', gap: 1 }}>
+          <Button
+            onClick={handleExportarPDF}
+            variant="contained"
+            startIcon={<PictureAsPdfIcon />}
+            sx={{
+              background: 'linear-gradient(135deg, #e53935 0%, #c62828 100%)',
+              color: 'white',
+              fontWeight: 700,
+              '&:hover': {
+                background: 'linear-gradient(135deg, #c62828 0%, #b71c1c 100%)',
+                transform: 'translateY(-2px)',
+                boxShadow: 4,
+              },
+              transition: 'all 0.3s ease',
+            }}
+          >
+            Exportar a PDF
+          </Button>
+          <Box sx={{ flexGrow: 1 }} />
+          <Button
+            onClick={handleCloseDialog}
+            variant="outlined"
+            startIcon={<CloseIcon />}
+            sx={{
+              fontWeight: 600,
+              borderWidth: 2,
+              '&:hover': {
+                borderWidth: 2,
+                transform: 'translateY(-2px)',
+              },
+              transition: 'all 0.3s ease',
+            }}
+          >
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
 // Componente principal para el Estado de Resultados
 const EstadoResultadosPage = () => {
+  // Estado para las pestañas principales
+  const [mainTab, setMainTab] = useState(0); // 0: Procesado en Vivo, 1: Históricos
+
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [selectedSucursal, setSelectedSucursal] = useState('');
   const [selectedRazonSocial, setSelectedRazonSocial] = useState('');
@@ -1891,10 +2938,43 @@ const EstadoResultadosPage = () => {
   return (
     <Box sx={{ position: 'relative', minHeight: '100vh' }}>
       <WeatherBar />
-      
+
       <Box sx={{ py: 4, mt: 4 }}>
         <ReportHeader />
-        <ReportFilter />
+
+        {/* Pestañas principales */}
+        <Paper elevation={2} sx={{ mb: 3 }}>
+          <Tabs
+            value={mainTab}
+            onChange={(e, newValue) => setMainTab(newValue)}
+            variant="fullWidth"
+            sx={{
+              borderBottom: 1,
+              borderColor: 'divider',
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '1rem',
+                minHeight: 64,
+              },
+            }}
+          >
+            <Tab
+              icon={<AnalyticsIcon />}
+              iconPosition="start"
+              label="Procesado en Vivo"
+            />
+            <Tab
+              icon={<HistoryIcon />}
+              iconPosition="start"
+              label="Históricos"
+            />
+          </Tabs>
+        </Paper>
+
+        {/* Tab Panel: Procesado en Vivo */}
+        <TabPanel value={mainTab} index={0}>
+          <ReportFilter />
         
         {error && (
           <Alert 
@@ -2030,7 +3110,13 @@ const EstadoResultadosPage = () => {
             </Box>
           </>
         )}
-        
+        </TabPanel>
+
+        {/* Tab Panel: Históricos */}
+        <TabPanel value={mainTab} index={1}>
+          <HistoricosTab sucursalesDisponibles={sucursalesDisponibles} />
+        </TabPanel>
+
         <ConfirmDialog />
       </Box>
     </Box>

@@ -242,7 +242,7 @@ const waterSplash = keyframes`
 
 const ConcursoPiscinasPage = () => {
   // Toggle para activar/desactivar el concurso
-  const CONCURSO_ACTIVO = true; // Cambiar a false cuando termine el concurso
+  const CONCURSO_ACTIVO = false; // Cambiar a false cuando termine el concurso
 
   const { enqueueSnackbar } = useSnackbar();
 
@@ -654,7 +654,7 @@ const ConcursoPiscinasPage = () => {
                         px: { xs: 2, md: 4 },
                       }}
                     >
-                      Este concurso ha llegado a su fin. Se hará un streaming por Facebook{' '}
+                      Este concurso ha llegado a su fin. Se hará un streaming por Facebook el dia 29 de diciembre a las 17 hrs{' '}
                       <strong style={{ color: '#00D4FF' }}>"Ferreterías Beach"</strong> en donde daremos los 4 ganadores.
                     </Typography>
 
