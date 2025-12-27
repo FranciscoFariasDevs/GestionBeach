@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Detección LUIDO</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-case {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .detected {
+            color: #2ecc71;
+            font-weight: bold;
+        }
+        .not-detected {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .header-name {
+            font-family: monospace;
+            background: #ecf0f1;
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test de Detección de "LUIDO" como LÍQUIDO</h1>
+    <p>Probando si el sistema detecta correctamente diferentes variaciones de "Líquido" corruptas por surrogates:</p>
+
+    <div id="results"></div>
+
+    <script>
+        // Función limpiarUnicode (simplificada)
+        function limpiarUnicode(texto) {
+            if (!texto) return '';
+            let resultado = String(texto);
+
+            // Detectar surrogates
+            const tieneSurrogates = /[\uD800-\uDFFF]/.test(resultado);
+            if (tieneSurrogates) {
+                let bytes = [];
+                for (let i = 0; i < resultado.length; i++) {
+                    const code = resultado.charCodeAt(i);
+                    if (code >= 0xDC00 && code <= 0xDCFF) {
+                        bytes.push(code - 0xDC00);
+                    } else {
+                        bytes.push(code);
+                    }
+                }
+                resultado = bytes.map(b => String.fromCharCode(b)).join('');
+            }
+
+            return resultado;
+        }
+
+        // Función de detección (copiada del código real)
+        function detectarLiquido(header) {
+            const headerLimpio = limpiarUnicode(header);
+            const headerUpper = headerLimpio.toUpperCase().trim();
+
+            const esLiquido =
+                headerUpper.includes('LIQUIDO') ||
+                headerUpper === 'LIQUIDO' ||
+                headerUpper.includes('LIQUIDO A PAGAR') ||
+                headerUpper.includes('LIQUIDO PAGAR') ||
+                headerUpper.includes('LIQ.') ||
+                headerUpper === 'LIQ.' ||
+                headerUpper.includes('NETO') ||
+                headerUpper.includes('NET') ||
+                (headerUpper.includes('PAGAR') && headerUpper.includes('LIQ')) ||
+                // NUEVOS PATRONES PARA SURROGATES:
+                headerUpper.includes('LUIDO') ||
+                headerUpper === 'LUIDO' ||
+                headerUpper.includes('LUIDO A PAGAR') ||
+                headerUpper.includes('LUIDO PAGAR') ||
+                /L[UI\?�]QUIDO/i.test(headerUpper) ||
+                /L[UI\?�]*IDO/i.test(headerUpper) ||
+                /L.*PAGAR/i.test(headerUpper) ||
+                (headerUpper.startsWith('L') && headerUpper.includes('IDO')) ||
+                (headerUpper.startsWith('L') && headerUpper.includes('PAGAR'));
+
+            return esLiquido;
+        }
+
+        // Casos de prueba
+        const testCases = [
+            // Casos normales
+            { header: 'LIQUIDO', shouldDetect: true },
+            { header: 'Líquido', shouldDetect: true },
+            { header: 'LIQUIDO A PAGAR', shouldDetect: true },
+            { header: 'LIQ.', shouldDetect: true },
+            { header: 'NETO', shouldDetect: true },
+
+            // Casos con surrogates (lo que el usuario reporta)
+            { header: 'LUIDO', shouldDetect: true },
+            { header: 'Luido', shouldDetect: true },
+            { header: 'LUIDO A PAGAR', shouldDetect: true },
+            { header: 'Luido a pagar', shouldDetect: true },
+
+            // Casos con caracteres raros
+            { header: 'L?QUIDO', shouldDetect: true },
+            { header: 'L�QUIDO', shouldDetect: true },
+            { header: 'LIDO', shouldDetect: true },
+            { header: 'L PAGAR', shouldDetect: true },
+
+            // Casos que NO deberían detectarse
+            { header: 'NOMBRE', shouldDetect: false },
+            { header: 'RUT', shouldDetect: false },
+            { header: 'SUELDO BASE', shouldDetect: false }
+        ];
+
+        // Ejecutar pruebas
+        const resultsDiv = document.getElementById('results');
+        let passed = 0;
+        let failed = 0;
+
+        testCases.forEach((testCase, index) => {
+            const detected = detectarLiquido(testCase.header);
+            const success = detected === testCase.shouldDetect;
+
+            if (success) passed++;
+            else failed++;
+
+            const div = document.createElement('div');
+            div.className = 'test-case';
+            div.innerHTML = `
+                <strong>Test ${index + 1}:</strong>
+                <span class="header-name">"${testCase.header}"</span>
+                <br>
+                <strong>Esperado:</strong> ${testCase.shouldDetect ? 'Detectar ✓' : 'No detectar ✗'}
+                <br>
+                <strong>Resultado:</strong>
+                <span class="${success ? 'detected' : 'not-detected'}">
+                    ${detected ? 'Detectado ✓' : 'No detectado ✗'}
+                    ${success ? ' - CORRECTO ✅' : ' - ERROR ❌'}
+                </span>
+            `;
+            resultsDiv.appendChild(div);
+        });
+
+        // Resumen
+        const summary = document.createElement('div');
+        summary.className = 'test-case';
+        summary.style.background = passed === testCases.length ? '#d4edda' : '#f8d7da';
+        summary.innerHTML = `
+            <h2>📊 Resumen</h2>
+            <strong>Total:</strong> ${testCases.length} pruebas<br>
+            <strong class="detected">Pasadas:</strong> ${passed}<br>
+            <strong class="not-detected">Fallidas:</strong> ${failed}<br>
+            <strong>Tasa de éxito:</strong> ${Math.round((passed / testCases.length) * 100)}%
+        `;
+        resultsDiv.appendChild(summary);
+    </script>
+</body>
+</html>

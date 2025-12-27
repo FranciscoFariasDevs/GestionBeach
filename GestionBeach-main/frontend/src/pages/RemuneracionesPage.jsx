@@ -252,24 +252,64 @@ const RemuneracionesPage = () => {
   // FUNCIÓN CRÍTICA: LIMPIAR UNICODE EN FRONTEND
   const limpiarUnicode = (texto) => {
     if (!texto) return '';
-    
-    return String(texto)
-      .normalize('NFD')
+
+    let resultado = String(texto);
+
+    // PASO 1: Detectar y limpiar surrogates solitarios (como \udc75)
+    // Los surrogates en rango 0xDC00-0xDFFF son inválidos y deben removerse
+    const tieneSurrogates = /[\uD800-\uDFFF]/.test(resultado);
+
+    if (tieneSurrogates) {
+      console.warn('⚠️ Surrogates detectados en:', resultado);
+
+      // Intentar decodificar surrogates como bytes Latin-1
+      let bytes = [];
+      for (let i = 0; i < resultado.length; i++) {
+        const code = resultado.charCodeAt(i);
+        if (code >= 0xDC00 && code <= 0xDCFF) {
+          // Extraer el byte original
+          bytes.push(code - 0xDC00);
+        } else {
+          bytes.push(code);
+        }
+      }
+
+      try {
+        // Intentar reconstruir el texto
+        resultado = bytes.map(b => String.fromCharCode(b)).join('');
+        console.log('✅ Surrogates decodificados:', resultado);
+      } catch (e) {
+        // Si falla, simplemente remover los surrogates
+        resultado = resultado.replace(/[\uD800-\uDFFF]/g, '');
+        console.warn('⚠️ Surrogates removidos, resultado:', resultado);
+      }
+    }
+
+    // PASO 2: Corregir mojibake si existe (doble encoding)
+    resultado = resultado
       .replace(/ÃƒÂ±/g, 'ñ')
       .replace(/ÃƒÂ¡/g, 'á')
       .replace(/ÃƒÂ©/g, 'é')
       .replace(/ÃƒÂ­/g, 'í')
       .replace(/ÃƒÂ³/g, 'ó')
       .replace(/ÃƒÂº/g, 'ú')
-      .replace(/Ãƒ/g, 'Ñ')
-      .replace(/Ãƒ/g, 'Á')
-      .replace(/Ãƒâ€°/g, 'É')
-      .replace(/Ãƒ/g, 'Í')
-      .replace(/Ãƒ"/g, 'Ó')
-      .replace(/ÃƒÅ¡/g, 'Ú')
+      .replace(/Ã±/g, 'ñ')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú');
+
+    // PASO 3: Normalizar a NFC (Canonical Composition)
+    resultado = resultado.normalize('NFC');
+
+    // PASO 4: Limpiar caracteres de control y espacios extras
+    resultado = resultado
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+
+    return resultado;
   };
 
   // FUNCIÓN CRÍTICA: PROCESAR VALORES MONETARIOS CHILENOS SIN TRUNCAR
@@ -945,17 +985,24 @@ const RemuneracionesPage = () => {
     reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, {
+          type: 'array',
+          codepage: 65001,  // UTF-8
+          cellDates: false,
+          cellNF: false,
+          cellText: true
+        });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
+
         setProcessingStatus('Procesando datos con soporte Unicode...');
-        
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-          header: 1, 
-          defval: '', 
+
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: '',
           blankrows: false,
-          raw: false
+          raw: false,
+          rawNumbers: false
         });
         
         console.log('Datos raw del Excel (primeras 10 filas):', jsonData.slice(0, 10));
@@ -994,13 +1041,23 @@ const RemuneracionesPage = () => {
         setExcelData(formattedData);
         setPreviewData(formattedData.slice(0, 20));
         setColumnasDetectadas(headers);
-        
+
         setProcessingStatus('Realizando análisis automático con Unicode...');
-        await realizarAnalisisAutomaticoConUnicode(headers, formattedData.slice(0, 5));
-        
-        setActiveStep(3);
-        
-        showSnackbar(`Excel cargado exitosamente con soporte Unicode: ${formattedData.length} registros encontrados`, 'success');
+        const mapeoDetectado = await realizarAnalisisAutomaticoConUnicode(headers, formattedData.slice(0, 5));
+
+        // ✅ NUEVO: Si las 3 columnas principales están detectadas, saltar al paso 4
+        const columnasRequeridas = ['rut_empleado', 'nombre_empleado', 'liquido_pagar'];
+        const todasDetectadas = columnasRequeridas.every(col => mapeoDetectado && mapeoDetectado[col]);
+
+        if (todasDetectadas) {
+          console.log('✅ Todas las columnas principales detectadas automáticamente. Saltando al paso 4 (Porcentajes)...');
+          setActiveStep(4);
+          showSnackbar(`Excel cargado exitosamente: ${formattedData.length} registros. Columnas detectadas automáticamente ✓`, 'success');
+        } else {
+          console.log('⚠️ Algunas columnas requieren mapeo manual. Mostrando paso 3...');
+          setActiveStep(3);
+          showSnackbar(`Excel cargado exitosamente con soporte Unicode: ${formattedData.length} registros encontrados`, 'success');
+        }
       } catch (error) {
         console.error('Error al leer Excel:', error);
         showSnackbar('Error al procesar el archivo Excel: ' + error.message, 'error');
@@ -1080,23 +1137,40 @@ const RemuneracionesPage = () => {
   // FUNCIÓN CRÍTICA: Crear mapeo mejorado con Unicode
   const crearMapeoMejoradoConUnicode = (headers, mapeoBackend) => {
     const mapeoMejorado = { ...mapeoBackend };
-    
+
     headers.forEach(header => {
       const headerLimpio = limpiarUnicode(header);
       const headerUpper = headerLimpio.toUpperCase().trim();
-      
-      if (headerUpper.includes('LIQUIDO') || headerUpper === 'LIQUIDO' || 
-          headerUpper.includes('LIQUIDO A PAGAR') || 
-          headerUpper.includes('LIQUIDO PAGAR') || 
-          headerUpper.includes('LIQ.') || headerUpper === 'LIQ.' ||
-          headerUpper.includes('NETO') || headerUpper.includes('NET') ||
-          (headerUpper.includes('PAGAR') && headerUpper.includes('LIQ'))) {
-        
+
+      // ✅ NUEVO: Detectar "LUIDO" (resultado de surrogates que corrompen "LÍQUIDO")
+      // También detectar otras variaciones comunes de corrupción
+      const esLiquido =
+        headerUpper.includes('LIQUIDO') ||
+        headerUpper === 'LIQUIDO' ||
+        headerUpper.includes('LIQUIDO A PAGAR') ||
+        headerUpper.includes('LIQUIDO PAGAR') ||
+        headerUpper.includes('LIQ.') ||
+        headerUpper === 'LIQ.' ||
+        headerUpper.includes('NETO') ||
+        headerUpper.includes('NET') ||
+        (headerUpper.includes('PAGAR') && headerUpper.includes('LIQ')) ||
+        // ✅ NUEVOS PATRONES PARA SURROGATES:
+        headerUpper.includes('LUIDO') ||           // "Líquido" → "Luido" (surrogates)
+        headerUpper === 'LUIDO' ||
+        headerUpper.includes('LUIDO A PAGAR') ||
+        headerUpper.includes('LUIDO PAGAR') ||
+        /L[UI\?�]QUIDO/i.test(headerUpper) ||     // L + (u/i/?/�) + QUIDO
+        /L[UI\?�]*IDO/i.test(headerUpper) ||      // L + variaciones + IDO
+        /L.*PAGAR/i.test(headerUpper) ||          // L + cualquier cosa + PAGAR
+        (headerUpper.startsWith('L') && headerUpper.includes('IDO')) || // Empieza con L y tiene IDO
+        (headerUpper.startsWith('L') && headerUpper.includes('PAGAR')); // Empieza con L y tiene PAGAR
+
+      if (esLiquido) {
         mapeoMejorado.liquido_pagar = header;
-        console.log(`FRONTEND: Líquido detectado con Unicode: "${header}" (limpio: "${headerLimpio}")`);
+        console.log(`✅ FRONTEND: Líquido detectado con Unicode: "${header}" (limpio: "${headerLimpio}")`);
       }
     });
-    
+
     return mapeoMejorado;
   };
 
@@ -1104,7 +1178,7 @@ const RemuneracionesPage = () => {
   const realizarAnalisisAutomaticoConUnicode = async (headers, sampleData) => {
     try {
       console.log('Realizando análisis automático con Unicode...');
-      
+
       const response = await remuneracionesAPI.validarExcel({
         headers,
         sampleData
@@ -1113,10 +1187,10 @@ const RemuneracionesPage = () => {
       if (response.data.success) {
         const analisis = response.data.data;
         setAnalisisExcel(analisis);
-        
+
         const mapeoMejorado = crearMapeoMejoradoConUnicode(headers, analisis.mapeo_sugerido || {});
         setMapeoColumnas(mapeoMejorado);
-        
+
         if (analisis.errores && analisis.errores.length > 0) {
           showSnackbar(`Análisis completado con ${analisis.errores.length} errores críticos`, 'error');
         } else if (analisis.advertencias && analisis.advertencias.length > 0) {
@@ -1131,6 +1205,9 @@ const RemuneracionesPage = () => {
 
         console.log('Análisis automático con Unicode completado:', analisis);
         console.log('Mapeo mejorado con Unicode:', mapeoMejorado);
+
+        // ✅ NUEVO: Retornar el mapeo para que pueda ser evaluado
+        return mapeoMejorado;
       } else {
         throw new Error(response.data.message || 'Error en el análisis automático');
       }
@@ -1138,6 +1215,7 @@ const RemuneracionesPage = () => {
       console.error('Error en análisis automático:', err);
       const errorMsg = err.response?.data?.message || 'Error al analizar el archivo';
       showSnackbar(errorMsg, 'error');
+      return null; // Retornar null en caso de error
     }
   };
 

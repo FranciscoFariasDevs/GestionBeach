@@ -685,7 +685,7 @@ const ConcursoPiscinasPage = () => {
                     <Button
                       variant="contained"
                       size="large"
-                      href="https://www.facebook.com/ferreterias.beach"
+                      href="https://www.facebook.com/ChileMatBeach/?locale=es_LA"
                       target="_blank"
                       rel="noopener noreferrer"
                       startIcon={
