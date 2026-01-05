@@ -39,7 +39,7 @@ import {
   Image as ImageIcon
 } from '@mui/icons-material';
 import { styled, keyframes } from '@mui/material/styles';
-import api from '../api/api';
+import api, { getStaticFileURL } from '../api/api';
 import { useSnackbar } from 'notistack';
 
 // Animación de scroll infinito
@@ -1197,11 +1197,11 @@ const SorteoConcursoPage = () => {
                       Ruta: {winner.ruta_imagen}
                     </Typography>
                     <Typography variant="caption" sx={{ display: 'block', mb: 1, color: '#666' }}>
-                      URL completa: {`${api.defaults.baseURL.replace('/api', '')}${winner.ruta_imagen}`}
+                      URL completa: {getStaticFileURL(winner.ruta_imagen)}
                     </Typography>
                     <Box
                       component="img"
-                      src={`${api.defaults.baseURL.replace('/api', '')}${winner.ruta_imagen}`}
+                      src={getStaticFileURL(winner.ruta_imagen)}
                       alt={`Boleta ${winner.numero_boleta}`}
                       sx={{
                         width: '100%',
@@ -1211,6 +1211,7 @@ const SorteoConcursoPage = () => {
                       }}
                       onError={(e) => {
                         console.error('Error cargando imagen:', winner.ruta_imagen);
+                        console.error('URL construida:', getStaticFileURL(winner.ruta_imagen));
                         e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="%23f0f0f0"/><text x="50%" y="50%" text-anchor="middle" fill="%23666" font-size="20">Imagen no disponible</text></svg>';
                       }}
                     />

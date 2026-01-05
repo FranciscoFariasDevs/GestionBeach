@@ -200,26 +200,55 @@ export const authUtils = {
   isAuthenticated: () => {
     return getAuthToken() !== null;
   },
-  
+
   // Obtener token actual
   getToken: () => {
     return getAuthToken();
   },
-  
+
   // Logout (limpiar token)
   logout: () => {
     localStorage.removeItem('token');
     console.log('🔓 Usuario deslogueado');
   },
-  
+
   // Login (guardar token)
   login: (token) => {
     localStorage.setItem('token', token);
     console.log('🔐 Usuario logueado');
   },
-  
+
   // Verificar si una ruta específica requiere auth
   requiresAuth: requiresAuth
+};
+
+// ✅ FUNCIÓN PARA CONSTRUIR URLs DE ARCHIVOS ESTÁTICOS (IMÁGENES, UPLOADS, ETC)
+export const getStaticFileURL = (rutaArchivo) => {
+  if (!rutaArchivo) return '';
+
+  // Asegurarse de que la ruta comience con /
+  const ruta = rutaArchivo.startsWith('/') ? rutaArchivo : `/${rutaArchivo}`;
+
+  const hostname = window.location.hostname;
+
+  // Construir la URL base correctamente según el entorno
+  switch (hostname) {
+    case 'localhost':
+    case '127.0.0.1':
+      return `http://localhost:5000${ruta}`;
+
+    case '192.168.100.150':
+      return `http://192.168.100.150:5000${ruta}`;
+
+    case 'intranet.beach.cl':
+    case 'concurso.beach.cl':
+    case 'reservas.beach.cl':
+      return `https://api.beach.cl${ruta}`;
+
+    default:
+      // Fallback: usar la baseURL de api removiendo /api
+      return `${api.defaults.baseURL.replace('/api', '')}${ruta}`;
+  }
 };
 
 export default api;

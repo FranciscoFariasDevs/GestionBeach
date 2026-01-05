@@ -1679,7 +1679,7 @@ const RemuneracionesPage = () => {
 
       <Grid container spacing={3}>
         <Grid item xs={12}>
-          <FormControl fullWidth required>
+          <FormControl required sx={{ minWidth: 300 }}>
             <InputLabel>Razón Social *</InputLabel>
             <Select
               value={razonSocialSeleccionada}
@@ -1691,6 +1691,8 @@ const RemuneracionesPage = () => {
               }}
               label="Razón Social *"
               required
+              autoWidth
+              sx={{ minWidth: 300 }}
             >
               {razonesSociales.map(razon => (
                 <MenuItem key={razon.id} value={razon.id}>
@@ -2307,12 +2309,14 @@ const RemuneracionesPage = () => {
                   Selecciona el mes/año del período. La razón social se especificará en el paso de configuración de porcentajes.
                 </Typography>
               </Alert>
-              <FormControl fullWidth>
+              <FormControl sx={{ minWidth: 300 }}>
                 <InputLabel>Período</InputLabel>
                 <Select
                   value={periodoSeleccionado}
                   onChange={(e) => setPeriodoSeleccionado(e.target.value)}
                   label="Período"
+                  autoWidth
+                  sx={{ minWidth: 300 }}
                 >
                   {periodosUnicos.map((periodo, index) => (
                     <MenuItem
@@ -2533,6 +2537,8 @@ const RemuneracionesPage = () => {
                     value={filtroRazonSocialDetalle}
                     onChange={(e) => setFiltroRazonSocialDetalle(e.target.value)}
                     label="Razón Social"
+                    autoWidth
+                    sx={{ minWidth: 200 }}
                   >
                     <MenuItem value="todos">Todas</MenuItem>
                     {opcionesFiltroDetalle.razonesSociales.map(razon => (
@@ -2546,6 +2552,8 @@ const RemuneracionesPage = () => {
                     value={filtroSucursalDetalle}
                     onChange={(e) => setFiltroSucursalDetalle(e.target.value)}
                     label="Sucursal"
+                    autoWidth
+                    sx={{ minWidth: 200 }}
                   >
                     <MenuItem value="todos">Todas</MenuItem>
                     {opcionesFiltroDetalle.sucursales.map(sucursal => (
@@ -2906,12 +2914,14 @@ const RemuneracionesPage = () => {
                         <Typography variant="body2" color="text.secondary">RUT: {empleado.rut}</Typography>
                       </Grid>
                       <Grid item xs={12} md={4}>
-                        <FormControl fullWidth required size="small">
+                        <FormControl required size="small" sx={{ minWidth: 250 }}>
                           <InputLabel>Razón Social *</InputLabel>
                           <Select
                             value={datosEmpleados[empleado.rut]?.id_razon_social || ''}
                             onChange={(e) => handleDatosEmpleadoChange(empleado.rut, 'id_razon_social', e.target.value)}
                             label="Razón Social *"
+                            autoWidth
+                            sx={{ minWidth: 250 }}
                           >
                             {razonesSociales.map(rs => (
                               <MenuItem key={rs.id} value={rs.id}>{rs.nombre_razon}</MenuItem>
