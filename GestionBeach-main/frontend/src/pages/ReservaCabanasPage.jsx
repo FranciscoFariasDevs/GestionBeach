@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Box,
   Container,
@@ -189,6 +190,18 @@ const ReservaCabanasPage = () => {
   // Estado para comprobante de pago
   const [mostrarComprobante, setMostrarComprobante] = useState(false);
   const [datosComprobante, setDatosComprobante] = useState(null);
+
+  // Estados para mejoras visuales
+  const [disponibilidadHoy, setDisponibilidadHoy] = useState(0);
+  const [disponibilidadFinSemana, setDisponibilidadFinSemana] = useState(0);
+  const heroRef = useRef(null);
+  const { scrollYProgress } = useScroll({
+    target: heroRef,
+    offset: ["start start", "end start"]
+  });
+
+  // Efecto parallax para las imágenes del carousel
+  const parallaxY = useTransform(scrollYProgress, [0, 1], [0, 50]);
 
   // IDs de las cabañas en el SVG (exactamente como están en el archivo)
   const cabanaIds = [
@@ -496,6 +509,72 @@ const ReservaCabanasPage = () => {
     }
   };
 
+  // Función para calcular disponibilidad
+  const calcularDisponibilidad = () => {
+    if (!cabanas.length) return;
+
+    const hoy = getTodayDate();
+    const proximoSabado = new Date(hoy);
+    proximoSabado.setDate(hoy.getDate() + ((6 - hoy.getDay() + 7) % 7));
+
+    const proximoDomingo = new Date(proximoSabado);
+    proximoDomingo.setDate(proximoSabado.getDate() + 1);
+
+    // Calcular cabañas disponibles HOY
+    let disponiblesHoy = 0;
+    cabanas.forEach(cabana => {
+      const tieneReservaHoy = reservas.some(reserva => {
+        if (reserva.estado === 'cancelada') return false;
+        const inicio = parseServerDate(reserva.fecha_inicio);
+        const fin = parseServerDate(reserva.fecha_fin);
+        return reserva.cabana_id === cabana.id && isDateInRange(hoy, inicio, fin);
+      });
+
+      const tieneMantencionHoy = mantenciones.some(mant => {
+        const inicio = parseServerDate(mant.fecha_inicio);
+        const fin = parseServerDate(mant.fecha_fin);
+        return mant.cabana_id === cabana.id && isDateInRange(hoy, inicio, fin, true);
+      });
+
+      if (!tieneReservaHoy && !tieneMantencionHoy) {
+        disponiblesHoy++;
+      }
+    });
+
+    // Calcular cabañas disponibles para el próximo FIN DE SEMANA (sábado-domingo)
+    let disponiblesFinSemana = 0;
+    cabanas.forEach(cabana => {
+      const disponibleSabado = !reservas.some(reserva => {
+        if (reserva.estado === 'cancelada') return false;
+        const inicio = parseServerDate(reserva.fecha_inicio);
+        const fin = parseServerDate(reserva.fecha_fin);
+        return reserva.cabana_id === cabana.id && isDateInRange(proximoSabado, inicio, fin);
+      }) && !mantenciones.some(mant => {
+        const inicio = parseServerDate(mant.fecha_inicio);
+        const fin = parseServerDate(mant.fecha_fin);
+        return mant.cabana_id === cabana.id && isDateInRange(proximoSabado, inicio, fin, true);
+      });
+
+      const disponibleDomingo = !reservas.some(reserva => {
+        if (reserva.estado === 'cancelada') return false;
+        const inicio = parseServerDate(reserva.fecha_inicio);
+        const fin = parseServerDate(reserva.fecha_fin);
+        return reserva.cabana_id === cabana.id && isDateInRange(proximoDomingo, inicio, fin);
+      }) && !mantenciones.some(mant => {
+        const inicio = parseServerDate(mant.fecha_inicio);
+        const fin = parseServerDate(mant.fecha_fin);
+        return mant.cabana_id === cabana.id && isDateInRange(proximoDomingo, inicio, fin, true);
+      });
+
+      if (disponibleSabado && disponibleDomingo) {
+        disponiblesFinSemana++;
+      }
+    });
+
+    setDisponibilidadHoy(disponiblesHoy);
+    setDisponibilidadFinSemana(disponiblesFinSemana);
+  };
+
   // ============================================
   // CARGA DE DATOS
   // ============================================
@@ -518,6 +597,13 @@ const ReservaCabanasPage = () => {
       setTimeout(() => aplicarColores(), 100);
     }
   }, [cabanas, reservas, mantenciones, svgLoaded]);
+
+  // Calcular disponibilidad cuando cambien los datos
+  useEffect(() => {
+    if (cabanas.length > 0) {
+      calcularDisponibilidad();
+    }
+  }, [cabanas, reservas, mantenciones]);
 
   // Cargar imágenes del carrusel hero
   const cargarImagenesHero = () => {
@@ -3267,7 +3353,12 @@ const ReservaCabanasPage = () => {
       >
         <Container maxWidth="xl">
           {/* Hero Section - Presentación Elegante con Carrusel */}
-          <Fade in timeout={1000}>
+          <motion.div
+            ref={heroRef}
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          >
             <Box sx={{ textAlign: 'center', mb: 6, position: 'relative', zIndex: 1 }}>
               <Paper
                 elevation={8}
@@ -3292,6 +3383,94 @@ const ReservaCabanasPage = () => {
                 {/* Carrusel de Imágenes Hero */}
                 {heroCarouselImages.length > 0 ? (
                   <Box sx={{ position: 'relative', mb: 4 }}>
+                    {/* Contador de Disponibilidad - Flotante sobre el carousel */}
+                    <motion.div
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ delay: 0.5, duration: 0.5, type: "spring", stiffness: 200 }}
+                      style={{
+                        position: 'absolute',
+                        top: 20,
+                        right: 20,
+                        zIndex: 10,
+                      }}
+                    >
+                      <Stack spacing={1}>
+                        {disponibilidadHoy > 0 && (
+                          <Chip
+                            icon={<CheckCircleIcon sx={{ color: '#4CAF50 !important' }} />}
+                            label={`${disponibilidadHoy} ${disponibilidadHoy === 1 ? 'cabaña disponible' : 'cabañas disponibles'} hoy`}
+                            sx={{
+                              background: 'linear-gradient(135deg, #FFFFFF 0%, #E8F5E9 100%)',
+                              backdropFilter: 'blur(10px)',
+                              border: '2px solid #4CAF50',
+                              fontWeight: 700,
+                              fontSize: { xs: '0.75rem', sm: '0.9rem' },
+                              px: { xs: 1, sm: 2 },
+                              py: { xs: 2, sm: 2.5 },
+                              boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)',
+                              '& .MuiChip-icon': {
+                                color: '#4CAF50',
+                              }
+                            }}
+                          />
+                        )}
+                        {disponibilidadFinSemana > 0 && (
+                          <Chip
+                            icon={<CalendarIcon sx={{ color: '#FF9800 !important' }} />}
+                            label={`${disponibilidadFinSemana} ${disponibilidadFinSemana === 1 ? 'disponible' : 'disponibles'} fin de semana`}
+                            sx={{
+                              background: 'linear-gradient(135deg, #FFFFFF 0%, #FFF3E0 100%)',
+                              backdropFilter: 'blur(10px)',
+                              border: '2px solid #FF9800',
+                              fontWeight: 700,
+                              fontSize: { xs: '0.7rem', sm: '0.85rem' },
+                              px: { xs: 1, sm: 2 },
+                              py: { xs: 2, sm: 2.5 },
+                              boxShadow: '0 4px 15px rgba(255, 152, 0, 0.3)',
+                              '& .MuiChip-icon': {
+                                color: '#FF9800',
+                              }
+                            }}
+                          />
+                        )}
+                      </Stack>
+                    </motion.div>
+
+                    {/* Indicador de Swipe en Móvil */}
+                    <Box
+                      sx={{
+                        display: { xs: 'flex', md: 'none' },
+                        position: 'absolute',
+                        bottom: 20,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        zIndex: 10,
+                        background: 'rgba(0, 0, 0, 0.6)',
+                        backdropFilter: 'blur(8px)',
+                        color: '#fff',
+                        px: 3,
+                        py: 1.5,
+                        borderRadius: 3,
+                        alignItems: 'center',
+                        gap: 1,
+                        animation: 'pulse 2s ease-in-out infinite',
+                        '@keyframes pulse': {
+                          '0%, 100%': {
+                            opacity: 0.8,
+                          },
+                          '50%': {
+                            opacity: 1,
+                          },
+                        },
+                      }}
+                    >
+                      <NavigateBefore sx={{ fontSize: 20 }} />
+                      <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                        Desliza para ver más
+                      </Typography>
+                      <NavigateNext sx={{ fontSize: 20 }} />
+                    </Box>
                     <Carousel
                       navButtonsAlwaysVisible
                       indicators
@@ -3330,15 +3509,17 @@ const ReservaCabanasPage = () => {
                             alignItems: 'center',
                             bgcolor: '#000',
                             position: 'relative',
+                            overflow: 'hidden',
                           }}
                         >
-                          <img
+                          <motion.img
                             src={img}
                             alt={`Vista de cabañas ${idx + 1}`}
                             style={{
                               width: '100%',
-                              height: '100%',
+                              height: '110%',
                               objectFit: 'cover',
+                              y: parallaxY,
                             }}
                             onError={(e) => {
                               console.error('Error cargando imagen del carrusel:', img);
@@ -3384,7 +3565,6 @@ const ReservaCabanasPage = () => {
                     sx={{
                       color: '#455A64',
                       fontWeight: 400,
-                      mb: 4,
                       lineHeight: 1.6,
                       maxWidth: '900px',
                       margin: '0 auto',
@@ -3396,45 +3576,63 @@ const ReservaCabanasPage = () => {
                     descanso se encuentra con la belleza natural del océano Pacífico.
                   </Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={4} justifyContent="center" sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                        <BedIcon sx={{ fontSize: 28 }} />
-                      </Avatar>
-                      <Box sx={{ textAlign: 'left' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                          Diseño Moderno
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Arquitectura contemporánea
-                        </Typography>
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3, duration: 0.5 }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                          <BedIcon sx={{ fontSize: 28 }} />
+                        </Avatar>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                            Diseño Moderno
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Arquitectura contemporánea
+                          </Typography>
+                        </Box>
                       </Box>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                        <HotTubIcon sx={{ fontSize: 28 }} />
-                      </Avatar>
-                      <Box sx={{ textAlign: 'left' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                          Comodidades Premium
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Tinajas y amenidades
-                        </Typography>
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5, duration: 0.5 }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                          <HotTubIcon sx={{ fontSize: 28 }} />
+                        </Avatar>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                            Comodidades Premium
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Tinajas y amenidades
+                          </Typography>
+                        </Box>
                       </Box>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                        <PeopleIcon sx={{ fontSize: 28 }} />
-                      </Avatar>
-                      <Box sx={{ textAlign: 'left' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                          Para Ti y Tu Familia
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Espacios amplios
-                        </Typography>
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.7, duration: 0.5 }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
+                          <PeopleIcon sx={{ fontSize: 28 }} />
+                        </Avatar>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                            Para Ti y Tu Familia
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Espacios amplios
+                          </Typography>
+                        </Box>
                       </Box>
-                    </Box>
+                    </motion.div>
                   </Stack>
                   <Divider sx={{ my: 4, borderColor: '#E3F2FD' }} />
                   <Typography
@@ -3459,10 +3657,14 @@ const ReservaCabanasPage = () => {
                 </Box>
               </Paper>
             </Box>
-          </Fade>
+          </motion.div>
 
           {/* Botón RESERVA YA */}
-          <Zoom in timeout={1200}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.9, duration: 0.6, type: "spring", stiffness: 100 }}
+          >
             <Box sx={{ textAlign: 'center', py: { xs: 4, sm: 8 } }}>
               <Button
                   variant="contained"
@@ -3524,7 +3726,7 @@ const ReservaCabanasPage = () => {
                   ¿Primera vez? Ver tutorial
                 </Button>
               </Box>
-            </Zoom>
+            </motion.div>
 
           {/* Mapa SVG - Siempre visible abajo */}
           <Box ref={mapaRef} sx={{ mt: { xs: 4, sm: 8 }, mb: { xs: 2, sm: 4 } }}>

@@ -119,13 +119,13 @@ exports.getVentas = async (req, res) => {
               ELSE 'Otro'
             END AS Doc,
             tde.df_fecha_emision AS Fecha
-          FROM 
+          FROM
             tb_documentos_encabezado tde
-          LEFT JOIN 
+          LEFT JOIN
             tb_rut_encabezado re ON re.dc_rut = tde.dc_rut_crea_documento
-          WHERE 
+          WHERE
             CAST(tde.df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate
-            AND tde.dc_codigo_centralizacion IN ('0033', '0039', '1599') 
+            AND tde.dc_codigo_centralizacion IN ('0033', '0039', '1599')
             AND tde.dn_correlativo_caja IS NOT NULL
             AND tde.dc_rut_documento NOT IN ('010.429.345-K', '076.236.893-5', '076.775.326-8', '78.061.914-7')
           ORDER BY tde.df_fecha_emision DESC
@@ -139,7 +139,7 @@ exports.getVentas = async (req, res) => {
         ventas = result.recordset;
         resumen.cantidad = ventas.length;
         resumen.totalVentas = ventas.reduce((sum, v) => sum + (parseFloat(v.Total) || 0), 0);
-        
+
         console.log('RESULTADO:', ventas.length, 'ventas');
       }
       

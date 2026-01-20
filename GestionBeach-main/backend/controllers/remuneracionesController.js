@@ -40,14 +40,16 @@ exports.test = async (req, res) => {
 };
 
 // 🆕 OBTENER TODOS LOS PERÍODOS CON FILTROS AVANZADOS
+// 🔥 CORREGIDO: Divide los sueldos de empleados administrativos entre sus sucursales
 exports.obtenerPeriodos = async (req, res) => {
   try {
     console.log('📅 Obteniendo períodos de remuneración con filtros...');
-    
+
     const { razon_social_id, sucursal_id, anio, estado } = req.query;
-    
+
     const pool = await poolPromise;
-    
+
+    // 🔥 QUERY CORREGIDO: Usa subquery para contar sucursales y dividir sueldos
     let baseQuery = `
       SELECT
         p.id_periodo,
@@ -63,20 +65,52 @@ exports.obtenerPeriodos = async (req, res) => {
         ISNULL(SU.id, 0) as id_sucursal,
         COUNT(dr.id) AS total_registros,
         COUNT(DISTINCT dr.rut_empleado) AS empleados_unicos,
-        ISNULL(SUM(dr.sueldo_base), 0) AS suma_sueldos_base,
-        ISNULL(SUM(dr.total_haberes), 0) AS suma_total_haberes,
-        ISNULL(SUM(dr.total_descuentos), 0) AS suma_total_descuentos,
-        ISNULL(SUM(dr.liquido_pagar), 0) AS suma_liquidos
+        -- 🔥 CORREGIDO: Dividir sueldos según número de sucursales del empleado
+        ISNULL(SUM(
+          CASE
+            WHEN COALESCE(emp_suc_count.num_sucursales, 1) > 1
+            THEN CAST(dr.sueldo_base AS DECIMAL(18,2)) / CAST(emp_suc_count.num_sucursales AS DECIMAL(18,2))
+            ELSE CAST(dr.sueldo_base AS DECIMAL(18,2))
+          END
+        ), 0) AS suma_sueldos_base,
+        ISNULL(SUM(
+          CASE
+            WHEN COALESCE(emp_suc_count.num_sucursales, 1) > 1
+            THEN CAST(dr.total_haberes AS DECIMAL(18,2)) / CAST(emp_suc_count.num_sucursales AS DECIMAL(18,2))
+            ELSE CAST(dr.total_haberes AS DECIMAL(18,2))
+          END
+        ), 0) AS suma_total_haberes,
+        ISNULL(SUM(
+          CASE
+            WHEN COALESCE(emp_suc_count.num_sucursales, 1) > 1
+            THEN CAST(dr.total_descuentos AS DECIMAL(18,2)) / CAST(emp_suc_count.num_sucursales AS DECIMAL(18,2))
+            ELSE CAST(dr.total_descuentos AS DECIMAL(18,2))
+          END
+        ), 0) AS suma_total_descuentos,
+        ISNULL(SUM(
+          CASE
+            WHEN COALESCE(emp_suc_count.num_sucursales, 1) > 1
+            THEN CAST(dr.liquido_pagar AS DECIMAL(18,2)) / CAST(emp_suc_count.num_sucursales AS DECIMAL(18,2))
+            ELSE CAST(dr.liquido_pagar AS DECIMAL(18,2))
+          END
+        ), 0) AS suma_liquidos
       FROM periodos_remuneracion p
       LEFT JOIN datos_remuneraciones dr
         ON p.id_periodo = dr.id_periodo
       LEFT JOIN empleados emp
         ON REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') =
            REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+      -- 🔥 NUEVO: Subquery para contar sucursales activas de cada empleado
+      LEFT JOIN (
+        SELECT id_empleado, COUNT(*) as num_sucursales
+        FROM empleados_sucursales
+        WHERE activo = 1
+        GROUP BY id_empleado
+      ) emp_suc_count ON emp_suc_count.id_empleado = emp.id
       LEFT JOIN razones_sociales RS
         ON RS.id = emp.id_razon_social
       LEFT JOIN empleados_sucursales ESU
-        ON ESU.id_empleado = emp.id
+        ON ESU.id_empleado = emp.id AND ESU.activo = 1
       LEFT JOIN sucursales SU
         ON SU.id = ESU.id_sucursal
     `;
@@ -811,61 +845,154 @@ exports.eliminarPeriodo = async (req, res) => {
   }
 };
 
+// 🔥 CORREGIDO: Ahora calcula costos patronales y filtra por sucursal/razón social
 exports.obtenerDatosPeriodo = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    
+    // 🔥 NUEVO: Obtener filtros de query params
+    const { sucursal_id, razon_social_id } = req.query;
+
     if (isNaN(id)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'ID de período debe ser un número válido' 
+      return res.status(400).json({
+        success: false,
+        message: 'ID de período debe ser un número válido'
       });
     }
-    
-    console.log(`📊 Obteniendo datos del período ID: ${id}`);
-    
+
+    console.log(`📊 Obteniendo datos del período ID: ${id} con filtros:`, {
+      sucursal_id: sucursal_id || 'todas',
+      razon_social_id: razon_social_id || 'todas'
+    });
+
     const pool = await poolPromise;
-    const result = await pool.request()
-      .input('id', sql.Int, id)
+
+    // 🔥 PASO 1: Construir query con filtros opcionales
+    let query = `
+      SELECT
+        dr.*,
+        p.descripcion as periodo_descripcion,
+        p.mes,
+        p.anio,
+        p.estado as periodo_estado,
+        emp.id as empleado_id,
+        emp.nombre,
+        emp.apellido,
+        emp.rut as emp_rut,
+        emp.activo as empleado_activo,
+        emp.id_razon_social,
+        rs.nombre_razon,
+        su.id as sucursal_id,
+        su.nombre as sucursal_nombre,
+        CASE
+          WHEN emp.id IS NOT NULL THEN 'EMPLEADO_ENCONTRADO'
+          ELSE 'EMPLEADO_NO_ENCONTRADO'
+        END as estado_relacion_empleado
+      FROM datos_remuneraciones dr
+      LEFT JOIN periodos_remuneracion p ON dr.id_periodo = p.id_periodo
+      LEFT JOIN empleados emp ON
+        REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') =
+        REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
+      LEFT JOIN razones_sociales rs ON emp.id_razon_social = rs.id
+      LEFT JOIN empleados_sucursales esu ON emp.id = esu.id_empleado AND esu.activo = 1
+      LEFT JOIN sucursales su ON esu.id_sucursal = su.id
+      WHERE dr.id_periodo = @id
+    `;
+
+    const request = pool.request().input('id', sql.Int, id);
+
+    // 🔥 FILTRAR POR SUCURSAL si se especifica
+    if (sucursal_id && sucursal_id !== 'todos' && sucursal_id !== 'undefined') {
+      query += ` AND su.id = @sucursal_id`;
+      request.input('sucursal_id', sql.Int, parseInt(sucursal_id));
+      console.log(`🔍 Filtrando por sucursal ID: ${sucursal_id}`);
+    }
+
+    // 🔥 FILTRAR POR RAZÓN SOCIAL si se especifica
+    if (razon_social_id && razon_social_id !== 'todos' && razon_social_id !== 'undefined') {
+      query += ` AND emp.id_razon_social = @razon_social_id`;
+      request.input('razon_social_id', sql.Int, parseInt(razon_social_id));
+      console.log(`🔍 Filtrando por razón social ID: ${razon_social_id}`);
+    }
+
+    query += ` ORDER BY dr.nombre_empleado`;
+
+    const result = await request.query(query);
+
+    console.log(`📊 ${result.recordset.length} registros encontrados`);
+
+    // 🔥 PASO 2: Obtener porcentajes por razón social para este período
+    const porcentajesResult = await pool.request()
+      .input('id_periodo', sql.Int, id)
       .query(`
-        SELECT 
-          dr.*,
-          p.descripcion as periodo_descripcion,
-          p.mes,
-          p.anio,
-          p.estado as periodo_estado,
-          emp.nombre,
-          emp.apellido,
-          emp.rut as emp_rut,
-          emp.activo as empleado_activo,
-          rs.nombre_razon,
-          su.nombre as sucursal_nombre,
-          CASE 
-            WHEN emp.id IS NOT NULL THEN 'EMPLEADO_ENCONTRADO'
-            ELSE 'EMPLEADO_NO_ENCONTRADO'
-          END as estado_relacion_empleado
-        FROM datos_remuneraciones dr
-        LEFT JOIN periodos_remuneracion p ON dr.id_periodo = p.id_periodo
-        LEFT JOIN empleados emp ON 
-          REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') = 
-          REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-        LEFT JOIN razones_sociales rs ON emp.id_razon_social = rs.id
-        LEFT JOIN empleados_sucursales esu ON emp.id = esu.id_empleado
-        LEFT JOIN sucursales su ON esu.id_sucursal = su.id
-        WHERE dr.id_periodo = @id
-        ORDER BY dr.nombre_empleado
+        SELECT id_razon_social, caja_compen, afc, sis, ach, imposiciones
+        FROM porcentajes_por_periodo
+        WHERE id_periodo = @id_periodo AND activo = 1
       `);
-    
-    console.log(`✅ ${result.recordset.length} registros encontrados`);
-    
-    return res.json({ 
-      success: true, 
-      data: result.recordset 
+
+    // Crear mapa de porcentajes por razón social
+    const porcentajesPorRS = {};
+    porcentajesResult.recordset.forEach(p => {
+      porcentajesPorRS[p.id_razon_social] = {
+        caja_compen: parseFloat(p.caja_compen || 0),
+        afc: parseFloat(p.afc || 0),
+        sis: parseFloat(p.sis || 0),
+        ach: parseFloat(p.ach || 0),
+        imposiciones: parseFloat(p.imposiciones || 0)
+      };
+    });
+
+    console.log(`📊 Porcentajes cargados para ${Object.keys(porcentajesPorRS).length} razones sociales`);
+
+    // 🔥 PASO 3: Calcular costos patronales para cada empleado
+    // 🔥 SOBRESCRIBIR campos originales con valores calculados para que el frontend los muestre
+    const datosConCostos = result.recordset.map(empleado => {
+      const totalImponibles = parseFloat(empleado.total_imponibles || 0);
+      const idRazonSocial = empleado.id_razon_social;
+      const porcentajes = porcentajesPorRS[idRazonSocial] || {
+        caja_compen: 0, afc: 0, sis: 0, ach: 0, imposiciones: 0
+      };
+
+      // Calcular costos patronales basados en total_imponibles × porcentaje
+      const caja_compensacion_calculada = Math.round((totalImponibles * porcentajes.caja_compen) / 100);
+      const afc_calculada = Math.round((totalImponibles * porcentajes.afc) / 100);
+      const sis_calculado = Math.round((totalImponibles * porcentajes.sis) / 100);
+      const ach_calculado = Math.round((totalImponibles * porcentajes.ach) / 100);
+      const imposiciones_calculadas = Math.round((totalImponibles * porcentajes.imposiciones) / 100);
+      const total_costos_patronales = caja_compensacion_calculada + afc_calculada + sis_calculado + ach_calculado + imposiciones_calculadas;
+      const total_costo_calculado = Math.round(parseFloat(empleado.liquido_pagar || 0) + parseFloat(empleado.total_descuentos || 0) + total_costos_patronales);
+
+      return {
+        ...empleado,
+        // 🔥 SOBRESCRIBIR campos originales con valores calculados
+        caja_compensacion: caja_compensacion_calculada,
+        afc: afc_calculada,
+        sis: sis_calculado,
+        ach: ach_calculado,
+        imposiciones: imposiciones_calculadas,
+        total_costo: total_costo_calculado,
+        // Campos adicionales para mostrar
+        total_costos_patronales,
+        // Porcentajes aplicados (para mostrar en UI)
+        porcentajes_aplicados: {
+          caja_compen: porcentajes.caja_compen,
+          afc: porcentajes.afc,
+          sis: porcentajes.sis,
+          ach: porcentajes.ach,
+          imposiciones: porcentajes.imposiciones
+        }
+      };
+    });
+
+    console.log(`✅ Costos patronales calculados para ${datosConCostos.length} empleados`);
+
+    return res.json({
+      success: true,
+      data: datosConCostos
     });
   } catch (error) {
     console.error('Error al obtener datos del período:', error);
-    return res.status(500).json({ 
-      success: false, 
+    return res.status(500).json({
+      success: false,
       message: 'Error en el servidor',
       error: error.message
     });
@@ -1090,11 +1217,16 @@ exports.procesarExcel = async (req, res) => {
         console.log(`🔍 Procesando fila ${i + 1}: ${datosExtraidos.nombre_empleado} (${datosExtraidos.rut_empleado})`);
         console.log(`💰 Líquido a pagar: ${datosExtraidos.liquido_pagar}`);
 
-        // 🆕 CALCULAR TOTAL_COSTO USANDO LOS PORCENTAJES
-        const totalCosto = calcularTotalCosto(datosExtraidos, porcentajes);
-        datosExtraidos.total_costo = totalCosto;
+        // 🆕 CALCULAR COSTOS PATRONALES Y TOTAL_COSTO USANDO LOS PORCENTAJES
+        const costosPatronales = calcularTotalCosto(datosExtraidos, porcentajes);
+        datosExtraidos.caja_compensacion = costosPatronales.caja_compensacion;
+        datosExtraidos.afc = costosPatronales.afc;
+        datosExtraidos.sis = costosPatronales.sis;
+        datosExtraidos.ach = costosPatronales.ach;
+        datosExtraidos.imposiciones = costosPatronales.imposiciones;
+        datosExtraidos.total_costo = costosPatronales.total_costo;
 
-        console.log(`💹 Total costo calculado: ${totalCosto}`);
+        console.log(`💹 Costos patronales calculados: Caja=${costosPatronales.caja_compensacion}, AFC=${costosPatronales.afc}, SIS=${costosPatronales.sis}, ACH=${costosPatronales.ach}, Imp=${costosPatronales.imposiciones}`);
 
         // 🆕 PROCESAR CADA EMPLEADO EN SU PROPIA TRANSACCIÓN
         const resultado = await procesarEmpleadoIndividualConUnicode(pool, {
@@ -1630,27 +1762,50 @@ function aplicarMultiplicacionInteligente(numero) {
   return numero;
 }
 
-// 🆕 FUNCIÓN PARA CALCULAR TOTAL_COSTO USANDO PORCENTAJES
+// 🆕 FUNCIÓN PARA CALCULAR COSTOS PATRONALES Y TOTAL_COSTO USANDO PORCENTAJES
+// 🔥 TODOS los costos patronales se calculan sobre TOTAL_IMPONIBLES × %porcentaje
 function calcularTotalCosto(datosRemuneracion, porcentajes) {
   try {
     const sueldoBase = parseFloat(datosRemuneracion.sueldo_base || 0);
-    
-    // Calcular costos del empleador basados en porcentajes
-    const costoCajaCompensacion = sueldoBase * (parseFloat(porcentajes.caja_compen || 0) / 100);
-    const costoAFC = sueldoBase * (parseFloat(porcentajes.afc || 0) / 100);
-    const costoSIS = sueldoBase * (parseFloat(porcentajes.sis || 0) / 100);
-    const costoACH = sueldoBase * (parseFloat(porcentajes.ach || 0) / 100);
-    const costoImposiciones = sueldoBase * (parseFloat(porcentajes.imposiciones || 0) / 100);
-    
+    const totalImponibles = parseFloat(datosRemuneracion.total_imponibles || sueldoBase);
+
+    // 🔥 CALCULAR TODOS LOS COSTOS PATRONALES SOBRE TOTAL_IMPONIBLES
+    const costoCajaCompensacion = totalImponibles * (parseFloat(porcentajes.caja_compen || 0) / 100);
+    const costoAFC = totalImponibles * (parseFloat(porcentajes.afc || 0) / 100);
+    const costoSIS = totalImponibles * (parseFloat(porcentajes.sis || 0) / 100);
+    const costoACH = totalImponibles * (parseFloat(porcentajes.ach || 0) / 100); // ← SOBRE TOTAL_IMPONIBLES
+    const costoImposiciones = totalImponibles * (parseFloat(porcentajes.imposiciones || 0) / 100);
+
     // Total costo = sueldo base + todos los costos del empleador
     const totalCosto = sueldoBase + costoCajaCompensacion + costoAFC + costoSIS + costoACH + costoImposiciones;
-    
-    console.log(`💹 Cálculo total_costo: ${sueldoBase} + ${costoCajaCompensacion} + ${costoAFC} + ${costoSIS} + ${costoACH} + ${costoImposiciones} = ${totalCosto}`);
-    
-    return Math.round(totalCosto);
+
+    console.log(`💹 Cálculo costos patronales sobre total_imponibles (${totalImponibles}):`);
+    console.log(`   Caja Comp: ${costoCajaCompensacion} (${porcentajes.caja_compen}%)`);
+    console.log(`   AFC: ${costoAFC} (${porcentajes.afc}%)`);
+    console.log(`   SIS: ${costoSIS} (${porcentajes.sis}%)`);
+    console.log(`   ACH: ${costoACH} (${porcentajes.ach}%) ✅`);
+    console.log(`   Imp.Patronales: ${costoImposiciones} (${porcentajes.imposiciones}%)`);
+    console.log(`   Total Costo: ${totalCosto}`);
+
+    // Retornar objeto con todos los valores para guardar en BD
+    return {
+      caja_compensacion: Math.round(costoCajaCompensacion),
+      afc: Math.round(costoAFC),
+      sis: Math.round(costoSIS),
+      ach: Math.round(costoACH),
+      imposiciones: Math.round(costoImposiciones),
+      total_costo: Math.round(totalCosto)
+    };
   } catch (error) {
-    console.error('Error calculando total_costo:', error);
-    return 0;
+    console.error('Error calculando costos patronales:', error);
+    return {
+      caja_compensacion: 0,
+      afc: 0,
+      sis: 0,
+      ach: 0,
+      imposiciones: 0,
+      total_costo: 0
+    };
   }
 }
 

@@ -25,79 +25,258 @@ exports.test = async (req, res) => {
 };
 
 // OBTENER DATOS DE VENTAS PARA ESTADO DE RESULTADOS
+// IGUAL QUE DASHBOARD: conecta a sucursal remota y usa tb_documentos_detalle
 exports.obtenerVentas = async (req, res) => {
   try {
-    console.log('🛒 Obteniendo datos de ventas para Estado de Resultados...');
+    console.log('🛒 Obteniendo datos de ventas para Estado de Resultados (igual que Dashboard)...');
     const { fecha_desde, fecha_hasta, sucursal_id, razon_social_id } = req.query;
-    
+
     if (!fecha_desde || !fecha_hasta) {
       return res.status(400).json({
         success: false,
         message: 'Fecha desde y fecha hasta son requeridas'
       });
     }
-    
+
     if (!sucursal_id) {
       return res.status(400).json({
         success: false,
         message: 'ID de sucursal es requerido'
       });
     }
-    
+
     const pool = await poolPromise;
-    
+
     console.log('📅 Filtros aplicados:', {
       fecha_desde,
       fecha_hasta,
       sucursal_id,
       razon_social_id: razon_social_id || 'todos'
     });
-    
-    let ventasQuery = `
-      SELECT 
-        v.id,
-        v.fecha,
-        v.total as monto_total,
-        v.sucursal_id,
-        v.numero_boleta,
-        v.tipo_venta,
-        v.metodo_pago,
-        s.nombre as sucursal_nombre,
-        rs.nombre_razon
-      FROM ventas v
-      LEFT JOIN sucursales s ON v.sucursal_id = s.id
-      LEFT JOIN razones_sociales rs ON s.id_razon_social = rs.id
-      WHERE v.fecha BETWEEN @fecha_desde AND @fecha_hasta
-        AND v.sucursal_id = @sucursal_id
-        AND v.total > 0
-    `;
-    
-    const request = pool.request()
-      .input('fecha_desde', sql.Date, new Date(fecha_desde))
-      .input('fecha_hasta', sql.Date, new Date(fecha_hasta))
-      .input('sucursal_id', sql.Int, parseInt(sucursal_id));
-    
-    if (razon_social_id && razon_social_id !== 'todos') {
-      ventasQuery += ' AND rs.id = @razon_social_id';
-      request.input('razon_social_id', sql.Int, parseInt(razon_social_id));
+
+    // Obtener datos de conexión de la sucursal
+    const sucursalResult = await pool.request()
+      .input('sucursal_id', sql.Int, parseInt(sucursal_id))
+      .query(`
+        SELECT id, nombre, ip, base_datos, usuario, contrasena, puerto, tipo_sucursal
+        FROM sucursales
+        WHERE id = @sucursal_id
+      `);
+
+    if (sucursalResult.recordset.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sucursal no encontrada'
+      });
     }
-    
-    ventasQuery += ' ORDER BY v.fecha DESC';
-    const result = await request.query(ventasQuery);
-    
-    const totalVentas = result.recordset.reduce((sum, venta) => sum + (venta.monto_total || 0), 0);
-    const cantidadVentas = result.recordset.length;
-    
-    console.log(`✅ Ventas obtenidas: ${cantidadVentas} registros, total: $${totalVentas.toLocaleString()}`);
-    
+
+    const sucursal = sucursalResult.recordset[0];
+    console.log(`📍 Sucursal: ${sucursal.nombre} (${sucursal.tipo_sucursal})`);
+
+    // Si la sucursal no tiene datos de conexión remota, retornar vacío
+    if (!sucursal.ip || !sucursal.base_datos || !sucursal.usuario) {
+      console.log('⚠️ Sucursal sin datos de conexión remota');
+      return res.json({
+        success: true,
+        data: {
+          ventas: [],
+          resumen: {
+            total_ventas: 0,
+            cantidad_ventas: 0,
+            promedio_venta: 0
+          }
+        },
+        filtros: { fecha_desde, fecha_hasta, sucursal_id, razon_social_id: razon_social_id || null },
+        message: 'Sucursal sin conexión remota configurada'
+      });
+    }
+
+    // Conectar a la sucursal remota
+    const configSucursal = {
+      user: sucursal.usuario,
+      password: sucursal.contrasena || '',
+      server: sucursal.ip,
+      port: sucursal.puerto || 1433,
+      database: sucursal.base_datos,
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+        enableArithAbort: true,
+        requestTimeout: 30000,
+        connectionTimeout: 10000
+      }
+    };
+
+    let poolSucursal;
+    try {
+      poolSucursal = await Promise.race([
+        new sql.ConnectionPool(configSucursal).connect(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de conexión')), 10000))
+      ]);
+      console.log(`✅ Conectado a ${sucursal.base_datos}`);
+    } catch (connError) {
+      console.error(`❌ Error conectando a sucursal: ${connError.message}`);
+      return res.status(500).json({
+        success: false,
+        message: 'No se pudo conectar a la sucursal',
+        error: connError.message
+      });
+    }
+
+    let ventas = [];
+    let totalVentas = 0;
+    let totalCostos = 0;
+    let totalUtilidad = 0;
+
+    try {
+      // SUPERMERCADOS - Query igual al Dashboard (desde detalle)
+      if (sucursal.tipo_sucursal === 'SUPERMERCADO') {
+        console.log('🏪 Ejecutando query SUPERMERCADO (igual al Dashboard)...');
+
+        const queryVentas = `
+          SELECT
+            tde.dn_numero_documento AS folio,
+            tde.df_fecha_emision AS fecha,
+            -- Venta Neta (igual que Dashboard)
+            SUM(CASE
+              WHEN tde.dc_codigo_centralizacion IN ('0039', '0033') THEN (tdd.dq_bruto / 1.19)
+              WHEN tde.dc_codigo_centralizacion = '1599' THEN tdd.dq_bruto
+              ELSE 0
+            END) AS monto_total,
+            -- Costo
+            SUM(CASE
+              WHEN tde.dc_codigo_centralizacion IN ('0039', '0033') THEN (tdd.dq_bruto / 1.19) - ISNULL(tdd.dq_ganancia, 0)
+              WHEN tde.dc_codigo_centralizacion = '1599' THEN tdd.dq_bruto - ISNULL(tdd.dq_ganancia, 0)
+              ELSE 0
+            END) AS costo,
+            -- Utilidad
+            SUM(ISNULL(tdd.dq_ganancia, 0)) AS utilidad,
+            CASE
+              WHEN tde.dc_codigo_centralizacion = '0033' THEN 'Factura'
+              WHEN tde.dc_codigo_centralizacion = '0039' THEN 'Boleta'
+              WHEN tde.dc_codigo_centralizacion = '1599' THEN 'Venta Cigarros'
+              ELSE 'Otro'
+            END AS tipo_venta
+          FROM tb_documentos_detalle tdd
+          JOIN tb_documentos_encabezado tde ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          WHERE CAST(tde.df_fecha_emision AS DATE) BETWEEN @startDate AND @endDate
+            AND tde.dc_codigo_centralizacion IN ('0033', '0039', '1599')
+            AND tde.dn_correlativo_caja IS NOT NULL
+            AND tde.dc_rut_documento NOT IN ('010.429.345-K', '076.236.893-5', '076.775.326-8', '078.061.914-7')
+          GROUP BY
+            tde.dn_numero_documento,
+            tde.df_fecha_emision,
+            tde.dc_codigo_centralizacion
+          ORDER BY tde.df_fecha_emision DESC
+        `;
+
+        const result = await poolSucursal.request()
+          .input('startDate', sql.Date, new Date(fecha_desde))
+          .input('endDate', sql.Date, new Date(fecha_hasta))
+          .query(queryVentas);
+
+        ventas = result.recordset;
+        totalVentas = ventas.reduce((sum, v) => sum + (parseFloat(v.monto_total) || 0), 0);
+        totalCostos = ventas.reduce((sum, v) => sum + (parseFloat(v.costo) || 0), 0);
+        totalUtilidad = ventas.reduce((sum, v) => sum + (parseFloat(v.utilidad) || 0), 0);
+      }
+      // FERRETERÍAS Y MULTITIENDAS - Query igual al Dashboard
+      else if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+        console.log('🔧 Ejecutando query FERRETERIA/MULTITIENDA (igual al Dashboard)...');
+
+        const queryVentas = `
+          SELECT folio, fecha, monto_total, costo, utilidad, tipo_venta
+          FROM (
+            -- BOLETAS
+            SELECT
+              RBO.RBO_NUMERO_BOLETA AS folio,
+              RBO.RBO_FECHA_INGRESO AS fecha,
+              SUM(ISNULL(DBOL_PRECIO_LISTA, 0) * DBOL_CANTIDAD) AS monto_total,
+              SUM(ISNULL(MP_COSTO_FINAL, 0) * DBOL_CANTIDAD) AS costo,
+              SUM(ISNULL(DBOL_PRECIO_LISTA, 0) * DBOL_CANTIDAD) - SUM(ISNULL(MP_COSTO_FINAL, 0) * DBOL_CANTIDAD) AS utilidad,
+              'Boleta' AS tipo_venta
+            FROM ERP_FACT_RES_BOLETAS rbo
+            JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+            JOIN ERP_FACT_DET_BOLETAS DBO ON DBO.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+            JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+            JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+            JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+            WHERE MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1')
+              AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+              AND RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+            GROUP BY RBO.RBO_NUMERO_BOLETA, RBO.RBO_FECHA_INGRESO
+
+            UNION ALL
+
+            -- FACTURAS
+            SELECT
+              RBO.RFC_NUMERO_FACTURA_CLI AS folio,
+              RBO.RFC_FECHA_INGRESO AS fecha,
+              SUM(ISNULL(DFC_PRECIO_LISTA, 0) * DFC_CANTIDAD) AS monto_total,
+              SUM(ISNULL(MP_COSTO_FINAL, 0) * DFC_CANTIDAD) AS costo,
+              SUM(ISNULL(DFC_PRECIO_LISTA, 0) * DFC_CANTIDAD) - SUM(ISNULL(MP_COSTO_FINAL, 0) * DFC_CANTIDAD) AS utilidad,
+              'Factura' AS tipo_venta
+            FROM ERP_FACT_RES_FACTURA_CLIENTES rbo
+            JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON RBO.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+            JOIN ERP_FACT_DET_FACTURA_CLIENTES DBO ON DBO.RFC_NUM_INTERNO_FA_CLI = RBO.RFC_NUM_INTERNO_FA_CLI
+            JOIN ERP_USUARIOS_SISTEMAS US ON ROC.US_ID_USUARIO_SISTEMA = US.US_ID_USUARIO_SISTEMA
+            JOIN ERP_MAESTRO_PERSONAS MPE ON MPE.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+            JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = ROC.MC_RUT_CLIENTE
+            WHERE MPE.TPERS_ID_TIPO_PERSONA IN ('3', '1')
+              AND MC.MC_RAZON_SOCIAL <> 'CLIENTE FERRETERIA (BOLETAS)'
+              AND MC.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+              AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+              AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+              AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+              AND DBO.DFC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%'
+              AND RBO.RFC_FECHA_INGRESO BETWEEN @startDate AND @endDate
+            GROUP BY RBO.RFC_NUMERO_FACTURA_CLI, RBO.RFC_FECHA_INGRESO
+          ) t
+          ORDER BY fecha DESC
+        `;
+
+        const result = await poolSucursal.request()
+          .input('startDate', sql.Date, new Date(fecha_desde))
+          .input('endDate', sql.Date, new Date(fecha_hasta))
+          .query(queryVentas);
+
+        ventas = result.recordset;
+        totalVentas = ventas.reduce((sum, v) => sum + (parseFloat(v.monto_total) || 0), 0);
+        totalCostos = ventas.reduce((sum, v) => sum + (parseFloat(v.costo) || 0), 0);
+        totalUtilidad = ventas.reduce((sum, v) => sum + (parseFloat(v.utilidad) || 0), 0);
+      }
+      else {
+        console.log(`⚠️ Tipo de sucursal no soportado: ${sucursal.tipo_sucursal}`);
+      }
+
+    } catch (queryError) {
+      console.error(`❌ Error en query: ${queryError.message}`);
+      await poolSucursal.close();
+      return res.status(500).json({
+        success: false,
+        message: 'Error al consultar ventas',
+        error: queryError.message
+      });
+    }
+
+    await poolSucursal.close();
+
+    const cantidadVentas = ventas.length;
+    const margenPromedio = totalVentas > 0 ? (totalUtilidad / totalVentas) * 100 : 0;
+
+    console.log(`✅ Ventas obtenidas: ${cantidadVentas} registros, total: $${Math.round(totalVentas).toLocaleString()}`);
+
     return res.json({
       success: true,
       data: {
-        ventas: result.recordset,
+        ventas: ventas,
         resumen: {
           total_ventas: totalVentas,
+          total_costos: totalCostos,
+          total_utilidad: totalUtilidad,
           cantidad_ventas: cantidadVentas,
-          promedio_venta: cantidadVentas > 0 ? Math.round(totalVentas / cantidadVentas) : 0
+          promedio_venta: cantidadVentas > 0 ? Math.round(totalVentas / cantidadVentas) : 0,
+          margen_promedio: margenPromedio
         }
       },
       filtros: {
@@ -106,7 +285,12 @@ exports.obtenerVentas = async (req, res) => {
         sucursal_id,
         razon_social_id: razon_social_id || null
       },
-      message: `${cantidadVentas} ventas encontradas`
+      sucursal: {
+        id: sucursal.id,
+        nombre: sucursal.nombre,
+        tipo: sucursal.tipo_sucursal
+      },
+      message: `${cantidadVentas} ventas encontradas (query igual al Dashboard)`
     });
   } catch (error) {
     console.error('❌ Error obteniendo ventas:', error);
@@ -474,11 +658,12 @@ exports.obtenerRemuneraciones = async (req, res) => {
               const imponibleAsignado = parseFloat(rem.total_imponibles_asignado || 0);
               const imposicionesAsignadas = parseFloat(rem.imposiciones_asignadas || 0);
 
+              // 🔥 CORREGIDO: ACH se calcula con total_imponibles_asignado (ya dividido si es admin, completo si es ventas)
               const costos = {
                 caja: (imponibleAsignado * parseFloat(porcentajes.caja_compen || 0)) / 100,
                 afc: (imponibleAsignado * parseFloat(porcentajes.afc || 0)) / 100,
                 sis: (imponibleAsignado * parseFloat(porcentajes.sis || 0)) / 100,
-                ach: (imposicionesAsignadas * parseFloat(porcentajes.ach || 0)) / 100,
+                ach: (imponibleAsignado * parseFloat(porcentajes.ach || 0)) / 100,
                 imposiciones: (imponibleAsignado * parseFloat(porcentajes.imposiciones || 0)) / 100
               };
 
@@ -533,13 +718,13 @@ exports.obtenerRemuneraciones = async (req, res) => {
 
               empleadosPorRazonSocial[rsId].forEach(rem => {
                 const imponibleAsignado = parseFloat(rem.total_imponibles_asignado || 0);
-                const imposicionesAsignadas = parseFloat(rem.imposiciones_asignadas || 0);
 
+                // 🔥 CORREGIDO: ACH se calcula con total_imponibles_asignado (ya dividido si es admin, completo si es ventas)
                 const costos = {
                   caja: (imponibleAsignado * parseFloat(porcentajes.caja_compen || 0)) / 100,
                   afc: (imponibleAsignado * parseFloat(porcentajes.afc || 0)) / 100,
                   sis: (imponibleAsignado * parseFloat(porcentajes.sis || 0)) / 100,
-                  ach: (imposicionesAsignadas * parseFloat(porcentajes.ach || 0)) / 100,
+                  ach: (imponibleAsignado * parseFloat(porcentajes.ach || 0)) / 100,
                   imposiciones: (imponibleAsignado * parseFloat(porcentajes.imposiciones || 0)) / 100
                 };
 

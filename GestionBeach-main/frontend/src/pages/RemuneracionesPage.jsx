@@ -511,6 +511,18 @@ const RemuneracionesPage = () => {
     }));
   };
 
+  // 🆕 FUNCIÓN: Seleccionar/Deseleccionar TODAS las sucursales
+  const handleSeleccionarTodasSucursales = (identificador, marcar) => {
+    if (marcar) {
+      // Seleccionar todas las sucursales
+      const todasLasSucursales = sucursales.map(s => s.id);
+      handleDatosEmpleadoChange(identificador, 'sucursales', todasLasSucursales);
+    } else {
+      // Deseleccionar todas
+      handleDatosEmpleadoChange(identificador, 'sucursales', []);
+    }
+  };
+
   // 🔥 FUNCIÓN UNIFICADA: Guardar empleados (crear Y asignar sucursales)
   const guardarEmpleadosUnificado = async () => {
     try {
@@ -2930,18 +2942,32 @@ const RemuneracionesPage = () => {
                         </FormControl>
                       </Grid>
                       <Grid item xs={12} md={4}>
-                        <Autocomplete
-                          multiple
-                          size="small"
-                          options={sucursales}
-                          getOptionLabel={(option) => option.nombre}
-                          value={sucursales.filter(s => (datosEmpleados[empleado.rut]?.sucursales || []).includes(s.id))}
-                          onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.rut, 'sucursales', newValue.map(v => v.id))}
-                          renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
-                          renderTags={(value, getTagProps) =>
-                            value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
-                          }
-                        />
+                        <Box>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                size="small"
+                                checked={datosEmpleados[empleado.rut]?.sucursales?.length === sucursales.length && sucursales.length > 0}
+                                onChange={(e) => handleSeleccionarTodasSucursales(empleado.rut, e.target.checked)}
+                                sx={{ py: 0 }}
+                              />
+                            }
+                            label={<Typography variant="body2" fontWeight="bold" color="primary">TODAS</Typography>}
+                            sx={{ mb: 0.5 }}
+                          />
+                          <Autocomplete
+                            multiple
+                            size="small"
+                            options={sucursales}
+                            getOptionLabel={(option) => option.nombre}
+                            value={sucursales.filter(s => (datosEmpleados[empleado.rut]?.sucursales || []).includes(s.id))}
+                            onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.rut, 'sucursales', newValue.map(v => v.id))}
+                            renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
+                            renderTags={(value, getTagProps) =>
+                              value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
+                            }
+                          />
+                        </Box>
                       </Grid>
                     </Grid>
                   </CardContent>
@@ -2971,18 +2997,32 @@ const RemuneracionesPage = () => {
                         <Typography variant="body2" color="text.secondary">RUT: {empleado.rut}</Typography>
                       </Grid>
                       <Grid item xs={12} md={6}>
-                        <Autocomplete
-                          multiple
-                          size="small"
-                          options={sucursales}
-                          getOptionLabel={(option) => option.nombre}
-                          value={sucursales.filter(s => (datosEmpleados[empleado.id_empleado]?.sucursales || []).includes(s.id))}
-                          onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.id_empleado, 'sucursales', newValue.map(v => v.id))}
-                          renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
-                          renderTags={(value, getTagProps) =>
-                            value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
-                          }
-                        />
+                        <Box>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                size="small"
+                                checked={datosEmpleados[empleado.id_empleado]?.sucursales?.length === sucursales.length && sucursales.length > 0}
+                                onChange={(e) => handleSeleccionarTodasSucursales(empleado.id_empleado, e.target.checked)}
+                                sx={{ py: 0 }}
+                              />
+                            }
+                            label={<Typography variant="body2" fontWeight="bold" color="primary">TODAS</Typography>}
+                            sx={{ mb: 0.5 }}
+                          />
+                          <Autocomplete
+                            multiple
+                            size="small"
+                            options={sucursales}
+                            getOptionLabel={(option) => option.nombre}
+                            value={sucursales.filter(s => (datosEmpleados[empleado.id_empleado]?.sucursales || []).includes(s.id))}
+                            onChange={(event, newValue) => handleDatosEmpleadoChange(empleado.id_empleado, 'sucursales', newValue.map(v => v.id))}
+                            renderInput={(params) => <TextField {...params} label="Sucursales *" required />}
+                            renderTags={(value, getTagProps) =>
+                              value.map((option, index) => <Chip label={option.nombre} {...getTagProps({ index })} size="small" />)
+                            }
+                          />
+                        </Box>
                       </Grid>
                     </Grid>
                   </CardContent>
