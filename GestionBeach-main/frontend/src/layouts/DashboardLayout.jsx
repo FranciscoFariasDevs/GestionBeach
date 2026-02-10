@@ -61,6 +61,9 @@ import {
   ConfirmationNumber as ConfirmationNumberIcon,
   ReportProblem as ReportProblemIcon,
   CheckCircle as CheckCircleIcon,
+  Group as GroupIcon,
+  Description as DescriptionIcon,
+  Summarize as SummarizeIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -183,6 +186,9 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const [showEmail, setShowEmail] = useState(false);
   const [comprasOpen, setComprasOpen] = useState(false);
+  const [correoOpen, setCorreoOpen] = useState(false);
+  const [rrhhOpen, setRrhhOpen] = useState(false);
+  const [productosOpen, setProductosOpen] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
   // Estados para notificaciones de inventario
@@ -243,12 +249,16 @@ export default function DashboardLayout() {
     navigate('/login');
   };
 
-  const handleEmailClick = () => {
-    setShowEmail(true);
+  const handleEmailClick = (url) => {
+    // Abrir webmail en nueva pestaña (no se puede cargar en iframe por seguridad de cPanel)
+    window.open(url, '_blank', 'noopener,noreferrer');
     if (isMobile) handleDrawerClose();
   };
 
   const toggleCompras = () => setComprasOpen(!comprasOpen);
+  const toggleCorreo = () => setCorreoOpen(!correoOpen);
+  const toggleRrhh = () => setRrhhOpen(!rrhhOpen);
+  const toggleProductos = () => setProductosOpen(!productosOpen);
 
   // Handlers para notificaciones
   const handleNotificationsClick = (event) => {
@@ -288,16 +298,47 @@ export default function DashboardLayout() {
     }
   };
 
-  // Cargar notificaciones de tickets resueltos
+  // Cargar notificaciones de tickets (nuevo sistema mejorado)
   const fetchTicketNotifications = async () => {
     try {
-      const response = await api.get('/tickets/mis-notificaciones');
+      const response = await api.get('/tickets/notificaciones/todas');
       if (response.data.success) {
-        setTicketNotifications(response.data.notificaciones || []);
-        updateNotificationCount(null, response.data.notificaciones || []);
+        const newNotifications = response.data.notificaciones || [];
+        const prevCount = ticketNotifications.length;
+
+        setTicketNotifications(newNotifications);
+        updateNotificationCount(null, newNotifications);
+
+        // Efecto visual si hay nuevas notificaciones
+        if (newNotifications.length > prevCount && prevCount > 0) {
+          // Vibrar el badge (se maneja con CSS animation)
+          console.log('🔔 Nueva notificación de ticket recibida');
+        }
       }
     } catch (error) {
       console.error('Error al cargar notificaciones de tickets:', error);
+    }
+  };
+
+  // Marcar todas las notificaciones como leídas
+  const handleMarkAllAsRead = async () => {
+    try {
+      await api.put('/tickets/notificaciones/marcar-todas');
+      setTicketNotifications([]);
+      updateNotificationCount(notifications, []);
+    } catch (error) {
+      console.error('Error al marcar notificaciones:', error);
+    }
+  };
+
+  // Marcar una notificación específica como leída
+  const handleMarkAsRead = async (notifId) => {
+    try {
+      await api.put(`/tickets/notificaciones/${notifId}/leer`);
+      setTicketNotifications(prev => prev.filter(n => n.id !== notifId));
+      updateNotificationCount(notifications, ticketNotifications.filter(n => n.id !== notifId));
+    } catch (error) {
+      console.error('Error al marcar notificación:', error);
     }
   };
 
@@ -307,16 +348,22 @@ export default function DashboardLayout() {
     setNotificationCount(total);
   };
 
-  // Cargar notificaciones al montar el componente y cada 5 minutos
+  // Cargar notificaciones al montar el componente y cada minuto (más frecuente para tickets)
   useEffect(() => {
     if (user) {
       fetchInventoryNotifications();
       fetchTicketNotifications();
-      const interval = setInterval(() => {
-        fetchInventoryNotifications();
-        fetchTicketNotifications();
-      }, 5 * 60 * 1000); // 5 minutos
-      return () => clearInterval(interval);
+
+      // Polling cada 60 segundos para notificaciones de tickets (tiempo real)
+      const ticketInterval = setInterval(fetchTicketNotifications, 60 * 1000);
+
+      // Polling cada 5 minutos para inventario (menos urgente)
+      const inventoryInterval = setInterval(fetchInventoryNotifications, 5 * 60 * 1000);
+
+      return () => {
+        clearInterval(ticketInterval);
+        clearInterval(inventoryInterval);
+      };
     }
   }, [user]);
 
@@ -328,7 +375,18 @@ export default function DashboardLayout() {
     { text: 'Remuneraciones', icon: <RemuneracionesIcon />, path: '/remuneraciones', orangeType: 'dark' },
     { text: 'Inventario', icon: <InventoryIcon />, path: '/inventario', orangeType: 'light' },
     { text: 'Ventas', icon: <PointOfSaleIcon />, path: '/ventas', orangeType: 'dark' },
-    { text: 'Productos', icon: <TrendingUpIcon />, path: '/productos', orangeType: 'light' },
+    {
+      text: 'Productos',
+      icon: <TrendingUpIcon />,
+      isSubmenu: true,
+      orangeType: 'light',
+      isOpen: productosOpen,
+      toggle: toggleProductos,
+      subItems: [
+        { text: 'Los Mas Vendidos', path: '/productos', icon: <TrendingUpIcon /> },
+        { text: 'Consultar Producto', path: '/productos/consultar', icon: <InventoryIcon /> },
+      ],
+    },
     {
       text: 'Compras',
       icon: <ComprasIcon />,
@@ -343,6 +401,18 @@ export default function DashboardLayout() {
     },
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
+    {
+      text: 'Recursos Humanos',
+      icon: <GroupIcon />,
+      isSubmenu: true,
+      orangeType: 'light',
+      isOpen: rrhhOpen,
+      toggle: toggleRrhh,
+      subItems: [
+        { text: 'Boletas y Folios', path: '/recursos-humanos/boletas-folios', icon: <DescriptionIcon /> },
+        { text: 'Resumen Ejecutivo', path: '/recursos-humanos/resumen-ejecutivo', icon: <SummarizeIcon /> },
+      ],
+    },
     { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
     { text: 'Códigos Descuento', icon: <ConfirmationNumberIcon />, path: '/codigos-descuento', orangeType: 'dark' },
     { text: 'Mis Tickets', icon: <AssignmentIcon />, path: '/mis-tickets', orangeType: 'light' },
@@ -353,13 +423,18 @@ export default function DashboardLayout() {
     {
       text: 'Correo Electrónico',
       icon: <EmailIcon />,
-      action: handleEmailClick,
-      highlight: true,
+      isSubmenu: true,
       orangeType: 'light',
+      isOpen: correoOpen,
+      toggle: toggleCorreo,
+      subItems: [
+        { text: 'Beach', action: () => handleEmailClick('https://beach.cl:2096'), icon: <EmailIcon /> },
+        { text: 'BeachMarket', action: () => handleEmailClick('https://beachmarket.cl:2096'), icon: <EmailIcon /> },
+      ],
     },
   ];
 
-  // ✅ FILTRADO DE PERMISOS ACTIVO - CABAÑAS INCLUIDA EN TODOS LOS PERFILES
+  // ✅ FILTRADO DE PERMISOS ACTIVO - Módulos filtrados según perfil del usuario
   const menuItems = filterMenuItems(ability, allMenuItems);
 
   // Obtener título de la página actual
@@ -384,6 +459,9 @@ export default function DashboardLayout() {
         '/perfiles': 'Gestión de Perfiles',
         '/modulos': 'Gestión de Módulos',
         '/configuracion': 'Configuración',
+        '/recursos-humanos/boletas-folios': 'Boletas y Folios',
+        '/recursos-humanos/resumen-ejecutivo': 'Resumen Ejecutivo',
+        '/productos/consultar': 'Consultar Producto',
       }[location.pathname] || 'Beach Market';
 
   // Obtener el perfil del usuario para mostrar
@@ -465,7 +543,7 @@ export default function DashboardLayout() {
             <MenuItem onClick={handleLogout}>Cerrar Sesión</MenuItem>
           </Menu>
 
-          {/* Popover de Notificaciones */}
+          {/* Popover de Notificaciones - Mejorado */}
           <Popover
             open={Boolean(notificationsAnchor)}
             anchorEl={notificationsAnchor}
@@ -479,59 +557,127 @@ export default function DashboardLayout() {
               horizontal: 'right',
             }}
           >
-            <Paper sx={{ width: 360, maxHeight: 480 }}>
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="h6" fontWeight="bold">
-                  Notificaciones
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {notificationCount} alertas activas
-                </Typography>
+            <Paper sx={{ width: 400, maxHeight: 520 }}>
+              {/* Header con gradiente */}
+              <Box sx={{
+                p: 2,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <Box>
+                  <Typography variant="h6" fontWeight="bold">
+                    Notificaciones
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                    {ticketNotifications.length} de tickets • {notifications.length} de inventario
+                  </Typography>
+                </Box>
+                {ticketNotifications.length > 0 && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleMarkAllAsRead}
+                    sx={{
+                      color: 'white',
+                      borderColor: 'rgba(255,255,255,0.5)',
+                      fontSize: '0.7rem',
+                      '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
+                    }}
+                  >
+                    Marcar leídas
+                  </Button>
+                )}
               </Box>
-              <List sx={{ p: 0, maxHeight: 380, overflow: 'auto' }}>
+
+              <List sx={{ p: 0, maxHeight: 420, overflow: 'auto' }}>
                 {notifications.length === 0 && ticketNotifications.length === 0 ? (
-                  <Box sx={{ p: 3, textAlign: 'center' }}>
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <NotificationsIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
                     <Typography variant="body2" color="text.secondary">
-                      No hay notificaciones
+                      No hay notificaciones pendientes
                     </Typography>
                   </Box>
                 ) : (
                   <>
-                    {/* Notificaciones de Tickets Resueltos */}
-                    {ticketNotifications.map((ticket, index) => (
-                      <ListItem
-                        key={`ticket-${index}`}
-                        button
-                        onClick={() => {
-                          navigate('/mis-tickets');
-                          handleNotificationsClose();
-                        }}
-                        sx={{
-                          borderBottom: 1,
-                          borderColor: 'divider',
-                          '&:hover': { bgcolor: 'action.hover' },
-                          bgcolor: '#e8f5e9'
-                        }}
-                      >
-                        <ListItemIcon>
-                          <CheckCircleIcon color="success" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={`Ticket ${ticket.numero_ticket} resuelto`}
-                          secondary={
-                            <>
-                              <Typography variant="body2" component="span">
-                                {ticket.asunto}
+                    {/* Notificaciones de Tickets - Mejoradas */}
+                    {ticketNotifications.map((notif, index) => {
+                      // Determinar icono y color según tipo
+                      const getNotifStyle = () => {
+                        switch(notif.tipo) {
+                          case 'nuevo_ticket':
+                            return { icon: <ConfirmationNumberIcon />, color: '#2196F3', bg: '#e3f2fd' };
+                          case 'respuesta':
+                            return { icon: <EmailIcon />, color: '#FF9800', bg: '#fff3e0' };
+                          case 'estado_cambiado':
+                          case 'resuelto':
+                            return { icon: <CheckCircleIcon />, color: '#4CAF50', bg: '#e8f5e9' };
+                          default:
+                            return { icon: <NotificationsIcon />, color: '#9C27B0', bg: '#f3e5f5' };
+                        }
+                      };
+                      const style = getNotifStyle();
+
+                      return (
+                        <ListItem
+                          key={`ticket-${notif.id || index}`}
+                          button
+                          onClick={() => {
+                            if (notif.id) handleMarkAsRead(notif.id);
+                            navigate('/mis-tickets');
+                            handleNotificationsClose();
+                          }}
+                          sx={{
+                            borderBottom: 1,
+                            borderColor: 'divider',
+                            bgcolor: style.bg,
+                            '&:hover': { bgcolor: style.bg, filter: 'brightness(0.95)' },
+                            py: 1.5
+                          }}
+                        >
+                          <ListItemIcon sx={{ color: style.color, minWidth: 44 }}>
+                            <Avatar sx={{ bgcolor: style.color, width: 32, height: 32 }}>
+                              {React.cloneElement(style.icon, { sx: { fontSize: 18 } })}
+                            </Avatar>
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={
+                              <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                                {notif.titulo}
                               </Typography>
-                              <br />
-                              <Typography variant="caption" color="text.secondary">
-                                Resuelto por: {ticket.resuelto_por_nombre || 'Sistema'}
-                              </Typography>
-                            </>
-                          }
-                        />
-                      </ListItem>
-                    ))}
+                            }
+                            secondary={
+                              <>
+                                <Typography variant="body2" color="text.secondary" sx={{
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                }}>
+                                  {notif.mensaje}
+                                </Typography>
+                                <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block' }}>
+                                  {notif.numero_ticket && `#${notif.numero_ticket} • `}
+                                  {notif.fecha_creacion && new Date(notif.fecha_creacion).toLocaleString('es-CL', {
+                                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                  })}
+                                </Typography>
+                              </>
+                            }
+                          />
+                        </ListItem>
+                      );
+                    })}
+
+                    {/* Separador si hay ambos tipos */}
+                    {ticketNotifications.length > 0 && notifications.length > 0 && (
+                      <Divider sx={{ my: 1 }}>
+                        <Chip label="Inventario" size="small" />
+                      </Divider>
+                    )}
 
                     {/* Notificaciones de Inventario */}
                     {notifications.map((notification, index) => (
@@ -542,21 +688,32 @@ export default function DashboardLayout() {
                         sx={{
                           borderBottom: 1,
                           borderColor: 'divider',
-                          '&:hover': { bgcolor: 'action.hover' }
+                          bgcolor: notification.tipo === 'vencido' ? '#ffebee' : '#fff8e1',
+                          '&:hover': { filter: 'brightness(0.95)' },
+                          py: 1.5
                         }}
                       >
-                        <ListItemIcon>
-                          <WarningIcon color={notification.tipo === 'vencido' ? 'error' : 'warning'} />
+                        <ListItemIcon sx={{ minWidth: 44 }}>
+                          <Avatar sx={{
+                            bgcolor: notification.tipo === 'vencido' ? '#f44336' : '#ff9800',
+                            width: 32,
+                            height: 32
+                          }}>
+                            <WarningIcon sx={{ fontSize: 18 }} />
+                          </Avatar>
                         </ListItemIcon>
                         <ListItemText
-                          primary={notification.titulo}
+                          primary={
+                            <Typography variant="subtitle2" fontWeight="bold">
+                              {notification.titulo}
+                            </Typography>
+                          }
                           secondary={
                             <>
-                              <Typography variant="body2" component="span">
+                              <Typography variant="body2" color="text.secondary">
                                 {notification.descripcion}
                               </Typography>
-                              <br />
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography variant="caption" color="text.disabled">
                                 Sucursal: {notification.sucursal}
                               </Typography>
                             </>
@@ -567,6 +724,20 @@ export default function DashboardLayout() {
                   </>
                 )}
               </List>
+
+              {/* Footer con acceso rápido */}
+              <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', textAlign: 'center' }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    navigate('/mis-tickets');
+                    handleNotificationsClose();
+                  }}
+                  sx={{ color: '#667eea' }}
+                >
+                  Ver todos los tickets
+                </Button>
+              </Box>
             </Paper>
           </Popover>
         </Toolbar>
@@ -707,18 +878,22 @@ export default function DashboardLayout() {
                             exit="exit"
                           >
                             <ListItemButton
-                              sx={{ 
-                                pl: 4, 
-                                py: 0.5, 
+                              sx={{
+                                pl: 4,
+                                py: 0.5,
                                 minHeight: 34,
-                                backgroundColor: location.pathname === sub.path 
-                                  ? 'rgba(255, 152, 0, 0.1)' 
+                                backgroundColor: sub.path && location.pathname === sub.path
+                                  ? 'rgba(255, 152, 0, 0.1)'
                                   : 'transparent'
                               }}
-                              selected={location.pathname === sub.path}
+                              selected={sub.path && location.pathname === sub.path}
                               onClick={() => {
-                                navigate(sub.path);
-                                setShowEmail(false);
+                                if (sub.action) {
+                                  sub.action();
+                                } else if (sub.path) {
+                                  navigate(sub.path);
+                                  setShowEmail(false);
+                                }
                                 if (isMobile) handleDrawerClose();
                               }}
                             >

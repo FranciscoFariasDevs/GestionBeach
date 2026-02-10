@@ -23,7 +23,11 @@ export const MODULES = {
   PERFILES: 'perfiles',
   MODULOS: 'modulos',
   CONFIGURACION: 'configuracion',
-  CORREO: 'correo-electronico'
+  CORREO: 'correo-electronico',
+  RECURSOS_HUMANOS: 'recursos-humanos',
+  BOLETAS_FOLIOS: 'recursos-humanos/boletas-folios',
+  RESUMEN_EJECUTIVO: 'recursos-humanos/resumen-ejecutivo',
+  CONSULTAR_PRODUCTO: 'productos/consultar'
 };
 
 // Definir acciones
@@ -78,58 +82,61 @@ export const PERMISSIONS_BY_PROFILE = {
       MODULES.TARJETA_EMPLEADO,
       MODULES.EMPLEADOS,
       MODULES.CABANAS,
-      MODULES.CORREO
+      MODULES.CORREO,
+      MODULES.RECURSOS_HUMANOS,
+      MODULES.BOLETAS_FOLIOS,
+      MODULES.RESUMEN_EJECUTIVO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update, ACTIONS.delete]
   },
 
   finanzas: {
-    // Finanzas: Módulos financieros y contables
+    // Finanzas: Módulos financieros y contables (SIN Cabañas, SIN Inventario)
+    // Módulos: centro de costos, compras, dashboard, estado resultado, facturas xml, remuneraciones, ventas
     modules: [
       MODULES.DASHBOARD,
       MODULES.ESTADO_RESULTADO,
       MODULES.REMUNERACIONES,
+      MODULES.VENTAS,
       MODULES.COMPRAS,
       MODULES.CENTROS_COSTOS,
-      MODULES.FACTURAS_XML,
-      MODULES.CABANAS,
-      MODULES.CORREO
+      MODULES.FACTURAS_XML
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
 
   recursos_humanos: {
-    // RRHH: Gestión de personal
+    // RRHH: Gestión de personal (SIN Cabañas)
     modules: [
       MODULES.DASHBOARD,
       MODULES.EMPLEADOS,
       MODULES.REMUNERACIONES,
       MODULES.TARJETA_EMPLEADO,
-      MODULES.CABANAS,
-      MODULES.CORREO
+      MODULES.CORREO,
+      MODULES.RECURSOS_HUMANOS,
+      MODULES.BOLETAS_FOLIOS,
+      MODULES.RESUMEN_EJECUTIVO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
 
   jefe_local: {
-    // Jefe de Local: Operaciones diarias
+    // Jefe de Local: Operaciones diarias (SIN Cabañas)
     modules: [
       MODULES.DASHBOARD,
       MODULES.VENTAS,
       MODULES.INVENTARIO,
       MODULES.PRODUCTOS,
       MODULES.MONITOREO,
-      MODULES.CABANAS,
       MODULES.CORREO
     ],
     actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
   },
 
   solo_lectura: {
-    // Solo Lectura: Solo consulta
+    // Solo Lectura: Solo consulta (SIN Cabañas)
     modules: [
-      MODULES.DASHBOARD,
-      MODULES.CABANAS
+      MODULES.DASHBOARD
     ],
     actions: [ACTIONS.read]
   },
@@ -243,7 +250,17 @@ export function canAccessRoute(ability, route) {
     '/usuarios': MODULES.USUARIOS,
     '/perfiles': MODULES.PERFILES,
     '/modulos': MODULES.MODULOS,
-    '/configuracion': MODULES.CONFIGURACION
+    '/configuracion': MODULES.CONFIGURACION,
+
+    // Recursos Humanos
+    '/dashboard/recursos-humanos/boletas-folios': MODULES.RECURSOS_HUMANOS,
+    '/dashboard/recursos-humanos/resumen-ejecutivo': MODULES.RECURSOS_HUMANOS,
+    '/recursos-humanos/boletas-folios': MODULES.RECURSOS_HUMANOS,
+    '/recursos-humanos/resumen-ejecutivo': MODULES.RECURSOS_HUMANOS,
+
+    // Productos
+    '/dashboard/productos/consultar': MODULES.PRODUCTOS,
+    '/productos/consultar': MODULES.PRODUCTOS
   };
 
   const module = routeToModule[route];
@@ -255,10 +272,15 @@ export function filterMenuItems(ability, menuItems) {
   return menuItems.filter(item => {
     if (item.isSubmenu) {
       // Para submenús, filtrar subelementos
-      const filteredSubItems = item.subItems?.filter(subItem => 
-        canAccessRoute(ability, subItem.path)
-      ) || [];
-      
+      const filteredSubItems = item.subItems?.filter(subItem => {
+        // Si el subItem tiene action (como correo), siempre mostrar
+        if (subItem.action) {
+          return true;
+        }
+        // Si tiene path, verificar permisos
+        return canAccessRoute(ability, subItem.path);
+      }) || [];
+
       // Solo mostrar el submenú si tiene elementos accesibles
       if (filteredSubItems.length > 0) {
         item.subItems = filteredSubItems;
@@ -266,17 +288,17 @@ export function filterMenuItems(ability, menuItems) {
       }
       return false;
     }
-    
+
     // Para elementos normales, verificar acceso directo
     if (item.path) {
       return canAccessRoute(ability, item.path);
     }
-    
+
     // Para elementos especiales (como correo), siempre mostrar
     if (item.action) {
       return true;
     }
-    
+
     return false;
   });
 }

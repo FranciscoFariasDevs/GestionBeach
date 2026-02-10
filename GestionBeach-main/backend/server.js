@@ -145,6 +145,10 @@ const optionalRoutes = [
   { path: './routes/tickets', route: '/api/tickets' },
   // ⚙️ RUTA PARA CONFIGURACIÓN DEL SISTEMA (TEMPORADA, ETC)
   { path: './routes/configuracionRoutes', route: '/api/configuracion' },
+  // 📄 RUTA PARA BOLETAS Y FOLIOS (RECURSOS HUMANOS)
+  { path: './routes/boletasFoliosRoutes', route: '/api/boletas-folios' },
+  // 🔍 RUTA PARA CONSULTAR PRODUCTO (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/consultarProductoRoutes', route: '/api/consultar-producto' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

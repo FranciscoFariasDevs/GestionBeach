@@ -31,6 +31,7 @@ import MaintenancePage from './pages/MaintenancePage'; // 🔧 PÁGINA DE MANTEN
 import PagoExitosoPage from './pages/PagoExitosoPage'; // 💳 PÁGINA DE PAGO EXITOSO
 import PagoErrorPage from './pages/PagoErrorPage'; // 💳 PÁGINA DE ERROR EN PAGO
 import ReportarProblemaPage from './pages/ReportarProblemaPage'; // 🎫 REPORTAR PROBLEMA (TICKETS)
+import GamesPage from './pages/GamesPage'; // 🎮 RINCON DE RELAJO (SECRETO)
 
 // ========================================
 // CONFIGURACIÓN
@@ -59,6 +60,9 @@ import RegistroComprasPage from './pages/RegistroComprasPage';
 import InventarioPage from './pages/InventarioPage';
 import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
 import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
+import BoletasFoliosPage from './pages/BoletasFoliosPage';
+import ResumenEjecutivoPage from './pages/ResumenEjecutivoPage';
+import ConsultarProductoPage from './pages/ConsultarProductoPage';
 
 // ========================================
 // COMPONENTS
@@ -163,6 +167,9 @@ function App() {
 
                 {/* 🎫 SISTEMA DE TICKETS - RUTA PÚBLICA */}
                 <Route path="/reportar-problema" element={<ReportarProblemaPage />} />
+
+                {/* 🎮 RINCON DE RELAJO - RUTA SECRETA */}
+                <Route path="/games" element={<GamesPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS - INTRANET                  */}
@@ -290,6 +297,16 @@ function App() {
                     }
                   />
 
+                  {/* Consultar Producto (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/consultar"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/consultar">
+                        <ConsultarProductoPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
                   {/* ========================================== */}
                   {/* MÓDULO DE COMPRAS                          */}
                   {/* ========================================== */}
@@ -344,6 +361,30 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/tarjeta-empleado">
                         <TarjetaEmpleadoPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* ========================================== */}
+                  {/* MÓDULO DE RECURSOS HUMANOS (NUEVO)         */}
+                  {/* ========================================== */}
+
+                  {/* Boletas y Folios */}
+                  <Route
+                    path="/recursos-humanos/boletas-folios"
+                    element={
+                      <ProtectedRoute requiredRoute="/recursos-humanos/boletas-folios">
+                        <BoletasFoliosPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Resumen Ejecutivo */}
+                  <Route
+                    path="/recursos-humanos/resumen-ejecutivo"
+                    element={
+                      <ProtectedRoute requiredRoute="/recursos-humanos/resumen-ejecutivo">
+                        <ResumenEjecutivoPage />
                       </ProtectedRoute>
                     }
                   />
