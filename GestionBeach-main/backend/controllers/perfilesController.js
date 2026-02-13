@@ -1,30 +1,9 @@
 // backend/controllers/perfilesController.js - VERSIÓN COMPLETA Y FUNCIONAL
 const { sql, poolPromise } = require('../config/db');
 
-// Lista de módulos basada en tu menú lateral - SINCRONIZADA CON DASHBOARDLAYOUT
-const modulosDelSistema = [
-  'Dashboard',
-  'Estado Resultado',
-  'Monitoreo',
-  'Remuneraciones',
-  'Inventario',
-  'Ventas',
-  'Productos',
-  'Supermercados',
-  'Ferreterías',
-  'Multitiendas',
-  'Compras',
-  'Centros de Costos',
-  'Facturas XML',
-  'Tarjeta Empleado',
-  'Empleados',
-  'Cabañas',
-  'Usuarios',
-  'Perfiles',
-  'Módulos',
-  'Configuración',
-  'Correo Electrónico'
-];
+// Registro central de módulos - ÚNICA FUENTE DE VERDAD
+const modulosConfig = require('../config/modulosConfig');
+const modulosDelSistema = modulosConfig.map(m => m.nombre);
 
 // Verificar estructura completa de BD incluyendo permisos_usuario
 const verificarEstructuraBD = async () => {
@@ -158,21 +137,31 @@ exports.getModulosDisponibles = async (req, res) => {
         ORDER BY nombre
       `);
     
-    console.log(`✅ ${result.recordset.length} módulos disponibles para perfiles`);
-    res.status(200).json(result.recordset);
-    
+    // Enriquecer con claves del config central
+    const clavesMap = {};
+    modulosConfig.forEach(c => { clavesMap[c.nombre] = c.claves; });
+
+    const modulosConClaves = result.recordset.map(m => ({
+      ...m,
+      claves: clavesMap[m.nombre] || []
+    }));
+
+    console.log(`✅ ${modulosConClaves.length} módulos disponibles para perfiles`);
+    res.status(200).json(modulosConClaves);
+
   } catch (error) {
     console.error('❌ Error al obtener módulos:', error);
-    
-    // Fallback: devolver lista predefinida
-    const modulosFallback = modulosDelSistema.map((nombre, index) => ({
+
+    // Fallback: devolver lista predefinida con claves
+    const modulosFallback = modulosConfig.map((m, index) => ({
       id: index + 1,
-      nombre: nombre,
-      descripcion: `Módulo: ${nombre}`,
-      ruta: `/${nombre.toLowerCase().replace(/\s+/g, '-')}`,
-      icono: 'extension'
+      nombre: m.nombre,
+      descripcion: `Módulo: ${m.nombre}`,
+      ruta: `/${m.nombre.toLowerCase().replace(/\s+/g, '-')}`,
+      icono: 'extension',
+      claves: m.claves
     }));
-    
+
     console.log('📋 Devolviendo módulos predefinidos como fallback');
     res.status(200).json(modulosFallback);
   }

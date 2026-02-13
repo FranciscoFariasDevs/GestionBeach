@@ -5,6 +5,7 @@ const dashboardController = require('../controllers/dashboardController');
 
 // ✅ RUTA PÚBLICA SIN MIDDLEWARE DE AUTENTICACIÓN
 router.post('/', dashboardController.getDashboardData);
+router.get('/', dashboardController.getDashboardData);
 
 // Ruta de prueba también pública
 router.get('/test', (req, res) => {

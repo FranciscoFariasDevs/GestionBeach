@@ -1,7 +1,7 @@
 // frontend/src/config/permissions.js
 import { AbilityBuilder, Ability } from '@casl/ability';
 
-// Definir todos los módulos del sistema - SINCRONIZADO CON BACKEND
+// Definir todos los módulos del sistema - claves de ruta
 export const MODULES = {
   DASHBOARD: 'dashboard',
   ESTADO_RESULTADO: 'estado-resultado',
@@ -27,7 +27,15 @@ export const MODULES = {
   RECURSOS_HUMANOS: 'recursos-humanos',
   BOLETAS_FOLIOS: 'recursos-humanos/boletas-folios',
   RESUMEN_EJECUTIVO: 'recursos-humanos/resumen-ejecutivo',
-  CONSULTAR_PRODUCTO: 'productos/consultar'
+  CONSULTAR_PRODUCTO: 'productos/consultar',
+  ROTACION_FERRETERIAS: 'productos/rotacion-ferreterias',
+  RENTABILIDAD: 'productos/rentabilidad',
+  MARGENES: 'productos/margenes',
+  GUIAS: 'productos/guias',
+  RESUMEN_VALORIZADO: 'productos/resumen-valorizado',
+  STOCKS: 'productos/stocks',
+  ANULACIONES: 'productos/anulaciones',
+  CARGAR_INVENTARIO: 'productos/cargar-inventario'
 };
 
 // Definir acciones
@@ -36,138 +44,19 @@ export const ACTIONS = {
   create: 'create',
   update: 'update',
   delete: 'delete',
-  manage: 'manage' // Equivale a todas las acciones
+  manage: 'manage'
 };
 
-// Mapeo de perfiles por ID (basado en tu BD)
-export const PROFILE_MAP = {
-  10: 'super_admin',
-  11: 'gerencia',
-  12: 'finanzas',
-  13: 'recursos_humanos',
-  14: 'jefe_local',
-  15: 'solo_lectura',
-  16: 'administrador',
-  17: 'encargada_turno_lord',
-  18: 'administrador_cabanas'
-};
-
-// Definir permisos por perfil
-export const PERMISSIONS_BY_PROFILE = {
-  super_admin: {
-    // Super Admin: Acceso total (incluye Tickets - EXCLUSIVO)
-    modules: Object.values(MODULES),
-    actions: [ACTIONS.manage] // Puede hacer todo
-  },
-
-  administrador: {
-    // Administrador: Acceso total EXCEPTO Tickets (reservado para Super Admin)
-    modules: Object.values(MODULES).filter(m => m !== MODULES.TICKETS),
-    actions: [ACTIONS.manage]
-  },
-  
-  gerencia: {
-    // Gerencia: Todo excepto configuración crítica de usuarios/perfiles
-    modules: [
-      MODULES.DASHBOARD,
-      MODULES.ESTADO_RESULTADO,
-      MODULES.MONITOREO,
-      MODULES.REMUNERACIONES,
-      MODULES.INVENTARIO,
-      MODULES.VENTAS,
-      MODULES.PRODUCTOS,
-      MODULES.COMPRAS,
-      MODULES.CENTROS_COSTOS,
-      MODULES.FACTURAS_XML,
-      MODULES.TARJETA_EMPLEADO,
-      MODULES.EMPLEADOS,
-      MODULES.CABANAS,
-      MODULES.CORREO,
-      MODULES.RECURSOS_HUMANOS,
-      MODULES.BOLETAS_FOLIOS,
-      MODULES.RESUMEN_EJECUTIVO
-    ],
-    actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update, ACTIONS.delete]
-  },
-
-  finanzas: {
-    // Finanzas: Módulos financieros y contables (SIN Cabañas, SIN Inventario)
-    // Módulos: centro de costos, compras, dashboard, estado resultado, facturas xml, remuneraciones, ventas
-    modules: [
-      MODULES.DASHBOARD,
-      MODULES.ESTADO_RESULTADO,
-      MODULES.REMUNERACIONES,
-      MODULES.VENTAS,
-      MODULES.COMPRAS,
-      MODULES.CENTROS_COSTOS,
-      MODULES.FACTURAS_XML
-    ],
-    actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
-  },
-
-  recursos_humanos: {
-    // RRHH: Gestión de personal (SIN Cabañas)
-    modules: [
-      MODULES.DASHBOARD,
-      MODULES.EMPLEADOS,
-      MODULES.REMUNERACIONES,
-      MODULES.TARJETA_EMPLEADO,
-      MODULES.CORREO,
-      MODULES.RECURSOS_HUMANOS,
-      MODULES.BOLETAS_FOLIOS,
-      MODULES.RESUMEN_EJECUTIVO
-    ],
-    actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
-  },
-
-  jefe_local: {
-    // Jefe de Local: Operaciones diarias (SIN Cabañas)
-    modules: [
-      MODULES.DASHBOARD,
-      MODULES.VENTAS,
-      MODULES.INVENTARIO,
-      MODULES.PRODUCTOS,
-      MODULES.MONITOREO,
-      MODULES.CORREO
-    ],
-    actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
-  },
-
-  solo_lectura: {
-    // Solo Lectura: Solo consulta (SIN Cabañas)
-    modules: [
-      MODULES.DASHBOARD
-    ],
-    actions: [ACTIONS.read]
-  },
-
-  encargada_turno_lord: {
-    // Encargada de Turno Lord: Ventas y productos
-    modules: [
-      MODULES.VENTAS,
-      MODULES.PRODUCTOS,
-      MODULES.CORREO
-    ],
-    actions: [ACTIONS.read, ACTIONS.create, ACTIONS.update]
-  },
-
-  administrador_cabanas: {
-    // Administrador de Cabañas: Gestión completa de cabañas y reservas
-    modules: [
-      MODULES.DASHBOARD,
-      MODULES.CABANAS,
-      MODULES.CORREO
-    ],
-    actions: [ACTIONS.manage] // Acceso completo a cabañas
-  }
-};
-
-// Función para crear habilidades basadas en el perfil del usuario
-export function defineAbilitiesFor(user) {
+// Función para crear habilidades basadas en los módulos del usuario (desde BD)
+// user.modules = array de IDs de módulos
+// modulosList = lista completa de {id, nombre, claves} desde /api/modulos
+//
+// Las "claves" vienen del archivo central backend/config/modulosConfig.js
+// y se propagan automáticamente via la API. No hay mapeo hardcodeado aquí.
+export function defineAbilitiesFor(user, modulosList) {
   const { can, cannot, build } = new AbilityBuilder(Ability);
 
   if (!user || !user.perfilId) {
-    // Usuario sin perfil - sin permisos
     return build();
   }
 
@@ -177,22 +66,36 @@ export function defineAbilitiesFor(user) {
     return build();
   }
 
-  // Obtener perfil del usuario
-  const profileKey = PROFILE_MAP[user.perfilId];
-  const permissions = PERMISSIONS_BY_PROFILE[profileKey];
+  // SISTEMA DINÁMICO: usar módulos de la BD + claves del config central
+  if (user.modules && user.modules.length > 0 && modulosList && modulosList.length > 0) {
+    // Crear mapa ID → claves desde la lista de módulos
+    const idToClaves = {};
+    modulosList.forEach(m => {
+      if (m.claves && m.claves.length > 0) {
+        idToClaves[m.id] = m.claves;
+      }
+    });
 
-  if (!permissions) {
-    console.warn(`Perfil no encontrado para perfilId: ${user.perfilId}`);
+    // Resolver IDs de módulos del usuario a claves del frontend
+    const frontendModules = new Set();
+    user.modules.forEach(modId => {
+      const claves = idToClaves[modId];
+      if (claves) {
+        claves.forEach(clave => frontendModules.add(clave));
+      }
+    });
+
+    // Aplicar permisos: read, create, update para todos los módulos resueltos
+    const actions = [ACTIONS.READ, ACTIONS.create, ACTIONS.update];
+    frontendModules.forEach(mod => {
+      actions.forEach(action => can(action, mod));
+    });
+
     return build();
   }
 
-  // Aplicar permisos según el perfil
-  permissions.actions.forEach(action => {
-    permissions.modules.forEach(module => {
-      can(action, module);
-    });
-  });
-
+  // Sin módulos en BD - sin permisos
+  console.warn(`Perfil ${user.perfilId} sin módulos asignados en la BD`);
   return build();
 }
 
@@ -206,11 +109,9 @@ export function canAccessRoute(ability, route) {
 
   // Mapear rutas a módulos (CON Y SIN /dashboard/)
   const routeToModule = {
-    // Rutas principales
     '/': MODULES.DASHBOARD,
     '/dashboard': MODULES.DASHBOARD,
 
-    // Rutas con prefijo /dashboard/
     '/dashboard/estado-resultado': MODULES.ESTADO_RESULTADO,
     '/dashboard/monitoreo': MODULES.MONITOREO,
     '/dashboard/remuneraciones': MODULES.REMUNERACIONES,
@@ -231,7 +132,6 @@ export function canAccessRoute(ability, route) {
     '/dashboard/modulos': MODULES.MODULOS,
     '/dashboard/configuracion': MODULES.CONFIGURACION,
 
-    // Rutas sin prefijo /dashboard/ (para compatibilidad)
     '/estado-resultado': MODULES.ESTADO_RESULTADO,
     '/monitoreo': MODULES.MONITOREO,
     '/remuneraciones': MODULES.REMUNERACIONES,
@@ -252,36 +152,48 @@ export function canAccessRoute(ability, route) {
     '/modulos': MODULES.MODULOS,
     '/configuracion': MODULES.CONFIGURACION,
 
-    // Recursos Humanos
     '/dashboard/recursos-humanos/boletas-folios': MODULES.RECURSOS_HUMANOS,
     '/dashboard/recursos-humanos/resumen-ejecutivo': MODULES.RECURSOS_HUMANOS,
     '/recursos-humanos/boletas-folios': MODULES.RECURSOS_HUMANOS,
     '/recursos-humanos/resumen-ejecutivo': MODULES.RECURSOS_HUMANOS,
 
-    // Productos
     '/dashboard/productos/consultar': MODULES.PRODUCTOS,
-    '/productos/consultar': MODULES.PRODUCTOS
+    '/productos/consultar': MODULES.PRODUCTOS,
+    '/dashboard/productos/rotacion-ferreterias': MODULES.PRODUCTOS,
+    '/productos/rotacion-ferreterias': MODULES.PRODUCTOS,
+    '/dashboard/productos/rentabilidad': MODULES.PRODUCTOS,
+    '/productos/rentabilidad': MODULES.PRODUCTOS,
+    '/dashboard/productos/margenes': MODULES.PRODUCTOS,
+    '/productos/margenes': MODULES.PRODUCTOS,
+    '/dashboard/productos/guias': MODULES.PRODUCTOS,
+    '/productos/guias': MODULES.PRODUCTOS,
+    '/dashboard/productos/resumen-valorizado': MODULES.PRODUCTOS,
+    '/productos/resumen-valorizado': MODULES.PRODUCTOS,
+    '/dashboard/productos/stocks': MODULES.PRODUCTOS,
+    '/productos/stocks': MODULES.PRODUCTOS,
+
+    '/dashboard/productos/anulaciones': MODULES.PRODUCTOS,
+    '/productos/anulaciones': MODULES.PRODUCTOS,
+
+    '/dashboard/productos/cargar-inventario': MODULES.PRODUCTOS,
+    '/productos/cargar-inventario': MODULES.PRODUCTOS
   };
 
   const module = routeToModule[route];
-  return module ? ability.can(ACTIONS.read, module) : false;
+  return module ? ability.can(ACTIONS.READ, module) : false;
 }
 
 // Función para filtrar elementos del menú según permisos
 export function filterMenuItems(ability, menuItems) {
   return menuItems.filter(item => {
     if (item.isSubmenu) {
-      // Para submenús, filtrar subelementos
       const filteredSubItems = item.subItems?.filter(subItem => {
-        // Si el subItem tiene action (como correo), siempre mostrar
         if (subItem.action) {
-          return true;
+          return ability.can(ACTIONS.READ, MODULES.CORREO);
         }
-        // Si tiene path, verificar permisos
         return canAccessRoute(ability, subItem.path);
       }) || [];
 
-      // Solo mostrar el submenú si tiene elementos accesibles
       if (filteredSubItems.length > 0) {
         item.subItems = filteredSubItems;
         return true;
@@ -289,14 +201,12 @@ export function filterMenuItems(ability, menuItems) {
       return false;
     }
 
-    // Para elementos normales, verificar acceso directo
     if (item.path) {
       return canAccessRoute(ability, item.path);
     }
 
-    // Para elementos especiales (como correo), siempre mostrar
     if (item.action) {
-      return true;
+      return ability.can(ACTIONS.READ, MODULES.CORREO);
     }
 
     return false;

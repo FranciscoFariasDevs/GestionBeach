@@ -1927,9 +1927,29 @@ async function crearEmpleadoSiNoExisteConUnicode(transaction, datosExtraidos) {
 
   try {
     const nombreCompleto = limpiarTextoConUnicode(datosExtraidos.nombre_empleado || 'Sin Nombre');
-    const partesNombre = nombreCompleto.trim().split(' ');
-    const nombre = partesNombre[0] || 'Sin Nombre';
-    const apellido = partesNombre.slice(1).join(' ') || 'Sin Apellido';
+
+    // Parsear nombre formato chileno: "APELLIDO1 APELLIDO2 NOMBRE1 NOMBRE2"
+    let nombre, apellido;
+
+    if (nombreCompleto.includes(',')) {
+      // Si tiene coma: "Apellido1 Apellido2, Nombre1 Nombre2"
+      const partes = nombreCompleto.split(',');
+      apellido = partes[0].trim() || 'Sin Apellido';
+      nombre = partes[1]?.trim() || 'Sin Nombre';
+    } else {
+      // Sin coma: formato chileno "APELLIDO1 APELLIDO2 NOMBRE1 NOMBRE2"
+      const partes = nombreCompleto.trim().split(' ').filter(p => p.length > 0);
+
+      if (partes.length <= 2) {
+        // Solo 1-2 partes: primer elemento nombre, resto apellido
+        nombre = partes[0] || 'Sin Nombre';
+        apellido = partes.slice(1).join(' ') || 'Sin Apellido';
+      } else {
+        // 3+ partes: los 2 primeros son apellidos, el resto son nombres
+        apellido = partes.slice(0, 2).join(' ');
+        nombre = partes.slice(2).join(' ');
+      }
+    }
 
     const resultado = await transaction.request()
       .input('rut', sql.VarChar, rutLimpio)

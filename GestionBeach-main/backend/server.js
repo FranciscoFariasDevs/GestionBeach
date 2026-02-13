@@ -149,6 +149,20 @@ const optionalRoutes = [
   { path: './routes/boletasFoliosRoutes', route: '/api/boletas-folios' },
   // 🔍 RUTA PARA CONSULTAR PRODUCTO (MIGRADO DE SISTEMA VIEJO)
   { path: './routes/consultarProductoRoutes', route: '/api/consultar-producto' },
+  // 🔄 RUTA PARA ROTACIÓN FERRETERÍAS (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/rotacionFerreteriasRoutes', route: '/api/rotacion-ferreterias' },
+  // 💰 RUTA PARA RENTABILIDAD FERRETERÍAS (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/rentabilidadRoutes', route: '/api/rentabilidad' },
+  // 📊 RUTA PARA MÁRGENES POR VENDEDOR (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/margenesRoutes', route: '/api/margenes' },
+  // 📦 RUTA PARA GUÍAS (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/guiasRoutes', route: '/api/guias' },
+  // 📊 RUTA PARA RESUMEN VALORIZADO (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/resumenValorizadoRoutes', route: '/api/resumen-valorizado' },
+  // 📦 RUTA PARA STOCKS (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/stocksRoutes', route: '/api/stocks' },
+  { path: './routes/anulacionesRoutes', route: '/api/anulaciones' },
+  { path: './routes/cargarInventarioRoutes', route: '/api/cargar-inventario' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

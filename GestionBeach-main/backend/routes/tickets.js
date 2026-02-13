@@ -11,8 +11,8 @@ const authMiddleware = require('../middleware/authMiddleware');
 // Obtener categorías (público)
 router.get('/categorias', ticketController.obtenerCategorias);
 
-// Crear nuevo ticket (requiere autenticación)
-router.post('/crear', authMiddleware, ticketController.crearTicket);
+// Crear nuevo ticket (requiere autenticación) - CON SOPORTE PARA IMAGEN
+router.post('/crear', authMiddleware, ticketController.uploadMiddleware, ticketController.crearTicket);
 
 // ============================================
 // RUTAS DE ADMINISTRACIÓN (Solo SuperAdmin)
@@ -32,19 +32,35 @@ router.get('/admin/todos', authMiddleware, ticketController.obtenerTodosLosTicke
 // Obtener mis tickets
 router.get('/mis-tickets', authMiddleware, ticketController.obtenerMisTickets);
 
-// Obtener notificaciones de tickets resueltos
+// Obtener notificaciones de tickets resueltos (legacy)
 router.get('/mis-notificaciones', authMiddleware, ticketController.obtenerNotificacionesTickets);
+
+// ============================================
+// RUTAS DE NOTIFICACIONES
+// ============================================
+
+// Obtener todas las notificaciones del usuario
+router.get('/notificaciones/todas', authMiddleware, ticketController.obtenerNotificaciones);
+
+// Marcar todas las notificaciones como leídas
+router.put('/notificaciones/marcar-todas', authMiddleware, ticketController.marcarTodasLeidas);
+
+// Marcar una notificación como leída
+router.put('/notificaciones/:id/leer', authMiddleware, ticketController.marcarNotificacionLeida);
 
 // Obtener detalle de un ticket
 router.get('/:id', authMiddleware, ticketController.obtenerDetalleTicket);
 
-// Responder a un ticket
-router.post('/:id/responder', authMiddleware, ticketController.responderTicket);
+// Responder a un ticket (con soporte para imagen)
+router.post('/:id/responder', authMiddleware, ticketController.uploadMiddleware, ticketController.responderTicket);
 
 // Cambiar estado de un ticket
 router.put('/:id/estado', authMiddleware, ticketController.cambiarEstadoTicket);
 
 // Asignar ticket a un usuario
 router.put('/:id/asignar', authMiddleware, ticketController.asignarTicket);
+
+// Subir imagen a un ticket existente
+router.post('/:id/imagen', authMiddleware, ticketController.uploadMiddleware, ticketController.subirImagenTicket);
 
 module.exports = router;

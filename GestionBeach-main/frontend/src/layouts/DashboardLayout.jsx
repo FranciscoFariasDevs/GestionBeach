@@ -385,8 +385,16 @@ export default function DashboardLayout() {
       subItems: [
         { text: 'Los Mas Vendidos', path: '/productos', icon: <TrendingUpIcon /> },
         { text: 'Consultar Producto', path: '/productos/consultar', icon: <InventoryIcon /> },
+        { text: 'Rentabilidad', path: '/productos/rentabilidad', icon: <TrendingUpIcon /> },
+        { text: 'Margenes', path: '/productos/margenes', icon: <TrendingUpIcon /> },
+        { text: 'Guias', path: '/productos/guias', icon: <TrendingUpIcon /> },
+        { text: 'Resumen Valorizado', path: '/productos/resumen-valorizado', icon: <TrendingUpIcon /> },
+        { text: 'Stocks', path: '/productos/stocks', icon: <TrendingUpIcon /> }
+        //{ text: 'Anulaciones', path: '/productos/anulaciones', icon: <PointOfSaleIcon /> },
+        //{ text: 'Cargar Inventario', path: '/productos/cargar-inventario', icon: <InventoryIcon /> },
       ],
     },
+    { text: 'Rotacion Ferreterias', icon: <TrendingUpIcon />, path: '/productos/rotacion-ferreterias', orangeType: 'dark' },
     {
       text: 'Compras',
       icon: <ComprasIcon />,
@@ -462,6 +470,14 @@ export default function DashboardLayout() {
         '/recursos-humanos/boletas-folios': 'Boletas y Folios',
         '/recursos-humanos/resumen-ejecutivo': 'Resumen Ejecutivo',
         '/productos/consultar': 'Consultar Producto',
+        '/productos/rotacion-ferreterias': 'Rotacion Ferreterias',
+        '/productos/rentabilidad': 'Rentabilidad',
+        '/productos/margenes': 'Margenes por Vendedor',
+        '/productos/guias': 'Guias de Despacho',
+        '/productos/resumen-valorizado': 'Resumen Valorizado',
+        '/productos/stocks': 'Analisis de Stocks',
+        '/anulaciones': 'Anulaciones',
+        '/cargar-inventario': 'Cargar Inventario',
       }[location.pathname] || 'Beach Market';
 
   // Obtener el perfil del usuario para mostrar

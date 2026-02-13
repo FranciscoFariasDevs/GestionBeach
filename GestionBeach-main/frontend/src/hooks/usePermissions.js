@@ -4,12 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { defineAbilitiesFor, canAccessRoute, ACTIONS, MODULES } from '../config/permissions';
 
 export const usePermissions = () => {
-  const { user } = useAuth();
+  const { user, modulos } = useAuth();
 
-  // Crear las habilidades basadas en el usuario actual
+  // Crear las habilidades basadas en el usuario actual + módulos de la BD
   const ability = useMemo(() => {
-    return defineAbilitiesFor(user);
-  }, [user]);
+    return defineAbilitiesFor(user, modulos);
+  }, [user, modulos]);
 
   // Funciones de conveniencia para verificar permisos
   const can = (action, module) => ability.can(action, module);

@@ -63,6 +63,14 @@ import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
 import BoletasFoliosPage from './pages/BoletasFoliosPage';
 import ResumenEjecutivoPage from './pages/ResumenEjecutivoPage';
 import ConsultarProductoPage from './pages/ConsultarProductoPage';
+import RotacionFerreteriasPage from './pages/RotacionFerreteriasPage';
+import RentabilidadPage from './pages/RentabilidadPage';
+import MargenesPage from './pages/MargenesPage';
+import GuiasPage from './pages/GuiasPage';
+import ResumenValorizadoPage from './pages/ResumenValorizadoPage';
+import StocksPage from './pages/StocksPage';
+import AnulacionesPage from './pages/AnulacionesPage';
+import CargarInventarioPage from './pages/CargarInventarioPage';
 
 // ========================================
 // COMPONENTS
@@ -303,6 +311,86 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/productos/consultar">
                         <ConsultarProductoPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Rotacion Ferreterias (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/rotacion-ferreterias"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/rotacion-ferreterias">
+                        <RotacionFerreteriasPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Rentabilidad (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/rentabilidad"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/rentabilidad">
+                        <RentabilidadPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Margenes por Vendedor (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/margenes"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/margenes">
+                        <MargenesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Guias (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/guias"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/guias">
+                        <GuiasPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Resumen Valorizado (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/resumen-valorizado"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/resumen-valorizado">
+                        <ResumenValorizadoPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Stocks (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/stocks"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/stocks">
+                        <StocksPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Anulaciones (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/anulaciones"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/anulaciones">
+                        <AnulacionesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Cargar Inventario (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/cargar-inventario"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/cargar-inventario">
+                        <CargarInventarioPage />
                       </ProtectedRoute>
                     }
                   />

@@ -1576,47 +1576,88 @@ const EstadoResultadosPage = () => {
       console.log('📤 Enviando datos a /ventas:', ventasBody);
 
       const ventasResponse = await api.post('/ventas', ventasBody);
-      
+
       console.log('🔥 Respuesta ventas (POST):', ventasResponse.data);
-      
+
       let ventasData = [];
       let totalVentas = 0;
 
       if (ventasResponse?.data?.success && Array.isArray(ventasResponse.data.ventas)) {
         ventasData = ventasResponse.data.ventas;
-        
+
         totalVentas = ventasData.reduce((sum, venta) => {
           const monto = Number(venta.Total || venta.total || venta.monto_total || venta.valor_total || 0);
           return sum + monto;
         }, 0);
-        
+
         console.log(`✅ Ventas cargadas: ${ventasData.length} registros, total: ${totalVentas}`);
-        
+
       } else if (Array.isArray(ventasResponse?.data?.ventas)) {
         ventasData = ventasResponse.data.ventas;
-        
+
         totalVentas = ventasData.reduce((sum, venta) => {
           const monto = Number(venta.Total || venta.total || venta.monto_total || venta.valor_total || 0);
           return sum + monto;
         }, 0);
-        
+
       } else {
         console.warn('⚠️ Formato de respuesta de ventas inesperado:', ventasResponse.data);
       }
 
       console.log(`✅ Ventas procesadas: ${ventasData.length} registros, total: ${totalVentas}`);
       return { data: ventasData, total: totalVentas };
-      
+
     } catch (error) {
       console.error('❌ Error crítico en ventas:', error);
-      
+
       if (error.response?.status === 404) {
         console.error('❌ Endpoint /ventas no encontrado');
       } else if (error.response?.status === 400) {
         console.error('❌ Parámetros incorrectos enviados al endpoint /ventas');
       }
-      
+
       return { data: [], total: 0, source: 'error', error: error.message };
+    }
+  };
+
+  // Función para cargar costos de venta desde dashboard
+  const loadCostosVenta = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      console.log('📦 Cargando costos de venta desde dashboard...');
+
+      const dashboardResponse = await api.get(`/dashboard?startDate=${fechaDesde}&endDate=${fechaHasta}`);
+
+      if (dashboardResponse?.data) {
+        const data = dashboardResponse.data;
+        // Buscar la sucursal seleccionada en los resultados
+        const sucursalNombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || '';
+
+        let costos = 0;
+        let utilidad = 0;
+
+        // Buscar en todas las categorías (supermercados, ferreterias, multitiendas)
+        ['supermercados', 'ferreterias', 'multitiendas'].forEach(categoria => {
+          if (data[categoria]?.sucursales) {
+            const sucursal = data[categoria].sucursales.find(s =>
+              s.nombre?.toLowerCase().includes(sucursalNombre.toLowerCase()) ||
+              sucursalNombre.toLowerCase().includes(s.nombre?.toLowerCase())
+            );
+            if (sucursal) {
+              costos = sucursal.costos || 0;
+              utilidad = sucursal.utilidad || 0;
+              console.log(`✅ Costos encontrados para ${sucursalNombre}: $${costos.toLocaleString()}`);
+            }
+          }
+        });
+
+        return { costos, utilidad };
+      }
+
+      return { costos: 0, utilidad: 0 };
+    } catch (error) {
+      console.error('❌ Error cargando costos:', error);
+      return { costos: 0, utilidad: 0 };
     }
   };
   
@@ -1750,22 +1791,25 @@ const EstadoResultadosPage = () => {
       const comprasResult = await loadComprasData();
       const remuneracionesResult = await loadRemuneracionesData();
       const ventasResult = await loadVentasData();
+      const costosResult = await loadCostosVenta();
 
       console.log('📊 Resumen de datos cargados:', {
         compras: { cantidad: comprasResult.data.length, total: comprasResult.total },
-        remuneraciones: { 
-          cantidad: remuneracionesResult.data.length, 
+        remuneraciones: {
+          cantidad: remuneracionesResult.data.length,
           total_cargo: remuneracionesResult.total_cargo || 0,
           admin: remuneracionesResult.resumen?.administrativos?.total_cargo || 0,
           ventas: remuneracionesResult.resumen?.ventas?.total_cargo || 0
         },
-        ventas: { cantidad: ventasResult.data.length, total: ventasResult.total }
+        ventas: { cantidad: ventasResult.data.length, total: ventasResult.total },
+        costos: costosResult.costos
       });
 
       const estadoResultados = construirEstadoResultados({
         compras: comprasResult,
         remuneraciones: remuneracionesResult,
-        ventas: ventasResult
+        ventas: ventasResult,
+        costos: costosResult
       });
 
       setDatosReales({
@@ -1801,7 +1845,8 @@ const EstadoResultadosPage = () => {
       const estadoVacio = construirEstadoResultados({
         compras: { data: [], total: 0 },
         remuneraciones: { data: [], total: 0, total_cargo: 0, resumen: null },
-        ventas: { data: [], total: 0 }
+        ventas: { data: [], total: 0 },
+        costos: { costos: 0, utilidad: 0 }
       });
       
       setData(estadoVacio);
@@ -1813,7 +1858,7 @@ const EstadoResultadosPage = () => {
   };
 
   // 🔥 FUNCIÓN CRÍTICA: Construir estado de resultados usando clasificación REAL del backend
-  const construirEstadoResultados = ({ compras, remuneraciones, ventas }) => {
+  const construirEstadoResultados = ({ compras, remuneraciones, ventas, costos }) => {
     const sucursalSeleccionada = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal);
     
     // 🔥 USAR LOS DATOS YA CLASIFICADOS DEL BACKEND - NO más división 50/50
@@ -1845,13 +1890,13 @@ const EstadoResultadosPage = () => {
       },
       
       costos: {
-        costoVentas: (compras.total || 0) * 0.81,
+        costoVentas: costos?.costos || 0, // Costo de venta real del dashboard
         compras: compras.total || 0,
         mermaVenta: 0,
-        totalCostos: (compras.total || 0) * 0.81
+        totalCostos: costos?.costos || 0
       },
-      
-      utilidadBruta: (ventas.total || 0) - ((compras.total || 0) * 0.81),
+
+      utilidadBruta: (ventas.total || 0) - (costos?.costos || 0),
       
       gastosOperativos: {
         gastosVenta: {
@@ -2998,11 +3043,7 @@ const EstadoResultadosPage = () => {
         {data && (
           <>
             <KeyResultsCard data={data} />
-            
-            {datosRemuneraciones && datosRemuneraciones.porcentajes_aplicados && (
-              <CostosPatronalesCard data={datosRemuneraciones} />
-            )}
-            
+
             <Grid container spacing={4}>
               <Grid item xs={12} lg={6}>
                 <Card

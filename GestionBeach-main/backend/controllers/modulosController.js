@@ -1,5 +1,6 @@
 // backend/controllers/modulosController.js - AJUSTADO A TU ESTRUCTURA DE BD
 const { sql, poolPromise } = require('../config/db');
+const modulosConfig = require('../config/modulosConfig');
 
 // Lista de pantallas/módulos del dashboard - SINCRONIZADA CON DASHBOARDLAYOUT
 const pantallasDashboard = [
@@ -152,16 +153,18 @@ exports.getAllModulos = async (req, res) => {
     if (result.recordset.length > 0) {
       console.log(`✅ ${result.recordset.length} módulos cargados desde BD`);
       
-      // Enriquecer con datos predefinidos si faltan
+      // Enriquecer con datos predefinidos + claves del config central
       const modulosCompletos = result.recordset.map(modulo => {
         const pantallaPredefinida = pantallasDashboard.find(p => p.nombre === modulo.nombre);
-        
+        const configEntry = modulosConfig.find(c => c.nombre === modulo.nombre);
+
         return {
           id: modulo.id,
           nombre: modulo.nombre,
           descripcion: modulo.descripcion || (pantallaPredefinida ? pantallaPredefinida.descripcion : ''),
           ruta: modulo.ruta || (pantallaPredefinida ? pantallaPredefinida.ruta : `/${modulo.nombre.toLowerCase().replace(/\s+/g, '-')}`),
-          icono: modulo.icono !== 'extension' ? modulo.icono : (pantallaPredefinida ? pantallaPredefinida.icono : 'extension')
+          icono: modulo.icono !== 'extension' ? modulo.icono : (pantallaPredefinida ? pantallaPredefinida.icono : 'extension'),
+          claves: configEntry ? configEntry.claves : []
         };
       });
       

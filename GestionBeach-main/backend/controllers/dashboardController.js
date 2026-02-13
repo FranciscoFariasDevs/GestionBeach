@@ -3,10 +3,12 @@ const { sql, poolPromise } = require('../config/db');
 
 exports.getDashboardData = async (req, res) => {
   try {
-    const { start_date, end_date } = req.body;
-    
+    // Soportar tanto POST (body) como GET (query)
+    const start_date = req.body.start_date || req.query.startDate || req.query.start_date;
+    const end_date = req.body.end_date || req.query.endDate || req.query.end_date;
+
     console.log('Dashboard con datos reales:', { start_date, end_date });
-    
+
     if (!start_date || !end_date) {
       return res.status(400).json({ message: 'Las fechas son requeridas' });
     }

@@ -79,10 +79,11 @@ exports.login = async (req, res) => {
       
       // Generar token JWT
       const token = jwt.sign(
-        { 
-          id: user.id, 
+        {
+          id: user.id,
           username: user.username,
-          perfilId: user.perfil_id  // ✅ INCLUIR EN TOKEN
+          perfilId: user.perfil_id,
+          perfil: user.perfil_nombre  // ✅ INCLUIR NOMBRE DEL PERFIL PARA VERIFICAR PERMISOS
         },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES_IN }

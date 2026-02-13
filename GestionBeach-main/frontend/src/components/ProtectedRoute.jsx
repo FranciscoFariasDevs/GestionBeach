@@ -57,10 +57,10 @@ const NoPermissionsPage = ({ requiredRoute }) => {
         <Button
           variant="contained"
           startIcon={<HomeIcon />}
-          onClick={() => window.location.href = '/dashboard'}
+          onClick={() => window.location.href = '/welcome'}
           sx={{ mt: 2 }}
         >
-          Volver al Dashboard
+          Volver al Inicio
         </Button>
       </Paper>
     </Box>
@@ -107,12 +107,12 @@ const ProtectedRoute = ({ children, requireAuth = true, requiredRoute = null }) 
   if (user && !requiredRoute) {
     const currentRoute = location.pathname;
     const hasAccess = canAccess(currentRoute);
-    
+
     // Para rutas no mapeadas o acceso permitido, mostrar contenido
-    if (currentRoute === '/' || currentRoute === '/dashboard' || hasAccess) {
+    if (hasAccess) {
       return children;
     }
-    
+
     // Sin acceso a la ruta actual
     return <NoPermissionsPage requiredRoute={currentRoute} />;
   }

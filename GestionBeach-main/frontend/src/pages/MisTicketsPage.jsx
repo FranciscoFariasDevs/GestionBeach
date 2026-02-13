@@ -50,7 +50,20 @@ import {
   Close as CloseIcon,
   Send as SendIcon,
   Assignment as AssignmentIcon,
+  Image as ImageIcon,
+  AttachFile as AttachFileIcon,
+  History as HistoryIcon,
+  Edit as EditIcon,
+  PersonAdd as PersonAddIcon,
+  Schedule as ScheduleIcon,
 } from '@mui/icons-material';
+import Timeline from '@mui/lab/Timeline';
+import TimelineItem from '@mui/lab/TimelineItem';
+import TimelineSeparator from '@mui/lab/TimelineSeparator';
+import TimelineConnector from '@mui/lab/TimelineConnector';
+import TimelineContent from '@mui/lab/TimelineContent';
+import TimelineDot from '@mui/lab/TimelineDot';
+import TimelineOppositeContent from '@mui/lab/TimelineOppositeContent';
 import { useSnackbar } from 'notistack';
 import { keyframes } from '@mui/system';
 import { useAuth } from '../contexts/AuthContext';
@@ -87,6 +100,9 @@ const MisTicketsPage = () => {
   const [respuesta, setRespuesta] = useState('');
   const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
   const [cambiandoEstado, setCambiandoEstado] = useState(false);
+  const [tabDialogo, setTabDialogo] = useState(0); // 0 = Conversación, 1 = Timeline
+  const [imagenAdjunta, setImagenAdjunta] = useState(null);
+  const [previewImagen, setPreviewImagen] = useState(null);
 
   useEffect(() => {
     cargarDatos();
@@ -147,21 +163,32 @@ const MisTicketsPage = () => {
   };
 
   const enviarRespuesta = async () => {
-    if (!respuesta.trim()) {
-      enqueueSnackbar('Por favor escribe una respuesta', { variant: 'warning' });
+    if (!respuesta.trim() && !imagenAdjunta) {
+      enqueueSnackbar('Por favor escribe una respuesta o adjunta una imagen', { variant: 'warning' });
       return;
     }
 
     setEnviandoRespuesta(true);
 
     try {
-      const response = await api.post(`/tickets/${ticketSeleccionado.ticket.id}/responder`, {
-        mensaje: respuesta.trim()
-      });
+      // Usar FormData para enviar imagen
+      const formData = new FormData();
+      formData.append('mensaje', respuesta.trim());
+      if (imagenAdjunta) {
+        formData.append('imagen', imagenAdjunta);
+      }
+
+      const response = await api.post(
+        `/tickets/${ticketSeleccionado.ticket.id}/responder`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
 
       if (response.data.success) {
         enqueueSnackbar('Respuesta enviada', { variant: 'success' });
         setRespuesta('');
+        setImagenAdjunta(null);
+        setPreviewImagen(null);
         // Recargar detalle
         abrirDetalle(ticketSeleccionado.ticket.id);
       }
@@ -171,6 +198,24 @@ const MisTicketsPage = () => {
     } finally {
       setEnviandoRespuesta(false);
     }
+  };
+
+  // Manejar selección de imagen
+  const handleImagenChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        enqueueSnackbar('La imagen no puede superar 5MB', { variant: 'error' });
+        return;
+      }
+      setImagenAdjunta(file);
+      setPreviewImagen(URL.createObjectURL(file));
+    }
+  };
+
+  const eliminarImagen = () => {
+    setImagenAdjunta(null);
+    setPreviewImagen(null);
   };
 
   const cambiarEstado = async (nuevoEstado) => {
@@ -732,97 +777,323 @@ const MisTicketsPage = () => {
                 </Grid>
               </Paper>
 
-              {/* Mensaje original */}
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                Descripción:
-              </Typography>
-              <Paper elevation={1} sx={{ p: 2, mb: 3, bgcolor: '#fff' }}>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {ticketSeleccionado.ticket.mensaje}
-                </Typography>
-              </Paper>
+              {/* Tabs: Conversación / Timeline */}
+              <Tabs
+                value={tabDialogo}
+                onChange={(e, newValue) => setTabDialogo(newValue)}
+                sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+              >
+                <Tab
+                  label={`Conversación (${(ticketSeleccionado.respuestas?.length || 0) + 1})`}
+                  icon={<ReplyIcon />}
+                  iconPosition="start"
+                />
+                <Tab
+                  label={`Historial (${ticketSeleccionado.historial?.length || 0})`}
+                  icon={<HistoryIcon />}
+                  iconPosition="start"
+                />
+              </Tabs>
 
-              {/* Respuestas */}
-              {ticketSeleccionado.respuestas && ticketSeleccionado.respuestas.length > 0 && (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                    💬 Respuestas ({ticketSeleccionado.respuestas.length}):
-                  </Typography>
+              {/* TAB 0: Conversación estilo Chat */}
+              {tabDialogo === 0 && (
+                <Box sx={{ maxHeight: '50vh', overflow: 'auto', mb: 2 }}>
+                  {/* Mensaje original del ticket */}
+                  <Box sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    mb: 2
+                  }}>
+                    <Box sx={{
+                      maxWidth: '85%',
+                      bgcolor: '#e3f2fd',
+                      borderRadius: '18px 18px 18px 4px',
+                      p: 2,
+                      boxShadow: 1
+                    }}>
+                      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                        <Avatar sx={{ width: 24, height: 24, bgcolor: '#2196F3', fontSize: '0.75rem' }}>
+                          {ticketSeleccionado.ticket.reportante_nombre?.charAt(0) || 'U'}
+                        </Avatar>
+                        <Typography variant="caption" fontWeight="bold" color="primary">
+                          {ticketSeleccionado.ticket.reportante_nombre || 'Usuario'} (Reportante)
+                        </Typography>
+                      </Stack>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {ticketSeleccionado.ticket.mensaje}
+                      </Typography>
 
-                  <List>
-                    {ticketSeleccionado.respuestas.map((resp, index) => (
-                      <ListItem
-                        key={resp.id}
-                        alignItems="flex-start"
-                        sx={{
-                          bgcolor: '#f9f9f9',
-                          borderRadius: 2,
-                          mb: 1,
-                          border: '1px solid #e0e0e0',
-                        }}
-                      >
-                        <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: '#667eea' }}>
-                            <PersonIcon />
-                          </Avatar>
-                        </ListItemAvatar>
+                      {/* Mostrar imagen si existe */}
+                      {ticketSeleccionado.ticket.imagen_url && (
+                        <Box sx={{ mt: 2 }}>
+                          <img
+                            src={`${process.env.REACT_APP_API_URL || ''}${ticketSeleccionado.ticket.imagen_url}`}
+                            alt="Adjunto del ticket"
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: 200,
+                              borderRadius: 8,
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => window.open(`${process.env.REACT_APP_API_URL || ''}${ticketSeleccionado.ticket.imagen_url}`, '_blank')}
+                          />
+                        </Box>
+                      )}
 
-                        <ListItemText
-                          primary={
-                            <Stack direction="row" justifyContent="space-between" alignItems="center">
-                              <Typography variant="subtitle2" fontWeight="bold">
-                                {resp.nombre_usuario}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {formatearFecha(resp.fecha_creacion)}
-                              </Typography>
-                            </Stack>
-                          }
-                          secondary={
-                            <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        {formatearFecha(ticketSeleccionado.ticket.fecha_creacion)}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Respuestas como chat */}
+                  {ticketSeleccionado.respuestas?.map((resp, index) => {
+                    const esReportante = resp.usuario_id === ticketSeleccionado.ticket.usuario_id;
+                    return (
+                      <Box key={resp.id} sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: esReportante ? 'flex-start' : 'flex-end',
+                        mb: 2
+                      }}>
+                        <Box sx={{
+                          maxWidth: '85%',
+                          bgcolor: esReportante ? '#e3f2fd' : '#f3e5f5',
+                          borderRadius: esReportante ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+                          p: 2,
+                          boxShadow: 1
+                        }}>
+                          <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                            <Avatar sx={{
+                              width: 24,
+                              height: 24,
+                              bgcolor: esReportante ? '#2196F3' : '#9C27B0',
+                              fontSize: '0.75rem'
+                            }}>
+                              {resp.nombre_usuario?.charAt(0) || 'S'}
+                            </Avatar>
+                            <Typography variant="caption" fontWeight="bold" color={esReportante ? 'primary' : 'secondary'}>
+                              {resp.nombre_usuario} {!esReportante && '(Soporte)'}
+                            </Typography>
+                          </Stack>
+
+                          {resp.mensaje && (
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                               {resp.mensaje}
                             </Typography>
-                          }
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
-                </>
+                          )}
+
+                          {/* Imagen adjunta en respuesta */}
+                          {resp.imagen_url && (
+                            <Box sx={{ mt: resp.mensaje ? 1.5 : 0 }}>
+                              <img
+                                src={`${process.env.REACT_APP_API_URL || ''}${resp.imagen_url}`}
+                                alt="Imagen adjunta"
+                                style={{
+                                  maxWidth: '100%',
+                                  maxHeight: 200,
+                                  borderRadius: 8,
+                                  cursor: 'pointer',
+                                  border: '1px solid rgba(0,0,0,0.1)'
+                                }}
+                                onClick={() => window.open(`${process.env.REACT_APP_API_URL || ''}${resp.imagen_url}`, '_blank')}
+                              />
+                            </Box>
+                          )}
+
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            {formatearFecha(resp.fecha_creacion)}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Box>
               )}
 
-              {/* Formulario de respuesta */}
-              {ticketSeleccionado.ticket.estado !== 'resuelto' && ticketSeleccionado.ticket.estado !== 'cancelado' && (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                    ✍️ Agregar Respuesta:
-                  </Typography>
+              {/* TAB 1: Timeline Visual */}
+              {tabDialogo === 1 && (
+                <Box sx={{ maxHeight: '50vh', overflow: 'auto' }}>
+                  <Timeline position="alternate">
+                    {/* Evento de creación */}
+                    <TimelineItem>
+                      <TimelineOppositeContent color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                        {formatearFecha(ticketSeleccionado.ticket.fecha_creacion)}
+                      </TimelineOppositeContent>
+                      <TimelineSeparator>
+                        <TimelineDot color="primary">
+                          <TicketIcon sx={{ fontSize: 16 }} />
+                        </TimelineDot>
+                        <TimelineConnector />
+                      </TimelineSeparator>
+                      <TimelineContent>
+                        <Typography variant="subtitle2" fontWeight="bold">Ticket Creado</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Por {ticketSeleccionado.ticket.reportante_nombre}
+                        </Typography>
+                      </TimelineContent>
+                    </TimelineItem>
 
+                    {/* Historial de cambios */}
+                    {ticketSeleccionado.historial?.map((evento, index) => {
+                      const getEventoStyle = () => {
+                        switch(evento.accion) {
+                          case 'estado_cambiado':
+                            if (evento.valor_nuevo === 'resuelto') return { color: 'success', icon: <CheckIcon sx={{ fontSize: 16 }} /> };
+                            if (evento.valor_nuevo === 'en_proceso') return { color: 'warning', icon: <ScheduleIcon sx={{ fontSize: 16 }} /> };
+                            if (evento.valor_nuevo === 'cancelado') return { color: 'error', icon: <CancelIcon sx={{ fontSize: 16 }} /> };
+                            return { color: 'info', icon: <EditIcon sx={{ fontSize: 16 }} /> };
+                          case 'asignado':
+                            return { color: 'secondary', icon: <PersonAddIcon sx={{ fontSize: 16 }} /> };
+                          case 'respuesta':
+                            return { color: 'info', icon: <ReplyIcon sx={{ fontSize: 16 }} /> };
+                          case 'imagen_agregada':
+                            return { color: 'primary', icon: <ImageIcon sx={{ fontSize: 16 }} /> };
+                          default:
+                            return { color: 'grey', icon: <HistoryIcon sx={{ fontSize: 16 }} /> };
+                        }
+                      };
+                      const style = getEventoStyle();
+
+                      return (
+                        <TimelineItem key={index}>
+                          <TimelineOppositeContent color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {formatearFecha(evento.fecha_cambio)}
+                          </TimelineOppositeContent>
+                          <TimelineSeparator>
+                            <TimelineDot color={style.color}>
+                              {style.icon}
+                            </TimelineDot>
+                            {index < ticketSeleccionado.historial.length - 1 && <TimelineConnector />}
+                          </TimelineSeparator>
+                          <TimelineContent>
+                            <Typography variant="subtitle2" fontWeight="bold">
+                              {evento.accion === 'estado_cambiado' && `Estado: ${evento.valor_anterior} → ${evento.valor_nuevo}`}
+                              {evento.accion === 'asignado' && 'Ticket asignado'}
+                              {evento.accion === 'respuesta' && 'Nueva respuesta'}
+                              {evento.accion === 'imagen_agregada' && 'Imagen agregada'}
+                              {evento.accion === 'creado' && 'Ticket creado'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Por {evento.usuario_nombre || 'Sistema'}
+                            </Typography>
+                            {evento.descripcion && (
+                              <Typography variant="body2" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                                "{evento.descripcion}"
+                              </Typography>
+                            )}
+                          </TimelineContent>
+                        </TimelineItem>
+                      );
+                    })}
+                  </Timeline>
+                </Box>
+              )}
+
+              {/* Formulario de respuesta con soporte de imagen */}
+              {ticketSeleccionado.ticket.estado !== 'resuelto' && ticketSeleccionado.ticket.estado !== 'cancelado' && tabDialogo === 0 && (
+                <Paper elevation={2} sx={{ p: 2, bgcolor: '#fafafa', borderRadius: 2 }}>
                   <TextField
                     fullWidth
                     multiline
-                    rows={4}
+                    rows={3}
                     value={respuesta}
                     onChange={(e) => setRespuesta(e.target.value)}
-                    placeholder="Escribe tu respuesta o consulta adicional..."
+                    placeholder="Escribe tu mensaje..."
                     disabled={enviandoRespuesta}
-                    sx={{ mb: 2 }}
+                    variant="outlined"
+                    sx={{
+                      mb: 1,
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        bgcolor: 'white'
+                      }
+                    }}
                   />
 
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    startIcon={<SendIcon />}
-                    onClick={enviarRespuesta}
-                    disabled={enviandoRespuesta || !respuesta.trim()}
-                    sx={{
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    }}
-                  >
-                    {enviandoRespuesta ? 'Enviando...' : 'Enviar Respuesta'}
-                  </Button>
-                </>
+                  {/* Preview de imagen adjunta */}
+                  {previewImagen && (
+                    <Box sx={{ mb: 2, position: 'relative', display: 'inline-block' }}>
+                      <img
+                        src={previewImagen}
+                        alt="Preview"
+                        style={{
+                          maxWidth: 200,
+                          maxHeight: 150,
+                          borderRadius: 8,
+                          border: '2px solid #667eea'
+                        }}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={eliminarImagen}
+                        sx={{
+                          position: 'absolute',
+                          top: -8,
+                          right: -8,
+                          bgcolor: '#f44336',
+                          color: 'white',
+                          '&:hover': { bgcolor: '#d32f2f' },
+                          width: 24,
+                          height: 24
+                        }}
+                      >
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
+                  )}
+
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    {/* Botón de adjuntar imagen */}
+                    <Box>
+                      <input
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        id="imagen-respuesta"
+                        type="file"
+                        onChange={handleImagenChange}
+                        disabled={enviandoRespuesta}
+                      />
+                      <label htmlFor="imagen-respuesta">
+                        <Tooltip title="Adjuntar imagen (máx 5MB)">
+                          <IconButton
+                            component="span"
+                            disabled={enviandoRespuesta}
+                            sx={{
+                              color: imagenAdjunta ? '#4CAF50' : '#667eea',
+                              '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.1)' }
+                            }}
+                          >
+                            <ImageIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </label>
+                      {imagenAdjunta && (
+                        <Chip
+                          label={imagenAdjunta.name}
+                          size="small"
+                          onDelete={eliminarImagen}
+                          sx={{ ml: 1 }}
+                        />
+                      )}
+                    </Box>
+
+                    <Button
+                      variant="contained"
+                      startIcon={<SendIcon />}
+                      onClick={enviarRespuesta}
+                      disabled={enviandoRespuesta || (!respuesta.trim() && !imagenAdjunta)}
+                      sx={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        borderRadius: 2,
+                        px: 3
+                      }}
+                    >
+                      {enviandoRespuesta ? 'Enviando...' : 'Enviar'}
+                    </Button>
+                  </Stack>
+                </Paper>
               )}
             </DialogContent>
 
