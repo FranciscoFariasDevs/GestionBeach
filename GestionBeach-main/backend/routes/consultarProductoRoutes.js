@@ -2,6 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const consultarProductoController = require('../controllers/consultarProductoController');
+const authMiddleware = require('../middleware/authMiddleware');
+
+// Aplicar autenticación a todas las rutas
+router.use(authMiddleware);
 
 // GET /api/consultar-producto/sucursales - Listar sucursales disponibles
 router.get('/sucursales', consultarProductoController.getSucursales);

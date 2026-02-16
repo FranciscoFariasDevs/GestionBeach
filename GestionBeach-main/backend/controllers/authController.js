@@ -39,40 +39,17 @@ exports.login = async (req, res) => {
     
     // Verificar contraseña
     if (password === user.password) {
-      // Obtener módulos permitidos del perfil y permisos individuales
+      // Obtener módulos permitidos del perfil (SIMPLIFICADO - solo perfil_modulo_sucursal)
       let modules = [];
       try {
-        // 1. Obtener módulos del perfil del usuario
-        let modulosDelPerfil = [];
         if (user.perfil_id) {
-          try {
-            const modulosPerfilResult = await pool.request()
-              .input('perfilId', sql.Int, user.perfil_id)
-              .query('SELECT DISTINCT modulo_id FROM perfil_modulo WHERE perfil_id = @perfilId');
+          const modulosPerfilResult = await pool.request()
+            .input('perfilId', sql.Int, user.perfil_id)
+            .query('SELECT DISTINCT modulo_id FROM perfil_modulo_sucursal WHERE perfil_id = @perfilId');
 
-            modulosDelPerfil = modulosPerfilResult.recordset.map(row => row.modulo_id);
-            console.log(`✅ Módulos del perfil (ID ${user.perfil_id}):`, modulosDelPerfil);
-          } catch (error) {
-            console.log('⚠️ No se pudieron obtener módulos del perfil');
-          }
+          modules = modulosPerfilResult.recordset.map(row => row.modulo_id);
+          console.log(`✅ Módulos del perfil (ID ${user.perfil_id}):`, modules);
         }
-
-        // 2. Obtener módulos de permisos individuales del usuario
-        let modulosIndividuales = [];
-        try {
-          const modulesResult = await pool.request()
-            .input('userId', sql.Int, user.id)
-            .query('SELECT DISTINCT modulo_id FROM permisos_usuario WHERE usuario_id = @userId');
-
-          modulosIndividuales = modulesResult.recordset.map(row => row.modulo_id);
-          console.log(`✅ Módulos individuales del usuario:`, modulosIndividuales);
-        } catch (error) {
-          console.log('⚠️ No se pudieron obtener módulos individuales');
-        }
-
-        // 3. Combinar módulos del perfil + individuales (sin duplicados)
-        modules = [...new Set([...modulosDelPerfil, ...modulosIndividuales])];
-        console.log(`✅ Total módulos combinados para ${user.username}:`, modules);
       } catch (error) {
         console.log('⚠️ Error obteniendo módulos, continuando...');
       }
@@ -141,40 +118,17 @@ exports.check = async (req, res) => {
     
     const user = userResult.recordset[0];
 
-    // Obtener módulos permitidos del perfil y permisos individuales
+    // Obtener módulos permitidos del perfil (SIMPLIFICADO - solo perfil_modulo_sucursal)
     let modules = [];
     try {
-      // 1. Obtener módulos del perfil del usuario
-      let modulosDelPerfil = [];
       if (user.perfil_id) {
-        try {
-          const modulosPerfilResult = await pool.request()
-            .input('perfilId', sql.Int, user.perfil_id)
-            .query('SELECT DISTINCT modulo_id FROM perfil_modulo WHERE perfil_id = @perfilId');
+        const modulosPerfilResult = await pool.request()
+          .input('perfilId', sql.Int, user.perfil_id)
+          .query('SELECT DISTINCT modulo_id FROM perfil_modulo_sucursal WHERE perfil_id = @perfilId');
 
-          modulosDelPerfil = modulosPerfilResult.recordset.map(row => row.modulo_id);
-          console.log(`✅ Módulos del perfil (ID ${user.perfil_id}):`, modulosDelPerfil);
-        } catch (error) {
-          console.log('⚠️ No se pudieron obtener módulos del perfil');
-        }
+        modules = modulosPerfilResult.recordset.map(row => row.modulo_id);
+        console.log(`✅ Módulos del perfil (ID ${user.perfil_id}):`, modules);
       }
-
-      // 2. Obtener módulos de permisos individuales del usuario
-      let modulosIndividuales = [];
-      try {
-        const modulesResult = await pool.request()
-          .input('userId', sql.Int, decoded.id)
-          .query('SELECT DISTINCT modulo_id FROM permisos_usuario WHERE usuario_id = @userId');
-
-        modulosIndividuales = modulesResult.recordset.map(row => row.modulo_id);
-        console.log(`✅ Módulos individuales del usuario:`, modulosIndividuales);
-      } catch (error) {
-        console.log('⚠️ No se pudieron obtener módulos individuales');
-      }
-
-      // 3. Combinar módulos del perfil + individuales (sin duplicados)
-      modules = [...new Set([...modulosDelPerfil, ...modulosIndividuales])];
-      console.log(`✅ Total módulos combinados:`, modules);
     } catch (error) {
       console.log('⚠️ Error obteniendo módulos, continuando...');
     }

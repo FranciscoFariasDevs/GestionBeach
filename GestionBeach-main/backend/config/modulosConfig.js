@@ -22,8 +22,8 @@ module.exports = [
   { nombre: 'Inventario',            claves: ['inventario'] },
   { nombre: 'Ventas',                claves: ['ventas'] },
 
-  // Productos: el módulo padre habilita TODOS los sub-módulos
-  { nombre: 'Productos',             claves: ['productos', 'productos/consultar', 'productos/rotacion-ferreterias', 'productos/rentabilidad', 'productos/margenes', 'productos/guias', 'productos/resumen-valorizado', 'productos/stocks', 'productos/anulaciones', 'productos/cargar-inventario'] },
+  // Productos: SOLO la ruta padre (los submódulos se controlan individualmente)
+  { nombre: 'Productos',             claves: ['productos'] },
   // Sub-módulos individuales (para permisos granulares)
   { nombre: 'Consultar Producto',    claves: ['productos/consultar'] },
   { nombre: 'Rotacion Ferreterias',  claves: ['productos/rotacion-ferreterias'] },

@@ -9,6 +9,9 @@ router.get('/debug', perfilesController.getDebugPerfiles);
 // Ruta de sincronización de módulos (sin auth para facilitar testing)
 router.post('/sincronizar-modulos', perfilesController.sincronizarModulos);
 
+// Ruta para obtener módulos disponibles (sin auth - necesario para cargar UI)
+router.get('/modulos-disponibles', perfilesController.getModulosDisponibles);
+
 // Rutas principales de perfiles
 router.get('/', authMiddleware, perfilesController.getAllPerfiles);
 router.get('/:id', authMiddleware, perfilesController.getPerfilById);

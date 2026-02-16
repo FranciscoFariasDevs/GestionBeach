@@ -157,26 +157,26 @@ export function canAccessRoute(ability, route) {
     '/recursos-humanos/boletas-folios': MODULES.RECURSOS_HUMANOS,
     '/recursos-humanos/resumen-ejecutivo': MODULES.RECURSOS_HUMANOS,
 
-    '/dashboard/productos/consultar': MODULES.PRODUCTOS,
-    '/productos/consultar': MODULES.PRODUCTOS,
-    '/dashboard/productos/rotacion-ferreterias': MODULES.PRODUCTOS,
-    '/productos/rotacion-ferreterias': MODULES.PRODUCTOS,
-    '/dashboard/productos/rentabilidad': MODULES.PRODUCTOS,
-    '/productos/rentabilidad': MODULES.PRODUCTOS,
-    '/dashboard/productos/margenes': MODULES.PRODUCTOS,
-    '/productos/margenes': MODULES.PRODUCTOS,
-    '/dashboard/productos/guias': MODULES.PRODUCTOS,
-    '/productos/guias': MODULES.PRODUCTOS,
-    '/dashboard/productos/resumen-valorizado': MODULES.PRODUCTOS,
-    '/productos/resumen-valorizado': MODULES.PRODUCTOS,
-    '/dashboard/productos/stocks': MODULES.PRODUCTOS,
-    '/productos/stocks': MODULES.PRODUCTOS,
+    '/dashboard/productos/consultar': MODULES.CONSULTAR_PRODUCTO,
+    '/productos/consultar': MODULES.CONSULTAR_PRODUCTO,
+    '/dashboard/productos/rotacion-ferreterias': MODULES.ROTACION_FERRETERIAS,
+    '/productos/rotacion-ferreterias': MODULES.ROTACION_FERRETERIAS,
+    '/dashboard/productos/rentabilidad': MODULES.RENTABILIDAD,
+    '/productos/rentabilidad': MODULES.RENTABILIDAD,
+    '/dashboard/productos/margenes': MODULES.MARGENES,
+    '/productos/margenes': MODULES.MARGENES,
+    '/dashboard/productos/guias': MODULES.GUIAS,
+    '/productos/guias': MODULES.GUIAS,
+    '/dashboard/productos/resumen-valorizado': MODULES.RESUMEN_VALORIZADO,
+    '/productos/resumen-valorizado': MODULES.RESUMEN_VALORIZADO,
+    '/dashboard/productos/stocks': MODULES.STOCKS,
+    '/productos/stocks': MODULES.STOCKS,
 
-    '/dashboard/productos/anulaciones': MODULES.PRODUCTOS,
-    '/productos/anulaciones': MODULES.PRODUCTOS,
+    '/dashboard/productos/anulaciones': MODULES.ANULACIONES,
+    '/productos/anulaciones': MODULES.ANULACIONES,
 
-    '/dashboard/productos/cargar-inventario': MODULES.PRODUCTOS,
-    '/productos/cargar-inventario': MODULES.PRODUCTOS
+    '/dashboard/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO,
+    '/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO
   };
 
   const module = routeToModule[route];

@@ -5,23 +5,23 @@ const { sql, poolPromise } = require('../config/db');
 const modulosConfig = require('../config/modulosConfig');
 const modulosDelSistema = modulosConfig.map(m => m.nombre);
 
-// Verificar estructura completa de BD incluyendo permisos_usuario
+// Verificar estructura completa de BD (SIMPLIFICADO)
 const verificarEstructuraBD = async () => {
   try {
     const pool = await poolPromise;
-    
+
     console.log('🔍 Verificando estructura completa de BD...');
-    
-    // Verificar tablas existentes
+
+    // Verificar tablas existentes (SOLO LAS NECESARIAS)
     const tablasResult = await pool.request()
       .query(`
-        SELECT TABLE_NAME 
-        FROM INFORMATION_SCHEMA.TABLES 
-        WHERE TABLE_TYPE = 'BASE TABLE' 
-        AND TABLE_NAME IN ('perfiles', 'modulos', 'perfil_modulo', 'permisos_usuario', 'usuarios')
+        SELECT TABLE_NAME
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+        AND TABLE_NAME IN ('perfiles', 'modulos', 'perfil_modulo_sucursal', 'usuarios')
         ORDER BY TABLE_NAME
       `);
-    
+
     const tablas = tablasResult.recordset.map(row => row.TABLE_NAME);
     console.log('📋 Tablas encontradas:', tablas);
     
@@ -435,6 +435,13 @@ exports.updatePerfil = async (req, res) => {
     const { id } = req.params;
     const { nombre, modulos, sucursales } = req.body;
 
+    // PROTECCIÓN: No permitir editar el perfil Super Admin (ID: 10)
+    if (parseInt(id) === 10) {
+      return res.status(403).json({
+        message: 'El perfil Super Admin está protegido y no puede ser modificado. Use el script proteger_super_admin.js si necesita regenerar sus permisos.'
+      });
+    }
+
     console.log('🔄 === ACTUALIZANDO PERFIL ===');
     console.log('📝 ID:', id);
     console.log('📝 Nombre:', nombre);
@@ -612,17 +619,24 @@ exports.updatePerfil = async (req, res) => {
 // ELIMINAR UN PERFIL
 exports.deletePerfil = async (req, res) => {
   let transaction;
-  
+
   try {
     const { id } = req.params;
-    
+
+    // PROTECCIÓN: No permitir eliminar el perfil Super Admin (ID: 10)
+    if (parseInt(id) === 10) {
+      return res.status(403).json({
+        message: 'El perfil Super Admin está protegido y no puede ser eliminado.'
+      });
+    }
+
     const pool = await poolPromise;
-    
+
     // Verificar que el perfil existe
     const checkPerfil = await pool.request()
       .input('id', sql.Int, id)
       .query('SELECT id, nombre FROM perfiles WHERE id = @id');
-    
+
     if (checkPerfil.recordset.length === 0) {
       return res.status(404).json({ message: 'Perfil no encontrado' });
     }
@@ -647,12 +661,12 @@ exports.deletePerfil = async (req, res) => {
     // Iniciar transacción
     transaction = new sql.Transaction(pool);
     await transaction.begin();
-    
-    // Eliminar asociaciones de módulos
+
+    // Eliminar permisos modulares (ÚNICA TABLA - perfil_modulo_sucursal)
     await transaction.request()
       .input('perfilId', sql.Int, id)
-      .query('DELETE FROM perfil_modulo WHERE perfil_id = @perfilId');
-    
+      .query('DELETE FROM perfil_modulo_sucursal WHERE perfil_id = @perfilId');
+
     // Eliminar el perfil
     await transaction.request()
       .input('id', sql.Int, id)

@@ -51,11 +51,49 @@ const obtenerSucursal = async (sucursalId) => {
 exports.getSucursales = async (req, res) => {
   try {
     const pool = await poolPromise;
+    const perfilId = req.user?.perfilId;
+
+    console.log('🔍 [Márgenes] getSucursales - usuario:', req.user);
+
+    if (!perfilId) {
+      console.log('❌ [Márgenes] Token sin perfilId - requiere re-login');
+      return res.status(401).json({
+        message: 'Sesión expirada - por favor inicie sesión nuevamente',
+        requiresRelogin: true
+      });
+    }
+
+    // Obtener ID del módulo "Margenes"
+    const moduloResult = await pool.request()
+      .input('nombre', sql.VarChar, 'Margenes')
+      .query('SELECT id FROM modulos WHERE nombre = @nombre');
+
+    if (moduloResult.recordset.length === 0) {
+      return res.status(404).json({ message: 'Módulo Margenes no encontrado' });
+    }
+
+    const moduloId = moduloResult.recordset[0].id;
+
+    // Obtener sucursales permitidas para este perfil y módulo
     const result = await pool.request()
-      .query(`SELECT id, nombre, tipo_sucursal FROM sucursales
-              WHERE tipo_sucursal IN ('FERRETERIA', 'MULTITIENDA') AND ip IS NOT NULL AND ip <> '' ORDER BY nombre`);
+      .input('perfilId', sql.Int, perfilId)
+      .input('moduloId', sql.Int, moduloId)
+      .query(`
+        SELECT DISTINCT s.id, s.nombre, s.tipo_sucursal
+        FROM sucursales s
+        INNER JOIN perfil_modulo_sucursal pms ON pms.sucursal_id = s.id
+        WHERE pms.perfil_id = @perfilId
+          AND pms.modulo_id = @moduloId
+          AND s.tipo_sucursal IN ('FERRETERIA', 'MULTITIENDA')
+          AND s.ip IS NOT NULL AND s.ip <> ''
+        ORDER BY s.nombre
+      `);
+
+    console.log(`[Márgenes] Usuario con perfil ${perfilId} tiene acceso a ${result.recordset.length} sucursales`);
+
     res.json(result.recordset);
   } catch (error) {
+    console.error('Error en getSucursales (Márgenes):', error);
     res.status(500).json({ message: 'Error al obtener sucursales', error: error.message });
   }
 };

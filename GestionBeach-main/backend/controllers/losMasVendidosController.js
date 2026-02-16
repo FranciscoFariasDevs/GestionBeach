@@ -189,181 +189,167 @@ exports.testConnection = async (req, res) => {
   }
 };
 
-// ✅ CONTROLADOR: Obtener familias (SIMPLIFICADO)
-exports.getFamilias = async (req, res) => {
-  try {
-    console.log('🔍 === GET FAMILIAS INICIADO ===');
-    const { sucursal_id } = req.query;
-    
-    if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
-      });
-    }
-
-    // ✅ PASO 1: Verificar sucursal en BD principal
-    const pool = await poolPromise;
-    const sucursalResult = await pool.request()
-      .input('sucursalId', sql.Int, sucursal_id)
-      .query('SELECT * FROM sucursales WHERE id = @sucursalId');
-
-    if (sucursalResult.recordset.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Sucursal no encontrada'
-      });
-    }
-
-    const sucursal = sucursalResult.recordset[0];
-    console.log('✅ Procesando familias para:', sucursal.nombre);
-
-    // ✅ PASO 2: Conectar a BD de la sucursal
-    const config = {
-      user: sucursal.usuario,
-      password: sucursal.contrasena,
-      server: sucursal.ip,
-      port: sucursal.puerto,
-      database: sucursal.base_datos,
-      options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        requestTimeout: 30000,
-        enableArithAbort: true
-      }
-    };
-
-    let poolSucursal = null;
-    
-    try {
-      console.log('🔗 Conectando a BD de sucursal...');
-      poolSucursal = await new sql.ConnectionPool(config).connect();
-      console.log('✅ Conexión a BD sucursal establecida');
-      
-      const query = `
-        SELECT 
-          dn_correlativo AS id,
-          ISNULL(LTRIM(RTRIM(dg_glosa)), 'Sin Nombre') AS nombre
-        
-        FROM tb_familias
-        WHERE dg_glosa IS NOT NULL 
-          AND LTRIM(RTRIM(dg_glosa)) != ''
-        ORDER BY dg_glosa
-      `;
-      
-      const result = await poolSucursal.request().query(query);
-      
-      console.log('📋 Familias encontradas:', result.recordset.length);
-      
-      res.json(result.recordset);
-      
-    } finally {
-      if (poolSucursal) {
-        await poolSucursal.close();
-        console.log('🔐 Conexión BD sucursal cerrada');
-      }
-    }
-
-  } catch (error) {
-    console.error('❌ Error en getFamilias:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error al obtener familias',
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-};
-
-  // ✅ CONTROLADOR: Productos más vendidos (CON SOPORTE PARA LÍMITE)
+// ✅ CONTROLADOR: Productos más vendidos (CON SOPORTE FERRETERÍAS)
 exports.getTopProducts = async (req, res) => {
   try {
-    console.log('🔍 === GET TOP PRODUCTS INICIADO ===');
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
-    // Asegurar que limit sea un número entero
     const limitNumber = parseInt(limit) || 50;
 
-    console.log('📋 Parámetros recibidos:', { familia, period, sucursal_id, limit: limitNumber });
-
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
-    // ✅ PASO 1: Obtener configuración de sucursal
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
-    
-    console.log('📅 Período calculado:', { startDate, endDate });
-    console.log('🏢 Sucursal:', sucursal.nombre);
-    console.log('📊 Límite de productos:', limitNumber);
 
-    // ✅ PASO 2: Query con límite dinámico
-    let query = `
-      SELECT TOP ${limitNumber}
-        ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
-        tdd.dc_codigo_barra AS 'Codigo Barra', 
-        ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
-        SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS Cantidad, 
-        SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta' 
-      FROM tb_documentos_encabezado tde
-        INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
-        LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
-        LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
-      WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039' 
-        AND tde.df_fecha_emision >= @startDate 
-        AND tde.df_fecha_emision <= @endDate
-        AND ISNULL(tdd.dn_cantidad, 0) > 0
-        AND tdd.dc_codigo_barra IS NOT NULL
-        AND tdd.dc_codigo_barra != ''
-    `;
-    
+    console.log('📊 Límite de productos (más vendidos):', limitNumber);
+
+    let query;
     const params = {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (familia && familia !== 'all') {
-      query += ` AND fa.dn_correlativo = @familia`;
-      params.familia = { value: parseInt(familia), type: sql.Int };
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_NOMBRE_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          MP.FAMI_ID_FAMILIA AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta'
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT TOP ${limitNumber}
+          ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
+          tdd.dc_codigo_barra AS 'Codigo Barra',
+          ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta'
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND ISNULL(tdd.dn_cantidad, 0) > 0
+          AND tdd.dc_codigo_barra IS NOT NULL
+          AND tdd.dc_codigo_barra != ''
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND fa.dn_correlativo = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
+        HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) DESC
+      `;
     }
-    
-    query += `
-      GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
-      HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
-      ORDER BY SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) DESC
-    `;
 
     const products = await executeProductQuery(config, query, params);
-    
+
     res.json({
       success: true,
       products,
-      periodo: { startDate, endDate },
-      total_encontrados: products.length,
       sucursal: sucursal.nombre
     });
 
   } catch (error) {
     console.error('❌ Error en getTopProducts:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener productos más vendidos',
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message
     });
   }
 };
 
-// ✅ CONTROLADOR: Productos menos vendidos (CON LÍMITE)
+// ✅ CONTROLADOR: Obtener familias (CON SOPORTE FERRETERÍAS)
+exports.getFamilias = async (req, res) => {
+  try {
+    const { sucursal_id } = req.query;
+
+    if (!sucursal_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
+      });
+    }
+
+    const { sucursal, config } = await getSucursalConfig(sucursal_id);
+
+    let query;
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      query = `
+        SELECT DISTINCT
+          FAMI_ID_FAMILIA AS id,
+          FAMI_NOMBRE_FAMILIA AS nombre
+        FROM ERP_MAESTRO_FAMILIAS
+        WHERE FAMI_ID_FAMILIA IS NOT NULL
+        ORDER BY FAMI_NOMBRE_FAMILIA
+      `;
+    } else {
+      query = `
+        SELECT DISTINCT
+          fa.dn_correlativo AS id,
+          fa.dg_glosa AS nombre
+        FROM tb_familias fa
+        WHERE fa.dn_correlativo IS NOT NULL
+        ORDER BY fa.dg_glosa
+      `;
+    }
+
+    const familias = await executeProductQuery(config, query, {});
+
+    res.json({
+      success: true,
+      familias: familias.map(f => ({ id: f.id, nombre: f.nombre })),
+      total: familias.length,
+      sucursal: sucursal.nombre
+    });
+
+  } catch (error) {
+    console.error('❌ Error en getFamilias:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener familias',
+      error: error.message
+    });
+  }
+};
+
+// ✅ CONTROLADOR: Productos menos vendidos (CON SOPORTE FERRETERÍAS)
 exports.getLeastSoldProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
-    // Asegurar que limit sea un número entero
     const limitNumber = parseInt(limit) || 50;
 
     if (!sucursal_id) {
@@ -378,43 +364,73 @@ exports.getLeastSoldProducts = async (req, res) => {
 
     console.log('📊 Límite de productos (menos vendidos):', limitNumber);
 
-    let query = `
-      SELECT TOP ${limitNumber}
-        ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
-        tdd.dc_codigo_barra AS 'Codigo Barra', 
-        ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
-        SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS Cantidad, 
-        SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta' 
-      FROM tb_documentos_encabezado tde
-        INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
-        LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
-        LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
-      WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039' 
-        AND tde.df_fecha_emision >= @startDate 
-        AND tde.df_fecha_emision <= @endDate
-        AND ISNULL(tdd.dn_cantidad, 0) > 0
-        AND tdd.dc_codigo_barra IS NOT NULL
-        AND tdd.dc_codigo_barra != ''
-    `;
-    
+    let query;
     const params = {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (familia && familia !== 'all') {
-      query += ` AND fa.dn_correlativo = @familia`;
-      params.familia = { value: parseInt(familia), type: sql.Int };
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_NOMBRE_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          MP.FAMI_ID_FAMILIA AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta'
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) ASC
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT TOP ${limitNumber}
+          ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
+          tdd.dc_codigo_barra AS 'Codigo Barra',
+          ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta'
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND ISNULL(tdd.dn_cantidad, 0) > 0
+          AND tdd.dc_codigo_barra IS NOT NULL
+          AND tdd.dc_codigo_barra != ''
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND fa.dn_correlativo = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
+        HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) ASC
+      `;
     }
-    
-    query += `
-      GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
-      HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
-      ORDER BY SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) ASC
-    `;
 
     const products = await executeProductQuery(config, query, params);
-    
+
     res.json({
       success: true,
       products,
@@ -423,20 +439,19 @@ exports.getLeastSoldProducts = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en getLeastSoldProducts:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener productos menos vendidos',
       error: error.message
     });
   }
 };
 
-// ✅ CONTROLADOR: Productos con más rotación (CON LÍMITE)
+// ✅ CONTROLADOR: Productos con más rotación (CON SOPORTE FERRETERÍAS)
 exports.getHighRotationProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
-    // Asegurar que limit sea un número entero
     const limitNumber = parseInt(limit) || 50;
 
     if (!sucursal_id) {
@@ -453,44 +468,75 @@ exports.getHighRotationProducts = async (req, res) => {
 
     console.log('📊 Límite de productos (alta rotación):', limitNumber);
 
-    let query = `
-      SELECT TOP ${limitNumber}
-        ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
-        tdd.dc_codigo_barra AS 'Codigo Barra',
-        ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
-        SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) AS Cantidad,
-        SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta',
-        (SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) / ${daysDiff}) AS rotation
-      FROM tb_documentos_encabezado tde
-        INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
-        LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
-        LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
-      WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
-        AND tde.df_fecha_emision >= @startDate 
-        AND tde.df_fecha_emision <= @endDate
-        AND ISNULL(tdd.dn_cantidad, 0) > 0
-        AND tdd.dc_codigo_barra IS NOT NULL
-        AND tdd.dc_codigo_barra != ''
-    `;
-    
+    let query;
     const params = {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (familia && familia !== 'all') {
-      query += ` AND fa.dn_correlativo = @familia`;
-      params.familia = { value: parseInt(familia), type: sql.Int };
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_NOMBRE_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          MP.FAMI_ID_FAMILIA AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
+        ORDER BY rotation DESC
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT TOP ${limitNumber}
+          ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
+          tdd.dc_codigo_barra AS 'Codigo Barra',
+          ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND ISNULL(tdd.dn_cantidad, 0) > 0
+          AND tdd.dc_codigo_barra IS NOT NULL
+          AND tdd.dc_codigo_barra != ''
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND fa.dn_correlativo = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
+        HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) > 0
+        ORDER BY rotation DESC
+      `;
     }
-    
-    query += `
-      GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
-      HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) > 0
-      ORDER BY rotation DESC
-    `;
 
     const products = await executeProductQuery(config, query, params);
-    
+
     res.json({
       success: true,
       products
@@ -498,20 +544,19 @@ exports.getHighRotationProducts = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en getHighRotationProducts:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener productos con más rotación',
       error: error.message
     });
   }
 };
 
-// ✅ CONTROLADOR: Productos con menos rotación (CON LÍMITE)
+// ✅ CONTROLADOR: Productos con menos rotación (CON SOPORTE FERRETERÍAS)
 exports.getLowRotationProducts = async (req, res) => {
   try {
     const { familia, period = 'week', sucursal_id, limit = 50 } = req.query;
 
-    // Asegurar que limit sea un número entero
     const limitNumber = parseInt(limit) || 50;
 
     if (!sucursal_id) {
@@ -528,44 +573,75 @@ exports.getLowRotationProducts = async (req, res) => {
 
     console.log('📊 Límite de productos (baja rotación):', limitNumber);
 
-    let query = `
-      SELECT TOP ${limitNumber}
-        ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
-        tdd.dc_codigo_barra AS 'Codigo Barra',
-        ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
-        SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) AS Cantidad,
-        SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta',
-        (SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) / ${daysDiff}) AS rotation
-      FROM tb_documentos_encabezado tde
-        INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
-        LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
-        LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
-      WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
-        AND tde.df_fecha_emision >= @startDate 
-        AND tde.df_fecha_emision <= @endDate
-        AND ISNULL(tdd.dn_cantidad, 0) > 0
-        AND tdd.dc_codigo_barra IS NOT NULL
-        AND tdd.dc_codigo_barra != ''
-    `;
-    
+    let query;
     const params = {
       startDate: { value: startDate, type: sql.DateTime },
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (familia && familia !== 'all') {
-      query += ` AND fa.dn_correlativo = @familia`;
-      params.familia = { value: parseInt(familia), type: sql.Int };
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_NOMBRE_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          MP.FAMI_ID_FAMILIA AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
+        ORDER BY rotation ASC
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT TOP ${limitNumber}
+          ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
+          tdd.dc_codigo_barra AS 'Codigo Barra',
+          ISNULL(tdd.dg_glosa_producto, 'Sin Descripción') AS Descripcion,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND ISNULL(tdd.dn_cantidad, 0) > 0
+          AND tdd.dc_codigo_barra IS NOT NULL
+          AND tdd.dc_codigo_barra != ''
+      `;
+
+      if (familia && familia !== 'all') {
+        query += ` AND fa.dn_correlativo = @familia`;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      }
+
+      query += `
+        GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
+        HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) > 0
+        ORDER BY rotation ASC
+      `;
     }
-    
-    query += `
-      GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
-      HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) > 0
-      ORDER BY rotation ASC
-    `;
 
     const products = await executeProductQuery(config, query, params);
-    
+
     res.json({
       success: true,
       products
@@ -573,78 +649,225 @@ exports.getLowRotationProducts = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en getLowRotationProducts:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener productos con menos rotación',
       error: error.message
     });
   }
 };
 
-// ✅ CONTROLADOR: Distribución por categorías (SIMPLIFICADO)
+// ✅ CONTROLADOR: Distribución por categorías (CON SOPORTE FERRETERÍAS)
 exports.getCategoryDistribution = async (req, res) => {
   try {
     const { period = 'week', sucursal_id } = req.query;
-    
+
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
-    // Por ahora devolvemos datos mock para evitar errores
-    const mockData = [
-      { name: 'Bebidas', value: 25.5 },
-      { name: 'Lácteos', value: 18.3 },
-      { name: 'Panadería', value: 15.2 },
-      { name: 'Carnes', value: 12.8 },
-      { name: 'Frutas y Verduras', value: 11.1 },
-      { name: 'Limpieza', value: 9.7 },
-      { name: 'Otros', value: 7.4 }
-    ];
-    
-    res.json(mockData);
+    const { sucursal, config } = await getSucursalConfig(sucursal_id);
+    const { startDate, endDate } = calculateDates(period);
+
+    let query;
+    const params = {
+      startDate: { value: startDate, type: sql.DateTime },
+      endDate: { value: endDate, type: sql.DateTime }
+    };
+
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT
+          MF.FAMI_NOMBRE_FAMILIA AS categoria,
+          COUNT(DISTINCT MP.MP_CODIGO_PRODUCTO) AS cantidad_productos,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS total_vendido
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_MAESTRO_FAMILIAS MF ON MF.FAMI_ID_FAMILIA = MP.FAMI_ID_FAMILIA
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+        GROUP BY MF.FAMI_NOMBRE_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT
+          ISNULL(fa.dg_glosa, 'Sin Familia') AS categoria,
+          COUNT(DISTINCT tdd.dc_codigo_barra) AS cantidad_productos,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS total_vendido
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND ISNULL(tdd.dn_cantidad, 0) > 0
+        GROUP BY fa.dg_glosa
+        HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) DESC
+      `;
+    }
+
+    let poolSucursal = null;
+
+    try {
+      poolSucursal = await new sql.ConnectionPool(config).connect();
+      const request = poolSucursal.request();
+
+      request.input('startDate', sql.DateTime, startDate);
+      request.input('endDate', sql.DateTime, endDate);
+
+      const result = await request.query(query);
+
+      // Formatear datos para el frontend
+      const distribution = result.recordset.map(item => ({
+        name: item.categoria || 'Sin Categoría',
+        value: parseInt(item.total_vendido) || 0,
+        productos: parseInt(item.cantidad_productos) || 0
+      }));
+
+      res.json(distribution);
+
+    } finally {
+      if (poolSucursal) {
+        await poolSucursal.close();
+      }
+    }
 
   } catch (error) {
     console.error('❌ Error en getCategoryDistribution:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener distribución por familias',
       error: error.message
     });
   }
 };
 
-// ✅ CONTROLADOR: Tendencia de ventas (SIMPLIFICADO)
+// ✅ CONTROLADOR: Tendencia de ventas (CON SOPORTE FERRETERÍAS)
 exports.getSalesTrend = async (req, res) => {
   try {
     const { period = 'week', familia, sucursal_id } = req.query;
-    
+
     if (!sucursal_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Se requiere el ID de la sucursal' 
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere el ID de la sucursal'
       });
     }
 
-    // Por ahora devolvemos datos mock para evitar errores
-    const mockData = [
-      { name: 'Lun', ventas: 45000 },
-      { name: 'Mar', ventas: 52000 },
-      { name: 'Mié', ventas: 48000 },
-      { name: 'Jue', ventas: 61000 },
-      { name: 'Vie', ventas: 55000 },
-      { name: 'Sáb', ventas: 67000 },
-      { name: 'Dom', ventas: 43000 }
-    ];
-    
-    res.json(mockData);
+    const { sucursal, config } = await getSucursalConfig(sucursal_id);
+    const { startDate, endDate } = calculateDates(period);
+
+    let query;
+    const params = {
+      startDate: { value: startDate, type: sql.DateTime },
+      endDate: { value: endDate, type: sql.DateTime }
+    };
+
+    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
+      // QUERY PARA FERRETERÍAS
+      query = `
+        SELECT
+          CONVERT(DATE, RBO.RBO_FECHA_INGRESO) AS fecha,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS monto
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+      `;
+
+      if (familia && familia !== 'all') {
+        query += `
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND MP.FAMI_ID_FAMILIA = @familia
+        `;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      } else {
+        query += `
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+        `;
+      }
+
+      query += `
+        GROUP BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)
+        ORDER BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)
+      `;
+    } else {
+      // QUERY PARA SUPERMERCADOS (mantener intacta)
+      query = `
+        SELECT
+          CONVERT(DATE, tde.df_fecha_emision) AS fecha,
+          SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) AS cantidad,
+          SUM(CAST(ISNULL(tdd.dq_bruto, 0) AS FLOAT)) AS monto
+        FROM tb_documentos_encabezado tde
+          INNER JOIN tb_documentos_detalle tdd ON tdd.dn_correlativo_documento = tde.dn_correlativo
+      `;
+
+      if (familia && familia !== 'all') {
+        query += `
+          LEFT JOIN tb_productos pr ON pr.dc_codigo_barra = tdd.dc_codigo_barra
+          LEFT JOIN tb_familias fa ON fa.dn_correlativo = pr.dn_correlativo_familia
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+          AND fa.dn_correlativo = @familia
+        `;
+        params.familia = { value: parseInt(familia), type: sql.Int };
+      } else {
+        query += `
+        WHERE LTRIM(RTRIM(ISNULL(tde.dc_codigo_centralizacion, ''))) = '0039'
+          AND tde.df_fecha_emision >= @startDate
+          AND tde.df_fecha_emision <= @endDate
+        `;
+      }
+
+      query += `
+        GROUP BY CONVERT(DATE, tde.df_fecha_emision)
+        ORDER BY CONVERT(DATE, tde.df_fecha_emision)
+      `;
+    }
+
+    let poolSucursal = null;
+
+    try {
+      poolSucursal = await new sql.ConnectionPool(config).connect();
+      const request = poolSucursal.request();
+
+      Object.entries(params).forEach(([key, param]) => {
+        request.input(key, param.type, param.value);
+      });
+
+      const result = await request.query(query);
+
+      // Formatear datos para el frontend
+      const trend = result.recordset.map(item => ({
+        name: new Date(item.fecha).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' }),
+        ventas: parseFloat(item.monto) || 0,
+        cantidad: parseInt(item.cantidad) || 0,
+        fecha: item.fecha
+      }));
+
+      res.json(trend);
+
+    } finally {
+      if (poolSucursal) {
+        await poolSucursal.close();
+      }
+    }
 
   } catch (error) {
     console.error('❌ Error en getSalesTrend:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Error al obtener tendencia de ventas',
       error: error.message
     });
