@@ -55,6 +55,7 @@ module.exports = [
   { nombre: 'Módulos',               claves: ['modulos'] },
   { nombre: 'Configuración',         claves: ['configuracion'] },
   { nombre: 'Correo Electrónico',    claves: ['correo-electronico'] },
+  { nombre: 'Grupos de Chat',        claves: ['grupos-chat'] },
   { nombre: 'Anulaciones',           claves: ['productos/anulaciones'] },
   { nombre: 'Cargar Inventario',    claves: ['productos/cargar-inventario'] },
 ];

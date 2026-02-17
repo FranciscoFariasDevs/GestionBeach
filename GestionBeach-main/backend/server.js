@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const http = require('http');
 
 // Cargar variables de entorno
 dotenv.config();
@@ -163,6 +164,14 @@ const optionalRoutes = [
   { path: './routes/stocksRoutes', route: '/api/stocks' },
   { path: './routes/anulacionesRoutes', route: '/api/anulaciones' },
   { path: './routes/cargarInventarioRoutes', route: '/api/cargar-inventario' },
+  // 🔐 NUEVA RUTA PARA PERMISOS MODULARES (SISTEMA GRANULAR)
+  { path: './routes/permisosModularesRoutes', route: '/api/permisos-modulares' },
+  // 📋 RUTA PARA RESUMEN DE PERFILES (SIN AUTH)
+  { path: './routes/perfilesResumenRoutes', route: '/api/perfiles-resumen' },
+  // 💬 CHAT EN TIEMPO REAL
+  { path: './routes/chatRoutes', route: '/api/chat' },
+  // 👥 GRUPOS DE CHAT (CRUD desde módulo admin)
+  { path: './routes/gruposChatRoutes', route: '/api/grupos-chat' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -561,29 +570,48 @@ const startServer = async () => {
       console.error('⚠️ Error al iniciar job de limpieza:', jobError.message);
     }
 
-    // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log('\n🚀 ===== SERVIDOR INICIADO =====');
-      console.log(`🌐 Servidor corriendo en http://0.0.0.0:${PORT}`);
-      console.log(`🏠 Red local: http://192.168.100.150:${PORT}`);
-      console.log(`🌐 IP pública: http://190.102.248.163:${PORT}`);
-      console.log(`🖥️ Frontend local: http://192.168.100.150:3000`);
-      console.log(`🖥️ Frontend público: http://190.102.248.163`);
-      console.log('\n📊 === RUTAS DE DIAGNÓSTICO ===');
-      console.log(`🔍 Ping: http://190.102.248.163:${PORT}/api/ping`);
-      console.log(`🔧 Diagnóstico BD: http://190.102.248.163:${PORT}/api/check-db`);
-      console.log(`🏢 Test Sucursales: http://190.102.248.163:${PORT}/api/sucursales-quick-test`);
-      console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
-      console.log(`📈 Test Estado Resultados: http://190.102.248.163:${PORT}/api/test-estado-resultados`);
-      console.log(`🏊 Test Concurso Piscinas: http://190.102.248.163:${PORT}/api/test-concurso-piscinas`);
-      console.log(`🏡 Test Sistema Cabañas: http://190.102.248.163:${PORT}/api/test-cabanas`);
-      console.log(`📱 WhatsApp Test: http://190.102.248.163:${PORT}/api/cabanas/whatsapp/test`);
-      console.log('\n✅ === SERVIDOR LISTO ===\n');
-      
-      // CORS permitidos para referencia
-      console.log('🔐 CORS Origins permitidos:');
-      allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
-      console.log(`   - Y cualquier origin en modo development\n`);
+    // Crear servidor HTTP para Socket.IO
+    const server = http.createServer(app);
+
+    // Conectar MongoDB y arrancar Socket.IO
+    const { connectMongo } = require('./config/mongodb');
+    const { setupSocketIO } = require('./config/socketio');
+
+    connectMongo().then(() => {
+      const io = setupSocketIO(server);
+      app.set('io', io); // Disponible en rutas si se necesita
+
+      // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
+      server.listen(PORT, '0.0.0.0', () => {
+        console.log('\n🚀 ===== SERVIDOR INICIADO =====');
+        console.log(`🌐 Servidor corriendo en http://0.0.0.0:${PORT}`);
+        console.log(`🏠 Red local: http://192.168.100.150:${PORT}`);
+        console.log(`🌐 IP pública: http://190.102.248.163:${PORT}`);
+        console.log(`🖥️ Frontend local: http://192.168.100.150:3000`);
+        console.log(`🖥️ Frontend público: http://190.102.248.163`);
+        console.log(`💬 Socket.IO Chat: activo en puerto ${PORT}`);
+        console.log('\n📊 === RUTAS DE DIAGNÓSTICO ===');
+        console.log(`🔍 Ping: http://190.102.248.163:${PORT}/api/ping`);
+        console.log(`🔧 Diagnóstico BD: http://190.102.248.163:${PORT}/api/check-db`);
+        console.log(`🏢 Test Sucursales: http://190.102.248.163:${PORT}/api/sucursales-quick-test`);
+        console.log(`📦 Test Inventario: http://190.102.248.163:${PORT}/api/test-inventario`);
+        console.log(`📈 Test Estado Resultados: http://190.102.248.163:${PORT}/api/test-estado-resultados`);
+        console.log(`🏊 Test Concurso Piscinas: http://190.102.248.163:${PORT}/api/test-concurso-piscinas`);
+        console.log(`🏡 Test Sistema Cabañas: http://190.102.248.163:${PORT}/api/test-cabanas`);
+        console.log(`📱 WhatsApp Test: http://190.102.248.163:${PORT}/api/cabanas/whatsapp/test`);
+        console.log('\n✅ === SERVIDOR LISTO ===\n');
+
+        // CORS permitidos para referencia
+        console.log('🔐 CORS Origins permitidos:');
+        allowedOrigins.forEach(origin => console.log(`   - ${origin}`));
+        console.log(`   - Y cualquier origin en modo development\n`);
+      });
+    }).catch(err => {
+      console.error('⚠️ MongoDB no disponible, iniciando sin chat:', err.message);
+      // Iniciar sin Socket.IO si MongoDB falla
+      server.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Servidor corriendo en puerto ${PORT} (sin chat)`);
+      });
     });
     
   } catch (error) {

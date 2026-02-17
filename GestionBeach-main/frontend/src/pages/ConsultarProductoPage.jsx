@@ -360,6 +360,9 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
   const anioActual = new Date().getFullYear();
   const [histFechaDesde, setHistFechaDesde] = useState(`${anioActual}-01-01`);
   const [histFechaHasta, setHistFechaHasta] = useState(new Date().toISOString().slice(0, 10));
+  // Filtros de fecha para Tarjeta Existencia - por defecto 1 enero del año actual hasta hoy
+  const [tarjFechaDesde, setTarjFechaDesde] = useState(`${anioActual}-01-01`);
+  const [tarjFechaHasta, setTarjFechaHasta] = useState(new Date().toISOString().slice(0, 10));
 
   const cargarHistorico = useCallback(async (fDesde, fHasta) => {
     if (historicoLoading || !producto) return;
@@ -373,23 +376,30 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
     finally { setHistoricoLoading(false); }
   }, [producto, sucursalId, historicoLoading, histFechaDesde, histFechaHasta]);
 
-  const cargarTarjeta = useCallback(async () => {
-    if (tarjeta || tarjetaLoading || !producto) return;
+  const cargarTarjeta = useCallback(async (fDesde, fHasta) => {
+    if (tarjetaLoading || !producto) return;
     setTarjetaLoading(true);
     try {
       const { data } = await api.get('/consultar-producto/tarjeta-existencia', {
-        params: { sucursalId, codigo: producto.codigo }, timeout: 120000
+        params: {
+          sucursalId,
+          codigo: producto.codigo,
+          fechaDesde: fDesde || tarjFechaDesde,
+          fechaHasta: fHasta || tarjFechaHasta
+        },
+        timeout: 120000
       });
       setTarjeta(data);
     } catch { setTarjeta({ movimientos: [] }); }
     finally { setTarjetaLoading(false); }
-  }, [producto, sucursalId, tarjeta, tarjetaLoading]);
+  }, [producto, sucursalId, tarjetaLoading, tarjFechaDesde, tarjFechaHasta]);
 
   const handleTabChange = useCallback((_, v) => {
     setTab(v);
     if (v === 1 && !historico) cargarHistorico();
-    if (v === 2) cargarTarjeta();
-  }, [cargarHistorico, cargarTarjeta, historico]);
+    // TAB 2 (Tarjeta Existencia) ahora requiere que el usuario haga clic en "Buscar"
+    // No cargamos automáticamente porque requiere fechas
+  }, [cargarHistorico, historico]);
 
   // Reset al cambiar producto
   React.useEffect(() => { setHistorico(null); setTarjeta(null); setTab(0); }, [producto?.codigo]);
@@ -597,6 +607,22 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
         {/* TAB 2: TARJETA EXISTENCIA */}
         {tab === 2 && (
           <Box sx={{ p: 2 }}>
+            {/* Filtros de fecha */}
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <TextField type="date" size="small" label="Desde" value={tarjFechaDesde}
+                onChange={(e) => setTarjFechaDesde(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: 160, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              <TextField type="date" size="small" label="Hasta" value={tarjFechaHasta}
+                onChange={(e) => setTarjFechaHasta(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: 160, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+              <Button variant="contained" size="small" onClick={() => { setTarjeta(null); cargarTarjeta(tarjFechaDesde, tarjFechaHasta); }}
+                disabled={tarjetaLoading}
+                sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' } }}>
+                <SearchIcon sx={{ fontSize: 18, mr: 0.5 }} /> Buscar
+              </Button>
+            </Box>
             {tarjetaLoading && (
               <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress sx={{ color: '#FF9800' }} /></Box>
             )}

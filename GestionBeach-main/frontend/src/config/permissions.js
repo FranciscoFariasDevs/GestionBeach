@@ -35,7 +35,8 @@ export const MODULES = {
   RESUMEN_VALORIZADO: 'productos/resumen-valorizado',
   STOCKS: 'productos/stocks',
   ANULACIONES: 'productos/anulaciones',
-  CARGAR_INVENTARIO: 'productos/cargar-inventario'
+  CARGAR_INVENTARIO: 'productos/cargar-inventario',
+  GRUPOS_CHAT: 'grupos-chat'
 };
 
 // Definir acciones
@@ -176,7 +177,10 @@ export function canAccessRoute(ability, route) {
     '/productos/anulaciones': MODULES.ANULACIONES,
 
     '/dashboard/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO,
-    '/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO
+    '/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO,
+
+    '/dashboard/grupos-chat': MODULES.GRUPOS_CHAT,
+    '/grupos-chat': MODULES.GRUPOS_CHAT
   };
 
   const module = routeToModule[route];

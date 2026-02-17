@@ -64,7 +64,11 @@ import {
   LastPage as LastPageIcon,
   DateRange as DateRangeIcon,
   Business as BusinessIcon,
-  CalendarToday as CalendarIcon
+  CalendarToday as CalendarIcon,
+  CloudUpload as CloudUploadIcon,
+  CheckCircle as CheckCircleIcon,
+  Description as DescriptionIcon,
+  Upload as UploadIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -384,6 +388,133 @@ const FacturasXMLPage = () => {
     message: '',
     severity: 'success'
   });
+
+  // Estados para Carga Manual de XML
+  const [xmlFile, setXmlFile] = useState(null);
+  const [xmlContent, setXmlContent] = useState('');
+  const [xmlAnalisis, setXmlAnalisis] = useState(null);
+  const [xmlError, setXmlError] = useState(null);
+  const [xmlCentroCosto, setXmlCentroCosto] = useState('');
+  const [xmlSucursal, setXmlSucursal] = useState('');
+  const [xmlProcesando, setXmlProcesando] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  // PARSEAR XML EN EL FRONTEND
+  const parsearXML = useCallback((contenido) => {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(contenido, 'text/xml');
+
+      const parseError = xmlDoc.querySelector('parsererror');
+      if (parseError) throw new Error('XML inválido o mal formado');
+
+      const get = (tag) => xmlDoc.querySelector(tag)?.textContent?.trim() || '';
+
+      const tipoDTE = get('TipoDTE');
+      if (tipoDTE !== '33') throw new Error('Solo se permiten Facturas Electrónicas (Tipo 33). Este documento es tipo ' + tipoDTE);
+
+      const folio = get('Folio');
+      const fechaEmision = get('FchEmis');
+      const rutEmisor = get('RUTEmisor');
+      const razonSocialEmisor = get('RznSoc');
+      const rutReceptor = get('RUTRecep');
+      const razonSocialReceptor = get('RznSocRecep');
+      const montoNeto = parseFloat(get('MntNeto') || '0');
+      const montoIva = parseFloat(get('IVA') || '0');
+      const montoTotal = parseFloat(get('MntTotal') || '0');
+
+      // Parsear detalles de productos
+      const detalles = [];
+      xmlDoc.querySelectorAll('Detalle').forEach(d => {
+        detalles.push({
+          nroLinDet: d.querySelector('NroLinDet')?.textContent?.trim() || '',
+          codigo: d.querySelector('CdgItem VlrCodigo')?.textContent?.trim() || d.querySelector('CdgItem')?.textContent?.trim() || '',
+          nombre: d.querySelector('NmbItem')?.textContent?.trim() || '',
+          cantidad: parseFloat(d.querySelector('QtyItem')?.textContent?.trim() || '1'),
+          precio: parseFloat(d.querySelector('PrcItem')?.textContent?.trim() || '0'),
+          total: parseFloat(d.querySelector('MontoItem')?.textContent?.trim() || '0')
+        });
+      });
+
+      return {
+        documento: { folio, fechaEmision, tipoDTE },
+        emisor: { rut: rutEmisor, razonSocial: razonSocialEmisor },
+        receptor: { rut: rutReceptor, razonSocial: razonSocialReceptor },
+        totales: { neto: montoNeto, iva: montoIva, total: montoTotal },
+        detalles
+      };
+    } catch (err) {
+      throw err;
+    }
+  }, []);
+
+  const handleXmlFileChange = useCallback((file) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+      setXmlError('Solo se permiten archivos XML');
+      return;
+    }
+    setXmlFile(file);
+    setXmlError(null);
+    setXmlAnalisis(null);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const contenido = e.target.result;
+      setXmlContent(contenido);
+      try {
+        const analisis = parsearXML(contenido);
+        setXmlAnalisis(analisis);
+      } catch (err) {
+        setXmlError(err.message);
+        setXmlAnalisis(null);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }, [parsearXML]);
+
+  const handleXmlDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    handleXmlFileChange(file);
+  }, [handleXmlFileChange]);
+
+  const handleProcesarXMLManual = useCallback(async () => {
+    if (!xmlAnalisis || !xmlCentroCosto || !xmlSucursal) {
+      setSnackbar({ open: true, message: 'Completa todos los campos antes de procesar', severity: 'warning' });
+      return;
+    }
+    setXmlProcesando(true);
+    try {
+      const response = await api.post('/facturas-xml/procesar-xml', {
+        xmlContent,
+        archivoNombre: xmlFile?.name || 'manual.xml',
+        analisis: xmlAnalisis,
+        centroCostos: xmlCentroCosto,
+        sucursal: xmlSucursal
+      });
+
+      if (response.data.success) {
+        setSnackbar({ open: true, message: `✅ Factura ${xmlAnalisis.documento.folio} procesada exitosamente`, severity: 'success' });
+        // Limpiar formulario
+        setXmlFile(null);
+        setXmlContent('');
+        setXmlAnalisis(null);
+        setXmlError(null);
+        setXmlCentroCosto('');
+        setXmlSucursal('');
+        // Recargar estadísticas
+        cargarDatosIniciales();
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Error al procesar el XML';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    } finally {
+      setXmlProcesando(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [xmlAnalisis, xmlContent, xmlCentroCosto, xmlSucursal, xmlFile]);
 
   // FILTRADO LOCAL EN TIEMPO REAL
   const filtrarFacturas = useCallback((facturas, filtroTexto) => {
@@ -1756,10 +1887,15 @@ const FacturasXMLPage = () => {
               label="Facturas Pendientes" 
               sx={{ fontWeight: 'bold' }}
             />
-            <Tab 
+            <Tab
               icon={<Badge badgeContent={estadisticas?.total_facturas_procesadas || 0} color="success"><ProcessedIcon /></Badge>}
-              label="Facturas Procesadas" 
+              label="Facturas Procesadas"
               sx={{ fontWeight: 'bold' }}
+            />
+            <Tab
+              icon={<CloudUploadIcon />}
+              label="Carga Manual XML"
+              sx={{ fontWeight: 'bold', color: currentTab === 2 ? '#f37d16' : 'inherit' }}
             />
           </Tabs>
         </Paper>
@@ -2262,6 +2398,365 @@ const FacturasXMLPage = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* TAB 2: CARGA MANUAL XML */}
+        {currentTab === 2 && (
+          <Box sx={{ maxWidth: 700, mx: 'auto' }}>
+
+            {/* Zona de arrastre si no hay análisis */}
+            {!xmlAnalisis && (
+              <Paper sx={{ borderRadius: 3, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+                <Box sx={{
+                  background: 'linear-gradient(135deg, #f37d16 0%, #ff9a44 100%)',
+                  p: 2.5, display: 'flex', alignItems: 'center', gap: 2
+                }}>
+                  <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 44, height: 44 }}>
+                    <CloudUploadIcon sx={{ color: '#fff' }} />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h6" fontWeight="bold" color="#fff">Carga Manual de Factura XML</Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.85)' }}>Sube una factura electrónica (DTE 33)</Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ p: 3 }}>
+                  <Box
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleXmlDrop}
+                    onClick={() => document.getElementById('xml-file-input').click()}
+                    sx={{
+                      border: `2px dashed ${dragOver ? '#f37d16' : '#d0d0d0'}`,
+                      borderRadius: 3, p: 5, textAlign: 'center',
+                      bgcolor: dragOver ? 'rgba(243,125,22,0.06)' : '#fafbfc',
+                      transition: 'all 0.3s ease', cursor: 'pointer',
+                      '&:hover': { borderColor: '#f37d16', bgcolor: 'rgba(243,125,22,0.04)' }
+                    }}
+                  >
+                    <input id="xml-file-input" type="file" accept=".xml" style={{ display: 'none' }}
+                      onChange={(e) => handleXmlFileChange(e.target.files[0])} />
+                    <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: 'rgba(0,0,0,0.04)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                      <CloudUploadIcon sx={{ fontSize: 40, color: dragOver ? '#f37d16' : '#bbb' }} />
+                    </Box>
+                    <Typography variant="h6" color="text.secondary" fontWeight={500}>Arrastra tu archivo XML aquí</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      o <span style={{ color: '#f37d16', fontWeight: 600, textDecoration: 'underline' }}>haz clic para seleccionar</span>
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mt: 2 }}>
+                      <Chip icon={<DescriptionIcon />} label=".xml" size="small" variant="outlined" sx={{ fontSize: '0.72rem' }} />
+                      <Chip icon={<ReceiptIcon />} label="DTE 33" size="small" variant="outlined" sx={{ fontSize: '0.72rem' }} />
+                    </Box>
+                  </Box>
+                </Box>
+              </Paper>
+            )}
+
+            {/* Error de parsing */}
+            {xmlError && (
+              <Alert severity="error" sx={{ mb: 3, mt: xmlAnalisis ? 0 : 2, borderRadius: 2 }} onClose={() => setXmlError(null)}>
+                {xmlError}
+              </Alert>
+            )}
+
+            {/* ========== FACTURA VERTICAL ESTILO REAL ========== */}
+            {xmlAnalisis && (
+              <Box>
+                {/* Botón cambiar archivo arriba */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CheckCircleIcon sx={{ color: '#4caf50', fontSize: 20 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>{xmlFile?.name}</strong> ({xmlFile ? (xmlFile.size / 1024).toFixed(1) + ' KB' : ''})
+                    </Typography>
+                  </Box>
+                  <Button size="small" variant="text" sx={{ textTransform: 'none', color: '#f37d16' }}
+                    onClick={() => document.getElementById('xml-file-input-2').click()}>
+                    Cambiar archivo
+                  </Button>
+                  <input id="xml-file-input-2" type="file" accept=".xml" style={{ display: 'none' }}
+                    onChange={(e) => handleXmlFileChange(e.target.files[0])} />
+                </Box>
+
+                {/* === HOJA DE FACTURA === */}
+                <Paper sx={{
+                  borderRadius: 1,
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05)',
+                  bgcolor: '#fff',
+                  position: 'relative',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0, left: 0, right: 0,
+                    height: 4,
+                    background: 'linear-gradient(90deg, #1a237e, #f37d16, #1a237e)'
+                  }
+                }}>
+
+                  {/* Cabecera: Emisor + Cuadro DTE */}
+                  <Box sx={{ p: 3, pb: 2 }}>
+                    <Grid container spacing={2} alignItems="flex-start">
+                      {/* Info emisor lado izquierdo */}
+                      <Grid item xs={7}>
+                        <Typography variant="h6" fontWeight="900" color="#1a237e" sx={{ lineHeight: 1.2, mb: 0.5, fontSize: '1.1rem' }}>
+                          {xmlAnalisis.emisor.razonSocial}
+                        </Typography>
+                        {xmlAnalisis.emisor.giro && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.3, lineHeight: 1.3 }}>
+                            {xmlAnalisis.emisor.giro}
+                          </Typography>
+                        )}
+                        {xmlAnalisis.emisor.direccion && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.3 }}>
+                            {xmlAnalisis.emisor.direccion}
+                          </Typography>
+                        )}
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                          RUT: {xmlAnalisis.emisor.rut}
+                        </Typography>
+                      </Grid>
+
+                      {/* Cuadro rojo DTE */}
+                      <Grid item xs={5}>
+                        <Box sx={{
+                          border: '2.5px solid #c62828',
+                          borderRadius: 1.5,
+                          p: 1.5,
+                          textAlign: 'center'
+                        }}>
+                          <Typography variant="caption" sx={{ color: '#c62828', fontWeight: 700, letterSpacing: 1, display: 'block', fontSize: '0.65rem' }}>
+                            R.U.T.: {xmlAnalisis.emisor.rut}
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ color: '#c62828', fontWeight: 900, my: 0.3, fontSize: '1rem' }}>
+                            FACTURA ELECTRÓNICA
+                          </Typography>
+                          <Typography variant="h5" sx={{ color: '#c62828', fontWeight: 900, letterSpacing: 1 }}>
+                            N° {xmlAnalisis.documento.folio}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#c62828', fontWeight: 600, display: 'block', mt: 0.3, fontSize: '0.6rem' }}>
+                            S.I.I. - {xmlAnalisis.documento.fechaEmision}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  <Divider />
+
+                  {/* Datos del receptor */}
+                  <Box sx={{ px: 3, py: 2, bgcolor: '#f8f9fa' }}>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 120, color: '#424242', fontSize: '0.82rem' }}>
+                            Señor(es):
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                            {xmlAnalisis.receptor.razonSocial}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 120, color: '#424242', fontSize: '0.82rem' }}>
+                            R.U.T.:
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>
+                            {xmlAnalisis.receptor.rut}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      {xmlAnalisis.receptor.giro && (
+                        <Grid item xs={12}>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 120, color: '#424242', fontSize: '0.82rem' }}>
+                              Giro:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                              {xmlAnalisis.receptor.giro}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      )}
+                      {xmlAnalisis.receptor.direccion && (
+                        <Grid item xs={12}>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 120, color: '#424242', fontSize: '0.82rem' }}>
+                              Dirección:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                              {xmlAnalisis.receptor.direccion}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      )}
+                      <Grid item xs={12}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 120, color: '#424242', fontSize: '0.82rem' }}>
+                            Fecha Emisión:
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.82rem' }}>
+                            {xmlAnalisis.documento.fechaEmision}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  <Divider />
+
+                  {/* Tabla de detalle de productos */}
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: '#1a237e' }}>
+                          <TableCell sx={{ color: '#fff', fontWeight: 700, fontSize: '0.72rem', py: 1, letterSpacing: 0.5 }}>CÓDIGO</TableCell>
+                          <TableCell sx={{ color: '#fff', fontWeight: 700, fontSize: '0.72rem', py: 1, letterSpacing: 0.5 }}>DESCRIPCIÓN</TableCell>
+                          <TableCell align="center" sx={{ color: '#fff', fontWeight: 700, fontSize: '0.72rem', py: 1, letterSpacing: 0.5, width: 65 }}>CANT.</TableCell>
+                          <TableCell align="right" sx={{ color: '#fff', fontWeight: 700, fontSize: '0.72rem', py: 1, letterSpacing: 0.5, width: 100 }}>P. UNIT.</TableCell>
+                          <TableCell align="right" sx={{ color: '#fff', fontWeight: 700, fontSize: '0.72rem', py: 1, letterSpacing: 0.5, width: 110 }}>TOTAL</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {xmlAnalisis.detalles.map((d, i) => (
+                          <TableRow key={i} sx={{
+                            '&:nth-of-type(even)': { bgcolor: '#f8f9fa' },
+                            '&:hover': { bgcolor: '#e8eaf6' }
+                          }}>
+                            <TableCell sx={{ fontSize: '0.78rem', fontFamily: 'monospace', color: '#546e7a', py: 1 }}>{d.codigo || '-'}</TableCell>
+                            <TableCell sx={{ fontSize: '0.78rem', py: 1 }}>{d.nombre}</TableCell>
+                            <TableCell align="center" sx={{ fontSize: '0.78rem', py: 1, fontWeight: 500 }}>{d.cantidad}</TableCell>
+                            <TableCell align="right" sx={{ fontSize: '0.78rem', fontFamily: 'monospace', py: 1 }}>
+                              {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(d.precio)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 600, py: 1 }}>
+                              {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(d.total)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {/* Filas vacías para dar aspecto de factura */}
+                        {xmlAnalisis.detalles.length < 5 && Array.from({ length: 5 - xmlAnalisis.detalles.length }).map((_, i) => (
+                          <TableRow key={`empty-${i}`}>
+                            <TableCell sx={{ py: 1.2 }}>&nbsp;</TableCell>
+                            <TableCell>&nbsp;</TableCell>
+                            <TableCell>&nbsp;</TableCell>
+                            <TableCell>&nbsp;</TableCell>
+                            <TableCell>&nbsp;</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+
+                  {/* Sección de totales */}
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 3, py: 2, bgcolor: '#fafafa', borderTop: '2px solid #e0e0e0' }}>
+                    <Box sx={{ minWidth: 260 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.6 }}>
+                        <Typography variant="body2" color="text.secondary" fontWeight={500}>MONTO NETO</Typography>
+                        <Typography variant="body2" fontFamily="monospace" fontWeight={500}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(xmlAnalisis.totales.neto)}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.6 }}>
+                        <Typography variant="body2" color="text.secondary" fontWeight={500}>IVA 19%</Typography>
+                        <Typography variant="body2" fontFamily="monospace" fontWeight={500}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(xmlAnalisis.totales.iva)}
+                        </Typography>
+                      </Box>
+                      <Divider sx={{ my: 0.8 }} />
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.6, alignItems: 'center' }}>
+                        <Typography variant="subtitle2" fontWeight={900} color="#1a237e">TOTAL</Typography>
+                        <Typography variant="h6" fontWeight={900} fontFamily="monospace" color="#1a237e" sx={{ fontSize: '1.15rem' }}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(xmlAnalisis.totales.total)}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  {/* Pie de factura con timbre */}
+                  <Box sx={{
+                    px: 3, py: 1.5,
+                    borderTop: '1px dashed #ccc',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    bgcolor: '#fafafa'
+                  }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', fontStyle: 'italic' }}>
+                      Documento Tributario Electrónico — Timbre Electrónico SII
+                    </Typography>
+                    <Chip label="DTE Válido" size="small" color="success" variant="outlined" sx={{ fontSize: '0.65rem', height: 22 }} />
+                  </Box>
+                </Paper>
+
+                {/* === PANEL DE ASIGNACIÓN fuera de la factura === */}
+                <Paper sx={{
+                  mt: 3,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                  border: '1px solid #e0e0e0'
+                }}>
+                  <Box sx={{
+                    background: 'linear-gradient(135deg, #fff8e1 0%, #fff3e0 100%)',
+                    px: 2.5, py: 1.5,
+                    display: 'flex', alignItems: 'center', gap: 1.5,
+                    borderBottom: '1px solid rgba(243,125,22,0.2)'
+                  }}>
+                    <BusinessIcon sx={{ color: '#e65100', fontSize: 20 }} />
+                    <Typography variant="subtitle2" fontWeight="bold" color="#e65100">
+                      Asignar Centro de Costos y Sucursal
+                    </Typography>
+                  </Box>
+                  <Box sx={{ p: 2.5 }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Centro de Costos *</InputLabel>
+                          <Select value={xmlCentroCosto} onChange={(e) => setXmlCentroCosto(e.target.value)} label="Centro de Costos *">
+                            {centrosCostos.map(cc => (
+                              <MenuItem key={cc.id} value={cc.id}>{cc.nombre}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Sucursal *</InputLabel>
+                          <Select value={xmlSucursal} onChange={(e) => setXmlSucursal(e.target.value)} label="Sucursal *">
+                            {sucursales.map(s => (
+                              <MenuItem key={s.id} value={s.id}>{s.nombre}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    </Grid>
+
+                    <Box sx={{ mt: 2.5, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                      <Button variant="outlined" size="small"
+                        onClick={() => { setXmlFile(null); setXmlContent(''); setXmlAnalisis(null); setXmlError(null); setXmlCentroCosto(''); setXmlSucursal(''); }}
+                        disabled={xmlProcesando} sx={{ textTransform: 'none' }}>
+                        Limpiar
+                      </Button>
+                      <Button
+                        variant="contained" size="large"
+                        startIcon={xmlProcesando ? <CircularProgress size={18} color="inherit" /> : <UploadIcon />}
+                        onClick={handleProcesarXMLManual}
+                        disabled={xmlProcesando || !xmlCentroCosto || !xmlSucursal}
+                        sx={{
+                          bgcolor: '#f37d16', fontWeight: 'bold', textTransform: 'none', px: 4,
+                          '&:hover': { bgcolor: '#e06c00' }
+                        }}
+                      >
+                        {xmlProcesando ? 'Procesando...' : 'Procesar Factura'}
+                      </Button>
+                    </Box>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
+          </Box>
+        )}
 
         {/* FAB para acciones rápidas */}
         {currentTab === 0 && facturasSeleccionadas.length > 0 && (

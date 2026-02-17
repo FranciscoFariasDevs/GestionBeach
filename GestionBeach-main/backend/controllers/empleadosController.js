@@ -2109,16 +2109,17 @@ exports.getMiPerfil = async (req, res) => {
 
     const usuario = result.recordset[0];
 
-    // Obtener sucursales asignadas al perfil
+    // Obtener sucursales asignadas al perfil (usando tabla unificada)
     let sucursales = [];
     if (usuario.perfil_id) {
       const sucursalesResult = await pool.request()
         .input('perfilId', sql.Int, usuario.perfil_id)
         .query(`
-          SELECT s.id, s.nombre
-          FROM perfil_sucursal ps
-          INNER JOIN sucursales s ON ps.sucursal_id = s.id
-          WHERE ps.perfil_id = @perfilId
+          SELECT DISTINCT s.id, s.nombre
+          FROM perfil_modulo_sucursal pms
+          INNER JOIN sucursales s ON pms.sucursal_id = s.id
+          WHERE pms.perfil_id = @perfilId
+          ORDER BY s.nombre
         `);
 
       sucursales = sucursalesResult.recordset.map(s => s.nombre);

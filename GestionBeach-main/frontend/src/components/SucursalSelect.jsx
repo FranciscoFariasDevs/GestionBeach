@@ -12,6 +12,7 @@ import api from '../api/api';
 /**
  * Componente reutilizable para seleccionar sucursales
  * Muestra solo las sucursales permitidas para el usuario según su perfil
+ * Si se especifica moduloNombre, usa el sistema de permisos modulares
  */
 export default function SucursalSelect({
   value,
@@ -20,7 +21,8 @@ export default function SucursalSelect({
   fullWidth = true,
   required = false,
   disabled = false,
-  sx = {}
+  sx = {},
+  moduloNombre = null  // NUEVO: nombre del módulo para permisos modulares
 }) {
   const [sucursales, setSucursales] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,18 +30,26 @@ export default function SucursalSelect({
 
   useEffect(() => {
     fetchSucursales();
-  }, []);
+  }, [moduloNombre]);
 
   const fetchSucursales = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Obtiene las sucursales del usuario (filtradas por perfil)
-      const response = await api.get('/sucursales');
-      console.log('✅ Sucursales permitidas cargadas:', response.data);
+      let response;
 
-      setSucursales(response.data || []);
+      // Si se especifica módulo, usar sistema de permisos modulares
+      if (moduloNombre) {
+        response = await api.get(`/permisos-modulares/mis-sucursales?modulo_nombre=${moduloNombre}`);
+        console.log(`✅ Sucursales permitidas para módulo "${moduloNombre}":`, response.data);
+        setSucursales(response.data?.sucursales || []);
+      } else {
+        // Sistema antiguo: obtener sucursales generales del perfil
+        response = await api.get('/sucursales');
+        console.log('✅ Sucursales permitidas cargadas:', response.data);
+        setSucursales(response.data || []);
+      }
 
       // Si solo hay una sucursal, seleccionarla automáticamente
       if (response.data.length === 1 && !value) {

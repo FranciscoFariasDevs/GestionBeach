@@ -70,6 +70,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { filterMenuItems } from '../config/permissions';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/api';
+import ChatWidget from '../components/ChatWidget';
 
 const drawerWidth = 200;
 const miniDrawerWidth = 60;
@@ -383,7 +384,7 @@ export default function DashboardLayout() {
       isOpen: productosOpen,
       toggle: toggleProductos,
       subItems: [
-        { text: 'Los Mas Vendidos', path: '/productos', icon: <TrendingUpIcon /> },
+        //{ text: 'Los Mas Vendidos', path: '/productos', icon: <TrendingUpIcon /> },
         { text: 'Consultar Producto', path: '/productos/consultar', icon: <InventoryIcon /> },
         { text: 'Rentabilidad', path: '/productos/rentabilidad', icon: <TrendingUpIcon /> },
         { text: 'Margenes', path: '/productos/margenes', icon: <TrendingUpIcon /> },
@@ -427,6 +428,7 @@ export default function DashboardLayout() {
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
     { text: 'Perfiles', icon: <AssignmentIcon />, path: '/perfiles', orangeType: 'dark' },
     { text: 'Módulos', icon: <ModuleIcon />, path: '/modulos', orangeType: 'light' },
+    { text: 'Grupos de Chat', icon: <GroupIcon />, path: '/grupos-chat', orangeType: 'dark' },
     { text: 'Configuración', icon: <SettingsIcon />, path: '/configuracion', orangeType: 'dark' },
     {
       text: 'Correo Electrónico',
@@ -544,7 +546,7 @@ export default function DashboardLayout() {
           <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
             <MenuItem onClick={handleClose}>
               <Typography variant="body2">
-                {user?.username} - {getUserProfileName()}
+                {user?.nombre || user?.username} - {getUserProfileName()}
               </Typography>
             </MenuItem>
             <Divider />
@@ -798,12 +800,12 @@ export default function DashboardLayout() {
                 height: 36
               }}
             >
-              {user?.username?.charAt(0).toUpperCase() || 'U'}
+              {(user?.nombre || user?.username)?.charAt(0).toUpperCase() || 'U'}
             </MotionAvatar>
             {open && (
               <Box sx={{ flexGrow: 1 }}>
                 <Typography variant="subtitle2" noWrap sx={{ fontSize: '0.875rem' }}>
-                  {user?.username || 'Usuario'}
+                  {user?.nombre || user?.username || 'Usuario'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: '0.7rem' }}>
                   {getUserProfileName()}
@@ -1029,6 +1031,9 @@ export default function DashboardLayout() {
         <DrawerHeader />
         {showEmail ? <EmailFrame src="https://beachmarket.cl:2096" title="Correo Electrónico" /> : <Outlet />}
       </Main>
+
+      {/* Chat interno en tiempo real */}
+      <ChatWidget />
 
       {/* Botón flotante de Reportar Problema */}
       <Tooltip title="Reportar Problema" placement="left">

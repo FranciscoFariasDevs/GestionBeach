@@ -1,3 +1,4 @@
+// frontend/src/pages/PerfilPage.jsx - VERSIÓN SIMPLIFICADA SIN PERMISOS GRANULARES
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -13,26 +14,28 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogContentText,
   DialogTitle,
   TextField,
   IconButton,
   Stack,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  OutlinedInput,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Checkbox,
-  ListItemText,
+  FormControlLabel,
   Chip,
-  Alert
+  Alert,
+  Grid,
+  Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ExpandMore as ExpandMoreIcon,
+  Store as StoreIcon,
+  Extension as ExtensionIcon
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
@@ -43,180 +46,98 @@ export default function PerfilPage() {
   const [sucursales, setSucursales] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+
   const [currentPerfil, setCurrentPerfil] = useState({
     id: null,
     nombre: '',
-    modulos: [],
-    sucursales: []
+    descripcion: ''
   });
+
+  // Estado para módulos con sus sucursales
+  const [modulosAsignados, setModulosAsignados] = useState([]);
+  const [moduloExpandido, setModuloExpandido] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [fetchingPerfil, setFetchingPerfil] = useState(false);
   const [backendError, setBackendError] = useState(null);
   const { enqueueSnackbar } = useSnackbar();
 
-  useEffect(() => {
-    fetchPerfiles();
-    fetchModulos();
-    fetchSucursales();
-  }, []);
-
-  // Obtener todos los perfiles con manejo de errores mejorado
-  const fetchPerfiles = async () => {
+  const cargarDatosIniciales = async () => {
     try {
       setLoading(true);
       setBackendError(null);
-      
-      const response = await api.get('/perfiles');
-      console.log('✅ Perfiles cargados:', response.data);
-      
-      const perfilesData = response.data || [];
-      
-      // Para cada perfil, obtener sus módulos detallados
-      const perfilesConModulos = await Promise.all(perfilesData.map(async (perfil) => {
-        try {
-          const detalleResponse = await api.get(`/perfiles/${perfil.id}`);
-          return {
-            ...perfil,
-            modulos: detalleResponse.data.modulos || []
-          };
-        } catch (error) {
-          console.warn(`Error al obtener módulos del perfil ${perfil.id}:`, error);
-          return {
-            ...perfil,
-            modulos: []
-          };
-        }
-      }));
-      
-      setPerfiles(perfilesConModulos);
-      
+
+      const [perfilesRes, modulosRes, sucursalesRes] = await Promise.all([
+        api.get('/perfiles'),
+        api.get('/perfiles/modulos-disponibles'),
+        api.get('/sucursales')
+      ]);
+
+      setPerfiles(perfilesRes.data || []);
+      setModulos(modulosRes.data || []);
+      setSucursales(sucursalesRes.data || []);
+
+      enqueueSnackbar('Datos cargados correctamente', { variant: 'success' });
     } catch (error) {
-      console.error('❌ Error al cargar perfiles:', error);
-      
-      if (error.response?.status === 404) {
-        setBackendError('La API de perfiles no está disponible (404). Verifica que el backend esté configurado correctamente.');
-      } else {
-        setBackendError(`Error del servidor: ${error.response?.data?.message || error.message}`);
-      }
-      
-      if (error.response?.status !== 404) {
-        enqueueSnackbar('Error al cargar perfiles', { variant: 'error' });
-      }
-      
-      setPerfiles([]);
+      console.error('Error cargando datos:', error);
+      setBackendError(error.message);
+      enqueueSnackbar('Error cargando datos', { variant: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
-  // Obtener todos los módulos con manejo de errores mejorado
-  const fetchModulos = async () => {
-    try {
-      const response = await api.get('/modulos');
-      console.log('✅ Módulos cargados:', response.data);
-      setModulos(response.data || []);
-    } catch (error) {
-      console.error('❌ Error al cargar módulos:', error);
-
-      // Fallback: usar lista predefinida si falla el backend
-      const modulosFallback = [
-        { id: 1, nombre: 'Dashboard', descripcion: 'Panel principal del sistema' },
-        { id: 2, nombre: 'Estado Resultado', descripcion: 'Estados financieros del holding' },
-        { id: 3, nombre: 'Monitoreo', descripcion: 'Monitoreo de sucursales' },
-        { id: 4, nombre: 'Remuneraciones', descripcion: 'Gestión de nóminas y pagos' },
-        { id: 5, nombre: 'Inventario', descripcion: 'Sistema de inventarios' },
-        { id: 6, nombre: 'Ventas', descripcion: 'Gestión de ventas' },
-        { id: 7, nombre: 'Productos', descripcion: 'Catálogo de productos' },
-        { id: 8, nombre: 'Compras', descripcion: 'Gestión de compras' },
-        { id: 9, nombre: 'Tarjeta Empleado', descripción: 'Gestión de empleados' },
-        { id: 10, nombre: 'Empleados', descripcion: 'Recursos humanos' },
-        { id: 11, nombre: 'Usuarios', descripcion: 'Gestión de usuarios' },
-        { id: 12, nombre: 'Perfiles', descripcion: 'Gestión de perfiles' },
-        { id: 13, nombre: 'Módulos', descripcion: 'Gestión de módulos' },
-        { id: 14, nombre: 'Configuración', descripcion: 'Configuración del sistema' },
-        { id: 15, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico' }
-      ];
-
-      console.log('📋 Usando módulos predefinidos como fallback');
-      setModulos(modulosFallback);
-
-      if (error.response?.status !== 404) {
-        enqueueSnackbar('Error al cargar módulos, usando lista predefinida', { variant: 'warning' });
-      }
-    }
-  };
-
-  // Obtener todas las sucursales disponibles
-  const fetchSucursales = async () => {
-    try {
-      const response = await api.get('/sucursales/all');
-      console.log('✅ Sucursales cargadas:', response.data);
-      setSucursales(response.data || []);
-    } catch (error) {
-      console.error('❌ Error al cargar sucursales:', error);
-      setSucursales([]);
-
-      if (error.response?.status !== 404) {
-        enqueueSnackbar('Error al cargar sucursales', { variant: 'warning' });
-      }
-    }
-  };
-
-  // Obtener detalles de un perfil específico
-  const fetchPerfilDetalle = async (perfilId) => {
-    try {
-      setFetchingPerfil(true);
-      const response = await api.get(`/perfiles/${perfilId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error al cargar detalle del perfil:', error);
-      enqueueSnackbar('Error al cargar detalle del perfil', { variant: 'error' });
-      return null;
-    } finally {
-      setFetchingPerfil(false);
-    }
-  };
+  useEffect(() => {
+    cargarDatosIniciales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenDialog = async (perfil = null) => {
     if (perfil) {
-      // Si estamos editando, cargar el detalle completo del perfil
-      const perfilDetalle = await fetchPerfilDetalle(perfil.id);
-      if (perfilDetalle) {
-        setCurrentPerfil({
-          id: perfilDetalle.id,
-          nombre: perfilDetalle.nombre,
-          modulos: perfilDetalle.modulos || [],
-          sucursales: perfilDetalle.sucursales || []
-        });
-      } else {
-        // Si falla, usar los datos básicos
-        setCurrentPerfil({
-          id: perfil.id,
-          nombre: perfil.nombre,
-          modulos: perfil.modulos || [],
-          sucursales: perfil.sucursales || []
-        });
+      // Editar perfil existente
+      setFetchingPerfil(true);
+      setCurrentPerfil({
+        id: perfil.id,
+        nombre: perfil.nombre,
+        descripcion: perfil.descripcion || ''
+      });
+
+      try {
+        // Cargar configuración de módulos y sucursales
+        const response = await api.get(`/perfiles-resumen/${perfil.id}`);
+
+        if (response.data.modulos && response.data.modulos.length > 0) {
+          const modulosConfig = response.data.modulos.map(mod => ({
+            modulo_id: mod.modulo_id,
+            modulo_nombre: mod.modulo_nombre,
+            sucursales: mod.sucursales || []
+          }));
+          setModulosAsignados(modulosConfig);
+        } else {
+          setModulosAsignados([]);
+        }
+      } catch (error) {
+        console.error('Error cargando configuración:', error);
+        setModulosAsignados([]);
+      } finally {
+        setFetchingPerfil(false);
       }
     } else {
       // Nuevo perfil
       setCurrentPerfil({
         id: null,
         nombre: '',
-        modulos: [],
-        sucursales: []
+        descripcion: ''
       });
+      setModulosAsignados([]);
     }
     setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setCurrentPerfil({
-      id: null,
-      nombre: '',
-      modulos: [],
-      sucursales: []
-    });
+    setCurrentPerfil({ id: null, nombre: '', descripcion: '' });
+    setModulosAsignados([]);
   };
 
   const handleOpenDeleteDialog = (perfil) => {
@@ -228,69 +149,114 @@ export default function PerfilPage() {
     setOpenDeleteDialog(false);
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setCurrentPerfil({ ...currentPerfil, [name]: value });
+  // Toggle módulo
+  const toggleModulo = (modulo) => {
+    const existe = modulosAsignados.find(m => m.modulo_id === modulo.id);
+
+    if (existe) {
+      setModulosAsignados(prev => prev.filter(m => m.modulo_id !== modulo.id));
+    } else {
+      setModulosAsignados(prev => [...prev, {
+        modulo_id: modulo.id,
+        modulo_nombre: modulo.nombre,
+        sucursales: []
+      }]);
+    }
   };
 
-  // CORREGIDO: Mejor manejo de selección de módulos
-  const handleModuloChange = (event) => {
-    const { value } = event.target;
-    console.log('Módulos seleccionados:', value);
+  // Toggle sucursal en módulo
+  const toggleSucursalEnModulo = (moduloId, sucursal) => {
+    setModulosAsignados(prev => prev.map(mod => {
+      if (mod.modulo_id === moduloId) {
+        const sucursalExiste = mod.sucursales.find(s => s.id === sucursal.id);
 
-    setCurrentPerfil((prev) => ({
-      ...prev,
-      modulos: typeof value === 'string' ? value.split(',') : value
+        if (sucursalExiste) {
+          return {
+            ...mod,
+            sucursales: mod.sucursales.filter(s => s.id !== sucursal.id)
+          };
+        } else {
+          return {
+            ...mod,
+            sucursales: [...mod.sucursales, { id: sucursal.id, nombre: sucursal.nombre }]
+          };
+        }
+      }
+      return mod;
     }));
   };
 
-  // Manejo de selección de sucursales
-  const handleSucursalChange = (event) => {
-    const { value } = event.target;
-    console.log('Sucursales seleccionadas:', value);
-
-    setCurrentPerfil((prev) => ({
-      ...prev,
-      sucursales: typeof value === 'string' ? value.split(',').map(Number) : value
+  // Toggle TODAS las sucursales en un módulo
+  const toggleTodasSucursales = (moduloId) => {
+    setModulosAsignados(prev => prev.map(mod => {
+      if (mod.modulo_id === moduloId) {
+        const todasAsignadas = mod.sucursales.length === sucursales.length;
+        return {
+          ...mod,
+          sucursales: todasAsignadas ? [] : sucursales.map(s => ({ id: s.id, nombre: s.nombre }))
+        };
+      }
+      return mod;
     }));
   };
 
   const handleSavePerfil = async () => {
     if (!currentPerfil.nombre.trim()) {
-      enqueueSnackbar('Ingrese un nombre para el perfil', { variant: 'error' });
+      enqueueSnackbar('El nombre del perfil es requerido', { variant: 'warning' });
       return;
     }
 
     try {
       setLoading(true);
 
-      const perfilData = {
-        nombre: currentPerfil.nombre.trim(),
-        modulos: currentPerfil.modulos || [],
-        sucursales: currentPerfil.sucursales || []
-      };
+      let perfilId;
 
-      console.log('🔄 Guardando perfil:', perfilData);
-
-      let response;
       if (currentPerfil.id) {
-        response = await api.put(`/perfiles/${currentPerfil.id}`, perfilData);
-        console.log('✅ Perfil actualizado:', response.data);
-        enqueueSnackbar('Perfil actualizado correctamente', { variant: 'success' });
+        // Actualizar perfil
+        await api.put(`/perfiles/${currentPerfil.id}`, {
+          nombre: currentPerfil.nombre,
+          descripcion: currentPerfil.descripcion
+        });
+        perfilId = currentPerfil.id;
+        enqueueSnackbar('Perfil actualizado', { variant: 'success' });
       } else {
-        response = await api.post('/perfiles', perfilData);
-        console.log('✅ Perfil creado:', response.data);
-        enqueueSnackbar('Perfil creado correctamente', { variant: 'success' });
+        // Crear perfil
+        const response = await api.post('/perfiles', {
+          nombre: currentPerfil.nombre,
+          descripcion: currentPerfil.descripcion,
+          modulos: [],
+          sucursales: []
+        });
+        perfilId = response.data.id;
+        enqueueSnackbar('Perfil creado', { variant: 'success' });
       }
 
-      // Recargar perfiles
-      await fetchPerfiles();
+      // Guardar permisos modulares (SIMPLIFICADO - solo sucursales)
+      for (const moduloConfig of modulosAsignados) {
+        if (moduloConfig.sucursales.length > 0) {
+          await api.post('/permisos-modulares/sucursales', {
+            perfil_id: perfilId,
+            modulo_id: moduloConfig.modulo_id,
+            sucursales: moduloConfig.sucursales.map(s => ({ id: s.id }))
+          });
+        }
+      }
+
+      // Guardar acceso general a módulos
+      const modulosIds = modulosAsignados.map(m => m.modulo_id);
+      if (modulosIds.length > 0) {
+        await api.put(`/perfiles/${perfilId}`, {
+          nombre: currentPerfil.nombre,
+          descripcion: currentPerfil.descripcion,
+          modulos: modulosIds
+        });
+      }
+
       handleCloseDialog();
-      
+      cargarDatosIniciales();
     } catch (error) {
-      console.error('❌ Error al guardar perfil:', error);
-      const message = error.response?.data?.message || 'Error al guardar perfil';
-      enqueueSnackbar(message, { variant: 'error' });
+      console.error('Error guardando perfil:', error);
+      enqueueSnackbar(`Error guardando perfil: ${error.response?.data?.message || error.message}`, { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -300,28 +266,17 @@ export default function PerfilPage() {
     try {
       setLoading(true);
       await api.delete(`/perfiles/${currentPerfil.id}`);
-      
-      // Actualizar lista localmente
       setPerfiles(prev => prev.filter(p => p.id !== currentPerfil.id));
-      
       handleCloseDeleteDialog();
-      enqueueSnackbar('Perfil eliminado correctamente', { variant: 'success' });
+      enqueueSnackbar('Perfil eliminado', { variant: 'success' });
     } catch (error) {
-      console.error('Error al eliminar perfil:', error);
-      const message = error.response?.data?.message || 'Error al eliminar perfil';
-      enqueueSnackbar(message, { variant: 'error' });
+      console.error('Error eliminando perfil:', error);
+      enqueueSnackbar('Error eliminando perfil', { variant: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRetryConnection = () => {
-    setBackendError(null);
-    fetchPerfiles();
-    fetchModulos();
-  };
-
-  // Mostrar loading inicial
   if (loading && perfiles.length === 0 && !backendError) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
@@ -332,9 +287,9 @@ export default function PerfilPage() {
   }
 
   return (
-    <Box>
+    <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4">Gestión de Perfiles</Typography>
+        <Typography variant="h4">Gestión de Perfiles con Permisos Modulares</Typography>
         <Button
           variant="contained"
           color="primary"
@@ -346,81 +301,55 @@ export default function PerfilPage() {
         </Button>
       </Stack>
 
-      {/* Mostrar error del backend si existe */}
       {backendError && (
-        <Alert 
-          severity="error" 
-          sx={{ mb: 3 }}
-          action={
-            <Button color="inherit" size="small" onClick={handleRetryConnection}>
-              Reintentar
-            </Button>
-          }
-        >
-          <strong>Error de conexión:</strong> {backendError}
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Error: {backendError}
         </Alert>
       )}
 
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Nombre</TableCell>
-              <TableCell>Módulos Asignados</TableCell>
-              <TableCell align="center">Acciones</TableCell>
+          <TableHead>
+            <TableRow sx={{ bgcolor: 'primary.main' }}>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>ID</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Nombre</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Descripción</TableCell>
+              <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {perfiles.map((perfil) => (
-              <TableRow key={perfil.id}>
+              <TableRow key={perfil.id} hover>
                 <TableCell>{perfil.id}</TableCell>
                 <TableCell>
-                  <Typography variant="subtitle2" fontWeight="bold">
+                  <Typography variant="body1" fontWeight="medium">
                     {perfil.nombre}
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  {Array.isArray(perfil.modulos) && perfil.modulos.length > 0 ? (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 400 }}>
-                      {perfil.modulos.map((modulo, index) => (
-                        <Chip 
-                          key={index} 
-                          label={modulo} 
-                          size="small" 
-                          color="primary" 
-                          variant="outlined"
-                          sx={{ margin: '2px', fontSize: '0.75rem' }}
-                        />
-                      ))}
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" fontStyle="italic">
-                      Sin módulos asignados
-                    </Typography>
-                  )}
+                  <Typography variant="body2" color="text.secondary">
+                    {perfil.descripcion || 'Sin descripción'}
+                  </Typography>
                 </TableCell>
                 <TableCell align="center">
-                  <IconButton 
-                    color="primary" 
+                  <IconButton
+                    color="primary"
                     onClick={() => handleOpenDialog(perfil)}
                     size="small"
-                    disabled={!!backendError}
                   >
                     <EditIcon />
                   </IconButton>
-                  <IconButton 
-                    color="error" 
+                  <IconButton
+                    color="error"
                     onClick={() => handleOpenDeleteDialog(perfil)}
                     size="small"
-                    disabled={!!backendError}
                   >
                     <DeleteIcon />
                   </IconButton>
                 </TableCell>
               </TableRow>
             ))}
-            {perfiles.length === 0 && !backendError && (
+            {perfiles.length === 0 && (
               <TableRow>
                 <TableCell colSpan={4} align="center">
                   <Typography variant="body2" color="text.secondary">
@@ -429,154 +358,179 @@ export default function PerfilPage() {
                 </TableCell>
               </TableRow>
             )}
-            {perfiles.length === 0 && backendError && (
-              <TableRow>
-                <TableCell colSpan={4} align="center">
-                  <Typography variant="body2" color="text.secondary">
-                    No se pueden cargar los perfiles debido al error de conexión
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
           </TableBody>
         </Table>
       </TableContainer>
 
-      {/* Dialog para crear/editar perfiles - CORREGIDO */}
-      <Dialog 
-        open={openDialog} 
-        onClose={handleCloseDialog} 
-        maxWidth="md" 
+      {/* Dialog para crear/editar con permisos modulares */}
+      <Dialog
+        open={openDialog}
+        onClose={handleCloseDialog}
+        maxWidth="lg"
         fullWidth
-        disableEscapeKeyDown={fetchingPerfil || loading}
+        PaperProps={{ sx: { minHeight: '80vh' } }}
       >
         <DialogTitle>
           {currentPerfil.id ? 'Editar Perfil' : 'Nuevo Perfil'}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent dividers>
           {fetchingPerfil ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', my: 3 }}>
               <CircularProgress />
-              <Typography sx={{ ml: 2 }}>Cargando información del perfil...</Typography>
+              <Typography sx={{ ml: 2 }}>Cargando configuración...</Typography>
             </Box>
           ) : (
-            <Box sx={{ mt: 2 }}>
-              <TextField
-                fullWidth
-                label="Nombre del Perfil"
-                name="nombre"
-                value={currentPerfil.nombre}
-                onChange={handleInputChange}
-                required
-                sx={{ mb: 3 }}
-                placeholder="Ej: Gerencia, Finanzas, Jefe de Local"
-              />
-
-              <FormControl fullWidth>
-                <InputLabel>Módulos del Sistema</InputLabel>
-                <Select
-                  multiple
-                  value={currentPerfil.modulos || []}
-                  onChange={handleModuloChange}
-                  input={<OutlinedInput label="Módulos del Sistema" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} size="small" />
-                      ))}
-                    </Box>
-                  )}
-                  MenuProps={{
-                    PaperProps: {
-                      style: {
-                        maxHeight: 300,
-                        width: 250,
-                      },
-                    },
-                  }}
-                >
-                  {modulos.map((modulo) => (
-                    <MenuItem key={modulo.id} value={modulo.nombre}>
-                      <Checkbox 
-                        checked={(currentPerfil.modulos || []).indexOf(modulo.nombre) > -1} 
-                        size="small"
+            <Grid container spacing={3}>
+              {/* Información básica */}
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2 }} variant="outlined">
+                  <Typography variant="h6" gutterBottom>Información del Perfil</Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Nombre del Perfil"
+                        value={currentPerfil.nombre}
+                        onChange={(e) => setCurrentPerfil(prev => ({ ...prev, nombre: e.target.value }))}
+                        required
+                        placeholder="Ej: Jefe de Local Quirihue"
                       />
-                      <ListItemText 
-                        primary={modulo.nombre}
-                        secondary={modulo.descripcion}
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Descripción"
+                        value={currentPerfil.descripcion}
+                        onChange={(e) => setCurrentPerfil(prev => ({ ...prev, descripcion: e.target.value }))}
+                        placeholder="Descripción opcional"
                       />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                    </Grid>
+                  </Grid>
+                </Paper>
+              </Grid>
 
-              <FormControl fullWidth sx={{ mt: 3 }}>
-                <InputLabel>Sucursales Permitidas</InputLabel>
-                <Select
-                  multiple
-                  value={currentPerfil.sucursales || []}
-                  onChange={handleSucursalChange}
-                  input={<OutlinedInput label="Sucursales Permitidas" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => {
-                        const sucursal = sucursales.find(s => s.id === value);
-                        return (
-                          <Chip
-                            key={value}
-                            label={sucursal ? sucursal.nombre : `ID: ${value}`}
-                            size="small"
-                          />
-                        );
-                      })}
-                    </Box>
-                  )}
-                  MenuProps={{
-                    PaperProps: {
-                      style: {
-                        maxHeight: 300,
-                        width: 300,
-                      },
-                    },
-                  }}
-                >
-                  {sucursales.map((sucursal) => (
-                    <MenuItem key={sucursal.id} value={sucursal.id}>
-                      <Checkbox
-                        checked={(currentPerfil.sucursales || []).indexOf(sucursal.id) > -1}
-                        size="small"
-                      />
-                      <ListItemText
-                        primary={sucursal.nombre}
-                        secondary={sucursal.tipo_sucursal}
-                      />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              {/* Módulos y Sucursales */}
+              <Grid item xs={12}>
+                <Paper sx={{ p: 2 }} variant="outlined">
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ExtensionIcon />
+                    Módulos y Sucursales por Módulo
+                    <Chip label={`${modulosAsignados.length} módulos`} size="small" color="primary" />
+                  </Typography>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <strong>¿Cómo funciona?</strong>
+                    <br/>1. Selecciona un módulo (checkbox)
+                    <br/>2. Dentro del módulo, elige las sucursales permitidas (o marca "TODAS")
+                  </Alert>
 
-              {/* DEBUG: Mostrar módulos y sucursales seleccionados */}
-              {process.env.NODE_ENV === 'development' && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  <strong>Debug:</strong> Módulos: {JSON.stringify(currentPerfil.modulos)}<br />
-                  <strong>Sucursales:</strong> {JSON.stringify(currentPerfil.sucursales)}
-                </Alert>
-              )}
+                  <Box>
+                    {modulos.map(modulo => {
+                      const moduloAsignado = modulosAsignados.find(m => m.modulo_id === modulo.id);
+                      const estaAsignado = !!moduloAsignado;
 
-              {(!currentPerfil.modulos || currentPerfil.modulos.length === 0) && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  <strong>Advertencia:</strong> Este perfil no tiene módulos asignados. 
-                  Los usuarios con este perfil no podrán acceder a ninguna funcionalidad.
-                </Alert>
-              )}
+                      return (
+                        <Accordion
+                          key={modulo.id}
+                          expanded={moduloExpandido === modulo.id}
+                          onChange={() => setModuloExpandido(moduloExpandido === modulo.id ? null : modulo.id)}
+                          sx={{
+                            mb: 1,
+                            border: estaAsignado ? 2 : 1,
+                            borderColor: estaAsignado ? 'primary.main' : 'divider'
+                          }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Box display="flex" alignItems="center" gap={2} width="100%">
+                              <Checkbox
+                                checked={estaAsignado}
+                                onChange={() => toggleModulo(modulo)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <ExtensionIcon color={estaAsignado ? 'primary' : 'action'} />
+                              <Typography sx={{ flexGrow: 1 }}>{modulo.nombre}</Typography>
+                              {estaAsignado && (
+                                <Chip
+                                  label={`${moduloAsignado.sucursales.length} sucursales`}
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                              )}
+                            </Box>
+                          </AccordionSummary>
 
-              {modulos.length === 0 && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  <strong>Información:</strong> No hay módulos disponibles. 
-                  Verifica que el backend esté funcionando correctamente.
-                </Alert>
-              )}
-            </Box>
+                          {estaAsignado && (
+                            <AccordionDetails>
+                              <Box sx={{ pl: 6 }}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                  <Typography variant="subtitle2" color="primary">
+                                    Sucursales Permitidas:
+                                  </Typography>
+                                  <FormControlLabel
+                                    control={
+                                      <Checkbox
+                                        checked={moduloAsignado.sucursales.length === sucursales.length}
+                                        indeterminate={moduloAsignado.sucursales.length > 0 && moduloAsignado.sucursales.length < sucursales.length}
+                                        onChange={() => toggleTodasSucursales(modulo.id)}
+                                        color="success"
+                                      />
+                                    }
+                                    label={<Typography variant="button" color="success.main">TODAS</Typography>}
+                                  />
+                                </Stack>
+
+                                <Divider sx={{ mb: 2 }} />
+
+                                <Grid container spacing={1}>
+                                  {sucursales.map(sucursal => {
+                                    const sucursalAsignada = moduloAsignado.sucursales.find(s => s.id === sucursal.id);
+                                    const estaAsignadaSucursal = !!sucursalAsignada;
+
+                                    return (
+                                      <Grid item xs={12} sm={6} md={4} key={sucursal.id}>
+                                        <Paper
+                                          variant="outlined"
+                                          sx={{
+                                            p: 1,
+                                            bgcolor: estaAsignadaSucursal ? 'success.50' : 'background.paper',
+                                            border: estaAsignadaSucursal ? 2 : 1,
+                                            borderColor: estaAsignadaSucursal ? 'success.main' : 'divider',
+                                            cursor: 'pointer',
+                                            '&:hover': { borderColor: 'primary.main' }
+                                          }}
+                                          onClick={() => toggleSucursalEnModulo(modulo.id, sucursal)}
+                                        >
+                                          <Box display="flex" alignItems="center" gap={1}>
+                                            <Checkbox
+                                              checked={estaAsignadaSucursal}
+                                              onChange={() => toggleSucursalEnModulo(modulo.id, sucursal)}
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
+                                            <StoreIcon fontSize="small" color={estaAsignadaSucursal ? 'success' : 'action'} />
+                                            <Box flexGrow={1}>
+                                              <Typography variant="body2">
+                                                <strong>{sucursal.nombre}</strong>
+                                              </Typography>
+                                              <Typography variant="caption" color="text.secondary">
+                                                {sucursal.tipo_sucursal}
+                                              </Typography>
+                                            </Box>
+                                          </Box>
+                                        </Paper>
+                                      </Grid>
+                                    );
+                                  })}
+                                </Grid>
+                              </Box>
+                            </AccordionDetails>
+                          )}
+                        </Accordion>
+                      );
+                    })}
+                  </Box>
+                </Paper>
+              </Grid>
+            </Grid>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -589,33 +543,22 @@ export default function PerfilPage() {
             color="primary"
             disabled={loading || fetchingPerfil || !currentPerfil.nombre.trim()}
           >
-            {loading ? 'Guardando...' : 'Guardar'}
+            {loading ? 'Guardando...' : 'Guardar Perfil'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Dialog para eliminar */}
+      {/* Dialog de eliminar */}
       <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
-          <DeleteIcon color="error" sx={{ mr: 1 }} />
-          Confirmar Eliminación
-        </DialogTitle>
+        <DialogTitle>Confirmar Eliminación</DialogTitle>
         <DialogContent>
           <Typography>
-            ¿Está seguro que desea eliminar el perfil <strong>"{currentPerfil.nombre}"</strong>?
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Esta acción no se puede deshacer. Los usuarios con este perfil perderán sus permisos.
+            ¿Está seguro que desea eliminar el perfil <strong>{currentPerfil.nombre}</strong>?
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDeleteDialog}>Cancelar</Button>
-          <Button 
-            onClick={handleDeletePerfil} 
-            color="error" 
-            variant="contained"
-            disabled={loading}
-          >
+          <Button onClick={handleDeletePerfil} color="error" variant="contained" disabled={loading}>
             {loading ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogActions>

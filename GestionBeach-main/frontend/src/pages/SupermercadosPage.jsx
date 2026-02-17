@@ -77,6 +77,9 @@ import { useSnackbar } from 'notistack';
 import SucursalSelect from '../components/SucursalSelect';
 import * as XLSX from 'xlsx';
 
+// IMPORTANTE: Los Más Vendidos usa el sistema de permisos modulares
+const MODULO_NOMBRE = 'Los Más Vendidos';
+
 // Colores mejorados para gráficos
 const CHART_COLORS = {
   primary: '#1976d2',
@@ -742,6 +745,7 @@ const SupermercadosPage = () => {
               label="Sucursal"
               fullWidth
               required
+              moduloNombre={MODULO_NOMBRE}
             />
           </Grid>
 

@@ -71,6 +71,7 @@ import ResumenValorizadoPage from './pages/ResumenValorizadoPage';
 import StocksPage from './pages/StocksPage';
 import AnulacionesPage from './pages/AnulacionesPage';
 import CargarInventarioPage from './pages/CargarInventarioPage';
+import GruposChatPage from './pages/GruposChatPage';
 
 // ========================================
 // COMPONENTS
@@ -508,6 +509,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/modulos">
                         <ModuloPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Grupos de Chat */}
+                  <Route
+                    path="/grupos-chat"
+                    element={
+                      <ProtectedRoute requiredRoute="/grupos-chat">
+                        <GruposChatPage />
                       </ProtectedRoute>
                     }
                   />

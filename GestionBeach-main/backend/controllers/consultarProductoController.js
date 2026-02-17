@@ -441,17 +441,64 @@ exports.getTarjetaExistencia = async (req, res) => {
       .query(query);
 
     const registros = result.recordset;
+
+    // Mapeo de tipos de movimiento a códigos legibles
+    const tipoMovimiento = {
+      1: 'OC',   // Orden de Compra
+      2: 'BO',   // Boleta
+      3: 'FA',   // Factura
+      4: 'GU',   // Guía
+      5: 'AJ',   // Ajuste
+      6: 'TR',   // Traspaso
+      7: 'DE',   // Devolución
+    };
+
+    // Transformar datos para el frontend y calcular saldo acumulativo
+    let saldoAcumulado = 0;
+    const movimientos = registros.map((r, index) => {
+      // Calcular saldo acumulativo (entrada suma, salida resta)
+      saldoAcumulado = saldoAcumulado + (r.entrada || 0) - (r.salida || 0);
+
+      // Construir detalle descriptivo
+      let detalle = '';
+      if (r.proveedor) {
+        detalle = `Proveedor: ${r.proveedor}`;
+      } else if (r.cliente) {
+        detalle = `Cliente: ${r.cliente}`;
+      } else if (r.num_orden) {
+        detalle = `Orden: ${r.num_orden}`;
+      } else {
+        detalle = r.entrada > 0 ? 'Entrada de mercadería' : 'Salida de mercadería';
+      }
+
+      return {
+        Fecha: r.fecha,
+        Tipo: tipoMovimiento[r.movimiento] || 'OT',  // OT = Otro
+        Folio: r.folio || r.doc || '-',
+        Detalle: detalle,
+        Entrada: r.entrada || 0,
+        Salida: r.salida || 0,
+        Saldo: saldoAcumulado,
+        // Datos adicionales por si se necesitan
+        _precioEntrada: r.precio_entrada,
+        _precioSalida: r.precio_salida,
+        _stockActual: r.stock
+      };
+    });
+
     const totalEntradas = registros.reduce((s, r) => s + (r.entrada || 0), 0);
     const totalSalidas = registros.reduce((s, r) => s + (r.salida || 0), 0);
+    const stockActual = movimientos.length > 0 ? movimientos[movimientos.length - 1].Saldo : 0;
 
     const ms = Date.now() - t0;
     console.log(`[Tarjeta Existencia] ${sucursal.nombre} - ${codigo}: ${registros.length} movimientos en ${ms}ms`);
 
     res.json({
-      movimientos: registros,
-      total_movimientos: registros.length,
+      movimientos,
+      total_movimientos: movimientos.length,
       total_entradas: totalEntradas,
       total_salidas: totalSalidas,
+      stock_actual: stockActual,
       tiempo_ms: ms
     });
   } catch (error) {

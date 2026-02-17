@@ -32,6 +32,9 @@ import { useSnackbar } from 'notistack';
 import { format } from 'date-fns';
 import SucursalSelect from '../components/SucursalSelect';
 
+// IMPORTANTE: VentasPage usa el sistema de permisos modulares
+const MODULO_NOMBRE = 'Ventas';
+
 const VentasPage = () => {
   const theme = useTheme();
   const [selectedSucursal, setSelectedSucursal] = useState('');
@@ -311,6 +314,7 @@ const VentasPage = () => {
                     label="Sucursal"
                     fullWidth
                     required
+                    moduloNombre={MODULO_NOMBRE}
                     sx={{
                       '& .MuiInputBase-root': {
                         bgcolor: 'rgba(255,255,255,0.1)',

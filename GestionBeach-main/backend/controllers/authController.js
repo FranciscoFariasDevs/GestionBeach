@@ -20,10 +20,11 @@ exports.login = async (req, res) => {
     const result = await pool.request()
       .input('username', sql.VarChar, username)
       .query(`
-        SELECT 
-          u.id, 
-          u.username, 
-          u.password, 
+        SELECT
+          u.id,
+          u.username,
+          u.nombre_completo,
+          u.password,
           u.perfil_id,
           p.nombre as perfil_nombre
         FROM usuarios u
@@ -59,22 +60,23 @@ exports.login = async (req, res) => {
         {
           id: user.id,
           username: user.username,
+          nombre: user.nombre_completo,
           perfilId: user.perfil_id,
-          perfil: user.perfil_nombre  // ✅ INCLUIR NOMBRE DEL PERFIL PARA VERIFICAR PERMISOS
+          perfil: user.perfil_nombre
         },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES_IN }
       );
-      
-      // ✅ RESPUESTA CON PERFILID INCLUIDO
+
       return res.status(200).json({
         message: 'Login exitoso',
         token,
         user: {
           id: user.id,
           username: user.username,
-          perfilId: user.perfil_id,        // ✅ CRÍTICO: INCLUIR PERFILID
-          perfil: user.perfil_nombre,      // ✅ BONUS: NOMBRE DEL PERFIL
+          nombre: user.nombre_completo,
+          perfilId: user.perfil_id,
+          perfil: user.perfil_nombre,
           modules
         }
       });
@@ -102,9 +104,10 @@ exports.check = async (req, res) => {
     const userResult = await pool.request()
       .input('userId', sql.Int, decoded.id)
       .query(`
-        SELECT 
-          u.id, 
-          u.username, 
+        SELECT
+          u.id,
+          u.username,
+          u.nombre_completo,
           u.perfil_id,
           p.nombre as perfil_nombre
         FROM usuarios u
@@ -133,14 +136,14 @@ exports.check = async (req, res) => {
       console.log('⚠️ Error obteniendo módulos, continuando...');
     }
     
-    // ✅ INCLUIR PERFILID EN CHECK TAMBIÉN
     return res.status(200).json({
       authenticated: true,
       user: {
         id: user.id,
         username: user.username,
-        perfilId: user.perfil_id,        // ✅ INCLUIR PERFILID
-        perfil: user.perfil_nombre,      // ✅ NOMBRE DEL PERFIL
+        nombre: user.nombre_completo,
+        perfilId: user.perfil_id,
+        perfil: user.perfil_nombre,
         modules
       }
     });
