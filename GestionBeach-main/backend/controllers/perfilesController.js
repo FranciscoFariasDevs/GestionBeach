@@ -204,15 +204,15 @@ exports.getPerfilById = async (req, res) => {
 
     const perfil = result.recordset[0];
 
-    // Obtener módulos del perfil
+    // Obtener módulos del perfil (desde perfil_modulo_sucursal)
     try {
       const modulosResult = await pool.request()
         .input('perfilId', sql.Int, id)
         .query(`
-          SELECT m.id, m.nombre, m.descripcion
+          SELECT DISTINCT m.id, m.nombre, m.descripcion
           FROM modulos m
-          INNER JOIN perfil_modulo pm ON pm.modulo_id = m.id
-          WHERE pm.perfil_id = @perfilId
+          INNER JOIN perfil_modulo_sucursal pms ON pms.modulo_id = m.id
+          WHERE pms.perfil_id = @perfilId
           ORDER BY m.nombre
         `);
 
@@ -226,15 +226,15 @@ exports.getPerfilById = async (req, res) => {
       perfil.moduloIds = [];
     }
 
-    // Obtener sucursales del perfil
+    // Obtener sucursales del perfil (desde perfil_modulo_sucursal)
     try {
       const sucursalesResult = await pool.request()
         .input('perfilId', sql.Int, id)
         .query(`
-          SELECT s.id, s.nombre, s.tipo_sucursal
+          SELECT DISTINCT s.id, s.nombre, s.tipo_sucursal
           FROM sucursales s
-          INNER JOIN perfil_sucursal ps ON ps.sucursal_id = s.id
-          WHERE ps.perfil_id = @perfilId
+          INNER JOIN perfil_modulo_sucursal pms ON pms.sucursal_id = s.id
+          WHERE pms.perfil_id = @perfilId
           ORDER BY s.nombre
         `);
 
@@ -307,104 +307,11 @@ exports.createPerfil = async (req, res) => {
     const perfilId = insertResult.recordset[0].id;
     console.log(`✅ Perfil creado con ID: ${perfilId}`);
 
-    // Asignar módulos - VERSIÓN OPTIMIZADA
-    const modulosAsignados = [];
-    const modulosNoEncontrados = [];
-
-    if (Array.isArray(modulos) && modulos.length > 0) {
-      console.log(`🔄 Asignando ${modulos.length} módulos...`);
-
-      // Obtener TODOS los módulos de la BD de una vez
-      const todosModulosResult = await pool.request()
-        .query('SELECT id, nombre FROM modulos');
-
-      const modulosMap = {};
-      todosModulosResult.recordset.forEach(m => {
-        modulosMap[m.nombre.trim()] = m.id;
-      });
-
-      console.log(`📊 Módulos disponibles en BD:`, Object.keys(modulosMap));
-
-      // Construir VALUES para INSERT masivo
-      const valuesToInsert = [];
-
-      for (const nombreModulo of modulos) {
-        const nombreTrimmed = nombreModulo.trim();
-        const moduloId = modulosMap[nombreTrimmed];
-
-        if (moduloId) {
-          valuesToInsert.push(`(${perfilId}, ${moduloId})`);
-          modulosAsignados.push(nombreTrimmed);
-          console.log(`✅ Módulo "${nombreTrimmed}" (ID=${moduloId}) preparado`);
-        } else {
-          console.warn(`⚠️ Módulo "${nombreTrimmed}" NO ENCONTRADO`);
-          modulosNoEncontrados.push(nombreTrimmed);
-        }
-      }
-
-      // INSERT masivo de todos los módulos de una vez
-      if (valuesToInsert.length > 0) {
-        const insertQuery = `
-          INSERT INTO perfil_modulo (perfil_id, modulo_id)
-          VALUES ${valuesToInsert.join(', ')}
-        `;
-
-        await transaction.request().query(insertQuery);
-        console.log(`✅ ${valuesToInsert.length} módulos insertados correctamente`);
-      }
-
-      if (modulosNoEncontrados.length > 0) {
-        console.warn(`⚠️ === MÓDULOS NO ENCONTRADOS (${modulosNoEncontrados.length}) ===`);
-        console.warn(`📋 Lista:`, modulosNoEncontrados);
-      }
-    }
-
-    // Asignar sucursales
-    const sucursalesAsignadas = [];
-
-    if (Array.isArray(sucursales) && sucursales.length > 0) {
-      console.log(`🔄 Asignando ${sucursales.length} sucursales...`);
-
-      // Construir VALUES para INSERT masivo de sucursales
-      const sucursalesToInsert = [];
-
-      for (const sucursalId of sucursales) {
-        if (sucursalId) {
-          sucursalesToInsert.push(`(${perfilId}, ${sucursalId})`);
-          sucursalesAsignadas.push(sucursalId);
-          console.log(`✅ Sucursal ID=${sucursalId} preparada`);
-        }
-      }
-
-      // INSERT masivo de sucursales
-      if (sucursalesToInsert.length > 0) {
-        const insertSucursalesQuery = `
-          INSERT INTO perfil_sucursal (perfil_id, sucursal_id)
-          VALUES ${sucursalesToInsert.join(', ')}
-        `;
-
-        await transaction.request().query(insertSucursalesQuery);
-        console.log(`✅ ${sucursalesToInsert.length} sucursales insertadas correctamente`);
-      }
-    }
-
     // Confirmar transacción
     await transaction.commit();
 
-    const resultado = {
-      id: perfilId,
-      nombre: nombre.trim(),
-      modulos: modulosAsignados,
-      totalModulosAsignados: modulosAsignados.length,
-      sucursales: sucursalesAsignadas,
-      totalSucursalesAsignadas: sucursalesAsignadas.length
-    };
-
     console.log('✅ === PERFIL CREADO EXITOSAMENTE ===');
-    console.log(`📊 Total: ${modulosAsignados.length}/${modulos ? modulos.length : 0} módulos asignados`);
-    console.log(`📊 Total: ${sucursalesAsignadas.length}/${sucursales ? sucursales.length : 0} sucursales asignadas`);
-
-    res.status(201).json(resultado);
+    res.status(201).json({ id: perfilId, nombre: nombre.trim() });
 
   } catch (error) {
     // Rollback en caso de error
@@ -487,117 +394,18 @@ exports.updatePerfil = async (req, res) => {
 
     console.log(`✅ Nombre del perfil ${id} actualizado`);
 
-    // Eliminar módulos existentes
+    // Limpiar permisos modulares existentes para que el frontend los reasigne
     await transaction.request()
       .input('perfilId', sql.Int, id)
-      .query('DELETE FROM perfil_modulo WHERE perfil_id = @perfilId');
+      .query('DELETE FROM perfil_modulo_sucursal WHERE perfil_id = @perfilId');
 
-    console.log(`🗑️ Módulos anteriores eliminados`);
-
-    // Eliminar sucursales existentes
-    await transaction.request()
-      .input('perfilId', sql.Int, id)
-      .query('DELETE FROM perfil_sucursal WHERE perfil_id = @perfilId');
-
-    console.log(`🗑️ Sucursales anteriores eliminadas`);
-
-    // Asignar nuevos módulos - VERSIÓN OPTIMIZADA
-    const modulosAsignados = [];
-    const modulosNoEncontrados = [];
-
-    if (Array.isArray(modulos) && modulos.length > 0) {
-      console.log(`🔄 Reasignando ${modulos.length} módulos...`);
-
-      // Obtener TODOS los módulos de la BD de una vez
-      const todosModulosResult = await pool.request()
-        .query('SELECT id, nombre FROM modulos');
-
-      const modulosMap = {};
-      todosModulosResult.recordset.forEach(m => {
-        modulosMap[m.nombre.trim()] = m.id;
-      });
-
-      console.log(`📊 Módulos disponibles en BD:`, Object.keys(modulosMap));
-
-      // Construir VALUES para INSERT masivo
-      const valuesToInsert = [];
-
-      for (const nombreModulo of modulos) {
-        const nombreTrimmed = nombreModulo.trim();
-        const moduloId = modulosMap[nombreTrimmed];
-
-        if (moduloId) {
-          valuesToInsert.push(`(${id}, ${moduloId})`);
-          modulosAsignados.push(nombreTrimmed);
-          console.log(`✅ Módulo "${nombreTrimmed}" (ID=${moduloId}) preparado`);
-        } else {
-          console.warn(`⚠️ Módulo "${nombreTrimmed}" NO ENCONTRADO`);
-          modulosNoEncontrados.push(nombreTrimmed);
-        }
-      }
-
-      // INSERT masivo de todos los módulos de una vez
-      if (valuesToInsert.length > 0) {
-        const insertQuery = `
-          INSERT INTO perfil_modulo (perfil_id, modulo_id)
-          VALUES ${valuesToInsert.join(', ')}
-        `;
-
-        await transaction.request().query(insertQuery);
-        console.log(`✅ ${valuesToInsert.length} módulos insertados correctamente`);
-      }
-
-      if (modulosNoEncontrados.length > 0) {
-        console.warn(`⚠️ === MÓDULOS NO ENCONTRADOS (${modulosNoEncontrados.length}) ===`);
-        console.warn(`📋 Lista:`, modulosNoEncontrados);
-      }
-    }
-
-    // Asignar nuevas sucursales
-    const sucursalesAsignadas = [];
-
-    if (Array.isArray(sucursales) && sucursales.length > 0) {
-      console.log(`🔄 Reasignando ${sucursales.length} sucursales...`);
-
-      // Construir VALUES para INSERT masivo de sucursales
-      const sucursalesToInsert = [];
-
-      for (const sucursalId of sucursales) {
-        if (sucursalId) {
-          sucursalesToInsert.push(`(${id}, ${sucursalId})`);
-          sucursalesAsignadas.push(sucursalId);
-          console.log(`✅ Sucursal ID=${sucursalId} preparada`);
-        }
-      }
-
-      // INSERT masivo de sucursales
-      if (sucursalesToInsert.length > 0) {
-        const insertSucursalesQuery = `
-          INSERT INTO perfil_sucursal (perfil_id, sucursal_id)
-          VALUES ${sucursalesToInsert.join(', ')}
-        `;
-
-        await transaction.request().query(insertSucursalesQuery);
-        console.log(`✅ ${sucursalesToInsert.length} sucursales insertadas correctamente`);
-      }
-    }
+    console.log(`🗑️ Permisos modulares anteriores limpiados`);
 
     // Confirmar transacción
     await transaction.commit();
 
-    const resultado = {
-      id: parseInt(id),
-      nombre: nombre.trim(),
-      modulos: modulosAsignados,
-      totalModulosAsignados: modulosAsignados.length,
-      sucursales: sucursalesAsignadas,
-      totalSucursalesAsignadas: sucursalesAsignadas.length
-    };
-
     console.log('✅ === PERFIL ACTUALIZADO EXITOSAMENTE ===');
-    console.log(`📊 Total: ${modulosAsignados.length}/${modulos ? modulos.length : 0} módulos asignados`);
-    console.log(`📊 Total: ${sucursalesAsignadas.length}/${sucursales ? sucursales.length : 0} sucursales asignadas`);
-    res.status(200).json(resultado);
+    res.status(200).json({ id: parseInt(id), nombre: nombre.trim() });
     
   } catch (error) {
     if (transaction) {

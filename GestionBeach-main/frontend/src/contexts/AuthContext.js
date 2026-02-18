@@ -109,29 +109,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Helper: true si el usuario es superadmin
+  const isSuperAdmin = (u) => u && (u.superadmin === true || u.superadmin === 1 || u.username === "NOVLUI");
+
   // Verificar si el usuario tiene acceso a un módulo por ID
   const hasAccess = (moduleId) => {
-    // Excepción para el usuario NOVLUI - siempre tiene acceso a todo
-    if (user && user.username === "NOVLUI") return true;
-    
-    // Verificación normal para otros usuarios
+    if (isSuperAdmin(user)) return true;
     if (!user || !user.modules) return false;
     return user.modules.includes(parseInt(moduleId));
   };
 
   // Verificar si el usuario tiene acceso a una ruta específica
   const hasRouteAccess = (route) => {
-    // Excepción para el usuario NOVLUI - siempre tiene acceso a todas las rutas
-    if (user && user.username === "NOVLUI") return true;
-    
-    // Verificación normal para otros usuarios
+    if (isSuperAdmin(user)) return true;
     if (!user || !user.modules || !modulos.length) return false;
-    
-    // Encontrar el módulo correspondiente a la ruta
     const modulo = modulos.find(m => m.ruta === route);
     if (!modulo) return false;
-    
-    // Verificar si el usuario tiene acceso a ese módulo
     return user.modules.includes(modulo.id);
   };
 

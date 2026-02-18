@@ -36,7 +36,8 @@ export const MODULES = {
   STOCKS: 'productos/stocks',
   ANULACIONES: 'productos/anulaciones',
   CARGAR_INVENTARIO: 'productos/cargar-inventario',
-  GRUPOS_CHAT: 'grupos-chat'
+  GRUPOS_CHAT: 'grupos-chat',
+  PANIFICACION_COMPRAS: 'compras/panificacion',
 };
 
 // Definir acciones
@@ -61,8 +62,9 @@ export function defineAbilitiesFor(user, modulosList) {
     return build();
   }
 
-  // Excepción especial para NOVLUI - acceso total
-  if (user.username === "NOVLUI") {
+  // Superadmin → acceso total (campo superadmin=true en BD, o usuario NOVLUI)
+  const isSuperAdmin = user.superadmin === true || user.superadmin === 1 || user.username === "NOVLUI";
+  if (isSuperAdmin) {
     can(ACTIONS.manage, Object.values(MODULES));
     return build();
   }
@@ -180,7 +182,10 @@ export function canAccessRoute(ability, route) {
     '/productos/cargar-inventario': MODULES.CARGAR_INVENTARIO,
 
     '/dashboard/grupos-chat': MODULES.GRUPOS_CHAT,
-    '/grupos-chat': MODULES.GRUPOS_CHAT
+    '/grupos-chat': MODULES.GRUPOS_CHAT,
+
+    '/dashboard/compras/panificacion': MODULES.PANIFICACION_COMPRAS,
+    '/compras/panificacion': MODULES.PANIFICACION_COMPRAS,
   };
 
   const module = routeToModule[route];

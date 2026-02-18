@@ -172,6 +172,8 @@ const optionalRoutes = [
   { path: './routes/chatRoutes', route: '/api/chat' },
   // 👥 GRUPOS DE CHAT (CRUD desde módulo admin)
   { path: './routes/gruposChatRoutes', route: '/api/grupos-chat' },
+  // 🏭 PANIFICACIÓN COMPRAS - PAGOS
+  { path: './routes/panificacionRoutes', route: '/api/panificacion' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

@@ -231,24 +231,12 @@ export default function PerfilPage() {
         enqueueSnackbar('Perfil creado', { variant: 'success' });
       }
 
-      // Guardar permisos modulares (SIMPLIFICADO - solo sucursales)
+      // Guardar permisos modulares (módulo + sucursales en perfil_modulo_sucursal)
       for (const moduloConfig of modulosAsignados) {
-        if (moduloConfig.sucursales.length > 0) {
-          await api.post('/permisos-modulares/sucursales', {
-            perfil_id: perfilId,
-            modulo_id: moduloConfig.modulo_id,
-            sucursales: moduloConfig.sucursales.map(s => ({ id: s.id }))
-          });
-        }
-      }
-
-      // Guardar acceso general a módulos
-      const modulosIds = modulosAsignados.map(m => m.modulo_id);
-      if (modulosIds.length > 0) {
-        await api.put(`/perfiles/${perfilId}`, {
-          nombre: currentPerfil.nombre,
-          descripcion: currentPerfil.descripcion,
-          modulos: modulosIds
+        await api.post('/permisos-modulares/sucursales', {
+          perfil_id: perfilId,
+          modulo_id: moduloConfig.modulo_id,
+          sucursales: moduloConfig.sucursales.map(s => ({ id: s.id }))
         });
       }
 

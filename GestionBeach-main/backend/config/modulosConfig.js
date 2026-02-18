@@ -37,6 +37,7 @@ module.exports = [
   { nombre: 'Compras',               claves: ['compras', 'compras/centros-costos', 'compras/facturas-xml'] },
   { nombre: 'Centros de Costos',     claves: ['compras/centros-costos'] },
   { nombre: 'Facturas XML',          claves: ['compras/facturas-xml'] },
+  { nombre: 'Panificacion Compras',  claves: ['compras/panificacion'] },
 
   { nombre: 'Tarjeta Empleado',      claves: ['tarjeta-empleado'] },
   { nombre: 'Empleados',             claves: ['empleados'] },

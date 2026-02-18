@@ -26,6 +26,7 @@ exports.login = async (req, res) => {
           u.nombre_completo,
           u.password,
           u.perfil_id,
+          ISNULL(u.superadmin, 0) as superadmin,
           p.nombre as perfil_nombre
         FROM usuarios u
         LEFT JOIN perfiles p ON u.perfil_id = p.id
@@ -77,6 +78,7 @@ exports.login = async (req, res) => {
           nombre: user.nombre_completo,
           perfilId: user.perfil_id,
           perfil: user.perfil_nombre,
+          superadmin: user.superadmin === true || user.superadmin === 1,
           modules
         }
       });
@@ -109,6 +111,7 @@ exports.check = async (req, res) => {
           u.username,
           u.nombre_completo,
           u.perfil_id,
+          ISNULL(u.superadmin, 0) as superadmin,
           p.nombre as perfil_nombre
         FROM usuarios u
         LEFT JOIN perfiles p ON u.perfil_id = p.id
@@ -144,6 +147,7 @@ exports.check = async (req, res) => {
         nombre: user.nombre_completo,
         perfilId: user.perfil_id,
         perfil: user.perfil_nombre,
+        superadmin: user.superadmin === true || user.superadmin === 1,
         modules
       }
     });

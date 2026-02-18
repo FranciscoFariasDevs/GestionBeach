@@ -57,6 +57,7 @@ import RemuneracionesPage from './pages/RemuneracionesPage';
 import CentrosCostosPage from './pages/CentrosCostosPage';
 import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
+import PanificacionPage from './pages/PanificacionPage';
 import InventarioPage from './pages/InventarioPage';
 import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
 import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
@@ -426,6 +427,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/compras/registro-compras">
                         <RegistroComprasPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Panificación - Control de Pagos */}
+                  <Route
+                    path="/compras/panificacion"
+                    element={
+                      <ProtectedRoute requiredRoute="/compras/panificacion">
+                        <PanificacionPage />
                       </ProtectedRoute>
                     }
                   />

@@ -406,6 +406,7 @@ export default function DashboardLayout() {
       subItems: [
         { text: 'Gestión de Centros de Costos', path: '/compras/centros-costos', icon: <CentrosCostosIcon /> },
         { text: 'Facturas XML', path: '/compras/facturas-xml', icon: <FacturasIcon /> },
+        { text: 'Planificacion Compras-Pagos', path: '/compras/panificacion', icon: <TrendingUpIcon /> },
       ],
     },
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
@@ -460,6 +461,7 @@ export default function DashboardLayout() {
         '/productos': 'Productos',
         '/compras/centros-costos': 'Gestión de Centros de Costos',
         '/compras/facturas-xml': 'Gestión de Facturas XML',
+        '/compras/panificacion': 'Planificacion Compras-Pagos',
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
