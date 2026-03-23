@@ -53,6 +53,8 @@ const obtenerSucursalesERP = async () => {
      WHERE ip IS NOT NULL AND ip <> ''
        AND base_datos IS NOT NULL AND base_datos <> ''
        AND usuario IS NOT NULL AND usuario <> ''
+       AND ISNULL(tipo_sucursal,'') <> 'SUPERMERCADO'
+       AND nombre NOT LIKE '%1440%'
      ORDER BY id`
   );
   return r.recordset;
@@ -183,6 +185,10 @@ const asegurarTablas = async (pool) => {
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='vigente' AND Object_ID=Object_ID('panificacion_compras'))
       ALTER TABLE panificacion_compras ADD vigente BIT NOT NULL DEFAULT 1
   `);
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='es_madre' AND Object_ID=Object_ID('panificacion_compras'))
+      ALTER TABLE panificacion_compras ADD es_madre BIT NOT NULL DEFAULT 0
+  `);
   // Índices de rendimiento (se crean solo si no existen)
   await pool.request().query(`
     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='idx_planif_año_semana' AND object_id=OBJECT_ID('panificacion_compras'))
@@ -226,17 +232,22 @@ exports.getControlSemanal = async (req, res) => {
             ROW_NUMBER() OVER (
               PARTITION BY
                 CASE
-                  -- Encadenados con orden: distinguir por (orden + plazo + sucursal)
+                  -- Encadenados con orden: dedup por (orden + plazo) sin sucursal
+                  -- Un N° de OC es globalmente único; no puede existir en dos sucursales
                   WHEN LEN(ISNULL(numero_orden,'')) > 0 AND tipo_proveedor = 'Encadenado'
                   THEN numero_orden
                        + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
-                       + '_'   + ISNULL(sucursal,'')
                   ELSE CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY id DESC
+              ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año
+          -- Encadenados: filtrar por AÑO DE VENCIMIENTO (OCs de 2025 que vencen en 2026)
+          WHERE (
+            (tipo_proveedor = 'Encadenado'    AND YEAR(fecha_vencimiento) = @año)
+            OR
+            (tipo_proveedor = 'No Encadenado' AND año = @año)
+          ) AND ISNULL(es_madre, 0) = 0
         )
         SELECT semana_vencimiento,
                -- Proyección OC (EXCEL encadenados, aún no facturados)
@@ -291,11 +302,13 @@ exports.getControlSemanal = async (req, res) => {
       }
 
       const fechaInicio = config?.fecha_inicio || getWeekStart(s, año);
+      const { fechaFin } = getWeekDateRange(s, año);
 
       semanas.push({
         semana: `S${s}`,
         numero_semana: s,
         fecha_inicio: formatDate(fechaInicio),
+        fecha_fin: fechaFin,
         limite_semanal: limite,
         encadenados:          encComp,
         deuda_facturada_enc:  deudaFactEnc,
@@ -337,23 +350,26 @@ exports.getCompras = async (req, res) => {
           ROW_NUMBER() OVER (
             PARTITION BY
               CASE
-                -- Encadenados con orden: dedup por (orden + plazo + sucursal)
-                -- así cada plazo/sucursal distinto de la misma OC se conserva
+                -- Encadenados con orden: dedup por (orden + plazo) sin sucursal
+                -- Un N° de OC es globalmente único; no puede existir en dos sucursales
                 WHEN tipo_proveedor = 'Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
                   THEN CAST(año AS NVARCHAR(10)) + '_ENC_'
                        + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'')
                        + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
-                       + '_' + ISNULL(sucursal,'')
                 WHEN tipo_proveedor = 'Encadenado'
                   THEN CAST(id AS NVARCHAR(20))
                 WHEN tipo_proveedor = 'No Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
-                  THEN CAST(año AS NVARCHAR(10)) + '_NENC_' + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'') + '_' + ISNULL(sucursal,'')
+                  THEN CAST(año AS NVARCHAR(10)) + '_NENC_'
+                       + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'')
+                       + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
+                       + '_' + ISNULL(sucursal,'')
                 ELSE
                   CAST(id AS NVARCHAR(20))
               END
-            ORDER BY id DESC
+            ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
           ) AS _rn
         FROM panificacion_compras
+        WHERE ISNULL(es_madre, 0) = 0
       )
       SELECT id, proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
              monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
@@ -364,14 +380,25 @@ exports.getCompras = async (req, res) => {
     `;
     const request = pool.request();
 
-    if (año) { query += ` AND año = @año`; request.input('año', sql.Int, parseInt(año)); }
+    if (año) {
+      if (campoBD === 'semana_compra') {
+        query += ` AND año = @año`;
+      } else {
+        query += ` AND (
+          (tipo_proveedor = 'Encadenado'    AND YEAR(fecha_vencimiento) = @año)
+          OR
+          (tipo_proveedor = 'No Encadenado' AND año = @año)
+        )`;
+      }
+      request.input('año', sql.Int, parseInt(año));
+    }
     if (semana) { query += ` AND ${campoBD} = @semana`; request.input('semana', sql.Int, parseInt(semana)); }
     if (tipo) { query += ' AND tipo_proveedor = @tipo'; request.input('tipo', sql.NVarChar, tipo); }
     if (proveedor) { query += ' AND proveedor LIKE @proveedor'; request.input('proveedor', sql.NVarChar, `%${proveedor}%`); }
     if (sucursal) { query += ' AND sucursal = @sucursal'; request.input('sucursal', sql.NVarChar, sucursal); }
     if (mes) { query += ' AND mes = @mes'; request.input('mes', sql.NVarChar, mes); }
 
-    query += ' ORDER BY fecha_compra DESC, id DESC';
+    query += ' ORDER BY fecha_compra DESC, numero_orden ASC, id DESC';
 
     if (tipo === 'No Encadenado') {
       console.log('\n📋 [No Encadenados] QUERY SQL:');
@@ -472,7 +499,7 @@ exports.getProyeccion = async (req, res) => {
           ) AS _rn
         FROM panificacion_compras
         WHERE tipo_proveedor = 'Encadenado'
-          ${año ? 'AND año = @año' : ''}
+          ${año ? 'AND YEAR(fecha_vencimiento) = @año' : ''}
       )
       SELECT
         proveedor, fecha_compra, semana_compra, numero_orden,
@@ -523,6 +550,15 @@ exports.getProyeccion = async (req, res) => {
     console.error('Error getProyeccion:', error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// ─── Helper: redondear días al plazo contractual estándar más cercano ─────────
+const redondearPlazo = (dias) => {
+  const estandares = [30, 60, 90, 120];
+  if (!dias || dias <= 0) return 30;
+  return estandares.reduce((prev, curr) =>
+    Math.abs(curr - dias) < Math.abs(prev - dias) ? curr : prev
+  );
 };
 
 // ─── Helper: insertar una compra ──────────────────────────────────────────────
@@ -629,41 +665,54 @@ exports.uploadExcelEncadenados = async (req, res) => {
         const iFechaVenc  = col(['fecha vencimiento','vencimiento']);
         const iSemanaVenc = col(['semana vencimiento']);
 
+        // ── PASO 1: recolectar filas válidas y contar plazos por (proveedor+fecha+monto) ──
+        // Si el mismo proveedor+fecha+monto aparece N veces con distintos plazos → N cuotas
+        const comprasFilasValidas = [];
+        const comprasGrupoCount = {}; // "prov|fecha|monto" → cantidad de filas
+
         for (const row of rows) {
+          const proveedor = String(row[iProveedor] || '').trim();
+          if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
+          const fechaCompra = parseFecha(row[iFecha]);
+          if (!fechaCompra) continue;
+          const montoNeto = parseFloat(row[iNeto]) || 0;
+          const montoIva  = parseFloat(row[iIva])  || montoNeto * 1.19;
+          const plazoRaw  = parseInt(row[iPlazo]);
+          const plazo     = isNaN(plazoRaw) ? 30 : plazoRaw;
+          let fechaVenc = parseFecha(row[iFechaVenc]);
+          if (!fechaVenc) { fechaVenc = new Date(fechaCompra); fechaVenc.setDate(fechaVenc.getDate() + (plazo || 30)); }
+          const semanaCompra = parseInt(row[iSemana])     || getWeekNumber(fechaCompra);
+          const semanaVenc   = parseInt(row[iSemanaVenc]) || getWeekNumber(fechaVenc);
+          const año          = fechaCompra.getFullYear();
+
+          const grupoKey = `${proveedor}|${formatDate(fechaCompra)}|${montoIva}`;
+          comprasGrupoCount[grupoKey] = (comprasGrupoCount[grupoKey] || 0) + 1;
+          comprasFilasValidas.push({ proveedor, fechaCompra, montoNeto, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey });
+        }
+
+        // ── PASO 2: insertar dividiendo monto por cantidad de plazos del grupo ──
+        for (const r of comprasFilasValidas) {
           try {
-            const proveedor = String(row[iProveedor] || '').trim();
-            if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
+            const { proveedor, fechaCompra, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey } = r;
+            const cantidadCuotas = comprasGrupoCount[grupoKey] || 1;
+            const montoCuota = Math.round(montoIva / cantidadCuotas);
+            const montoNetoCuota = Math.round(montoCuota / 1.19);
 
-            const fechaCompra = parseFecha(row[iFecha]);
-            if (!fechaCompra) continue;
-
-            const montoNeto  = parseFloat(row[iNeto]) || 0;
-            const montoIva   = parseFloat(row[iIva])  || montoNeto * 1.19;
-            // Plazo: respetar 0 si el Excel dice 0 (no forzar default 30)
-            const plazoRaw   = parseInt(row[iPlazo]);
-            const plazo      = isNaN(plazoRaw) ? 30 : plazoRaw;
-
-            let fechaVenc = parseFecha(row[iFechaVenc]);
-            if (!fechaVenc) { fechaVenc = new Date(fechaCompra); fechaVenc.setDate(fechaVenc.getDate() + (plazo || 30)); }
-
-            const semanaCompra = parseInt(row[iSemana])     || getWeekNumber(fechaCompra);
-            const semanaVenc   = parseInt(row[iSemanaVenc]) || getWeekNumber(fechaVenc);
-            const año          = fechaCompra.getFullYear();
-
-            // Deduplicar: no reinsertar si ya existe mismo proveedor + semana + monto
+            // Deduplicar por (proveedor + semana + monto_original + plazo)
             const dup = await pool.request()
-              .input('prov', sql.NVarChar, proveedor)
-              .input('sem',  sql.Int,      semanaCompra)
-              .input('monto',sql.Decimal(18,2), montoIva)
+              .input('prov',  sql.NVarChar,      proveedor)
+              .input('sem',   sql.Int,            semanaCompra)
+              .input('monto', sql.Decimal(18,2),  montoCuota)
+              .input('plazo', sql.Int,            plazo)
               .query(`SELECT id FROM panificacion_compras
                       WHERE tipo_proveedor='Encadenado' AND proveedor=@prov
-                        AND semana_compra=@sem AND monto_con_iva=@monto`);
+                        AND semana_compra=@sem AND monto_con_iva=@monto AND plazo_dias=@plazo`);
             if (dup.recordset.length > 0) { ignorados++; continue; }
 
             await insertarCompra(pool, {
               proveedor, fecha_compra: formatDate(fechaCompra),
               semana_compra: semanaCompra, año, mes: getMesNombre(fechaCompra),
-              numero_orden: '', monto_neto: montoNeto, monto_con_iva: montoIva,
+              numero_orden: '', monto_neto: montoNetoCuota, monto_con_iva: montoCuota,
               plazo_dias: plazo, fecha_vencimiento: formatDate(fechaVenc),
               semana_vencimiento: semanaVenc, tipo_proveedor: 'Encadenado', sucursal: '',
             }, lote);
@@ -690,68 +739,71 @@ exports.uploadExcelEncadenados = async (req, res) => {
         const iProveedor = col(['proveedor']);
         const iTotal     = col(['total']);
         const iPlazo     = col(['plazo']);
-        const iEstado    = col(['estado']);
+
+        // ── PASO 1: recolectar filas válidas y contar plazos por OC ──────────
+        // Si una OC aparece N veces con distintos plazos, el monto se divide en N cuotas iguales
+        const ocFilasValidas = [];
+        const ocCantidadPlazos = {}; // numero_orden → cantidad de filas (= cuotas)
 
         for (const row of rows) {
+          const proveedor = String(row[iProveedor] ?? '').trim();
+          if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
+          const fechaCompra = parseFecha(row[iFecha]);
+          if (!fechaCompra) continue;
+          const montoConIvaTotal = parseFloat(String(row[iTotal] ?? '').replace(/[^0-9.-]/g, '')) || 0;
+          const plazoOCRaw = parseInt(row[iPlazo]);
+          const plazo = isNaN(plazoOCRaw) ? 30 : plazoOCRaw;
+          const orden = String(row[iOrden] ?? '').trim();
+
+          ocFilasValidas.push({ proveedor, fechaCompra, montoConIvaTotal, plazo, orden });
+          if (orden) ocCantidadPlazos[orden] = (ocCantidadPlazos[orden] || 0) + 1;
+        }
+
+        // ── PASO 2: procesar cada fila con el monto dividido por cuotas ──────
+        for (const r of ocFilasValidas) {
           try {
-            const proveedor = String(row[iProveedor] ?? '').trim();
-            if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
+            const { proveedor, fechaCompra, montoConIvaTotal, plazo, orden } = r;
 
-            const fechaCompra = parseFecha(row[iFecha]);
-            if (!fechaCompra) continue;
-
-            // ── 3 valores monetarios ─────────────────────────────────────────
-            // El Excel tiene solo "Total" (con IVA 19%)
-            const montoConIva = parseFloat(String(row[iTotal] ?? '').replace(/[^0-9.-]/g, '')) || 0;
-            const montoNeto   = Math.round(montoConIva / 1.19);   // sin IVA
-            // IVA implícito = montoConIva - montoNeto (disponible para frontend)
-
-            // Plazo: respetar 0 si el Excel dice 0
-            const plazoOCRaw = parseInt(row[iPlazo]);
-            const plazo      = isNaN(plazoOCRaw) ? 30 : plazoOCRaw;
-            const orden  = String(row[iOrden] ?? '').trim();
+            // Dividir monto por la cantidad de plazos de esta OC
+            const cantidadCuotas = (orden && ocCantidadPlazos[orden]) ? ocCantidadPlazos[orden] : 1;
+            const montoCuota = Math.round(montoConIvaTotal / cantidadCuotas);
+            const montoNeto  = Math.round(montoCuota / 1.19);
 
             // Fecha de vencimiento = fecha compra + plazo días
             const fechaVenc = new Date(fechaCompra);
             fechaVenc.setDate(fechaVenc.getDate() + (plazo || 30));
 
-            // semana/año se calculan por fila → soporta Excels multi-semana
             const semanaCompra = getWeekNumber(fechaCompra);
             const semanaVenc   = getWeekNumber(fechaVenc);
             const año          = fechaCompra.getFullYear();
 
-            // ── UPSERT por N° Orden: siempre actualizar estimaciones (OC = proyección) ──
-            // Excepción: si ya tiene fuente='FACTURA', no pisar los datos reales de la factura
+            // ── UPSERT por (N° Orden + plazo_dias): una fila por cuota ───────
             if (orden) {
-              // Buscar por (numero_orden + plazo_dias) para preservar distintos plazos
-              // de la misma OC como filas separadas
               const existente = await pool.request()
                 .input('orden', sql.NVarChar, orden)
                 .input('plazo', sql.Int,      plazo)
                 .query(`
-                  SELECT id, fuente FROM panificacion_compras
+                  SELECT TOP 1 id, fuente FROM panificacion_compras
                   WHERE numero_orden = @orden
                     AND ISNULL(plazo_dias, -1) = @plazo
                     AND tipo_proveedor = 'Encadenado'
-                    AND ISNULL(sucursal,'') = ''
+                  ORDER BY id DESC
                 `);
 
               if (existente.recordset.length > 0) {
                 const fuenteExistente = (existente.recordset[0].fuente || '').toUpperCase();
                 if (fuenteExistente === 'FACTURA') {
-                  // Ya tiene factura real → no sobreescribir con estimación
                   ignorados++;
                 } else {
-                  // Actualizar estimación con los datos más recientes del Excel
                   await pool.request()
-                    .input('id',                sql.Int,          existente.recordset[0].id)
-                    .input('proveedor',         sql.NVarChar,     proveedor)
+                    .input('id',                sql.Int,           existente.recordset[0].id)
+                    .input('proveedor',         sql.NVarChar,      proveedor)
                     .input('monto_neto',        sql.Decimal(18,2), montoNeto)
-                    .input('monto_con_iva',     sql.Decimal(18,2), montoConIva)
-                    .input('plazo_dias',        sql.Int,          plazo)
-                    .input('fecha_vencimiento', sql.Date,         formatDate(fechaVenc))
-                    .input('semana_vencimiento',sql.Int,          semanaVenc)
-                    .input('lote',              sql.NVarChar,     lote)
+                    .input('monto_con_iva',     sql.Decimal(18,2), montoCuota)
+                    .input('plazo_dias',        sql.Int,           plazo)
+                    .input('fecha_vencimiento', sql.Date,          formatDate(fechaVenc))
+                    .input('semana_vencimiento',sql.Int,           semanaVenc)
+                    .input('lote',              sql.NVarChar,      lote)
                     .query(`
                       UPDATE panificacion_compras SET
                         proveedor          = @proveedor,
@@ -766,11 +818,10 @@ exports.uploadExcelEncadenados = async (req, res) => {
                     `);
                   actualizados++;
                 }
-                continue; // no insertar segunda vez
+                continue;
               }
             }
 
-            // ── Insertar nuevo registro ──────────────────────────────────────
             await insertarCompra(pool, {
               proveedor,
               fecha_compra:       formatDate(fechaCompra),
@@ -779,7 +830,7 @@ exports.uploadExcelEncadenados = async (req, res) => {
               mes:                getMesNombre(fechaCompra),
               numero_orden:       orden,
               monto_neto:         montoNeto,
-              monto_con_iva:      montoConIva,
+              monto_con_iva:      montoCuota,
               plazo_dias:         plazo,
               fecha_vencimiento:  formatDate(fechaVenc),
               semana_vencimiento: semanaVenc,
@@ -1163,7 +1214,11 @@ exports.getResumenAnual = async (req, res) => {
           SUM(CASE WHEN tipo_proveedor='No Encadenado' THEN monto_con_iva ELSE 0 END) AS no_encadenados,
           COUNT(*)                                                       AS num_registros
         FROM panificacion_compras
-        WHERE año = @año
+        WHERE (
+          (tipo_proveedor = 'Encadenado'    AND YEAR(fecha_vencimiento) = @año)
+          OR
+          (tipo_proveedor = 'No Encadenado' AND año = @año)
+        )
         GROUP BY semana_vencimiento
       `);
 
@@ -1219,7 +1274,6 @@ exports.getComprasPorEmision = async (req, res) => {
                   WHEN tipo_proveedor = 'Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
                     THEN numero_orden
                          + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
-                         + '_'   + ISNULL(sucursal,'')
                   WHEN tipo_proveedor = 'Encadenado'
                     THEN CAST(id AS NVARCHAR(20))
                   WHEN tipo_proveedor = 'No Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
@@ -1227,10 +1281,10 @@ exports.getComprasPorEmision = async (req, res) => {
                   ELSE
                     CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY id DESC
+              ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año
+          WHERE año = @año AND ISNULL(es_madre, 0) = 0
         )
         SELECT semana_compra,
                SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='EXCEL'   THEN monto_con_iva ELSE 0 END) AS enc_oc,
@@ -1269,10 +1323,36 @@ exports.getComprasPorEmision = async (req, res) => {
       });
     }
 
-    res.json({ success: true, año, semanas });
+    // Fechas de última carga para mostrar en UI
+    const ultimasCargasRes = await pool.request().query(`
+      SELECT fuente, MAX(fecha_carga) AS ultima
+      FROM panificacion_compras
+      WHERE fuente IN ('EXCEL','ERP','FACTURA')
+      GROUP BY fuente
+    `);
+    const ultimasCargas = {};
+    ultimasCargasRes.recordset.forEach(r => { ultimasCargas[r.fuente] = r.ultima; });
+
+    res.json({ success: true, año, semanas, ultimasCargas });
   } catch (error) {
     console.error('Error getComprasPorEmision:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── PUT: Marcar/desmarcar compra como "compra madre" ─────────────────────────
+exports.marcarCompraMadre = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { es_madre } = req.body;
+    const pool = await poolPromise;
+    await pool.request()
+      .input('id',       sql.Int, parseInt(id))
+      .input('es_madre', sql.Bit, es_madre ? 1 : 0)
+      .query('UPDATE panificacion_compras SET es_madre = @es_madre WHERE id = @id');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -1295,7 +1375,6 @@ exports.getDetalleComprasPorEmision = async (req, res) => {
                   WHEN tipo_proveedor = 'Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
                     THEN numero_orden
                          + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
-                         + '_'   + ISNULL(sucursal,'')
                   WHEN tipo_proveedor = 'Encadenado'
                     THEN CAST(id AS NVARCHAR(20))
                   WHEN tipo_proveedor = 'No Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
@@ -1303,10 +1382,10 @@ exports.getDetalleComprasPorEmision = async (req, res) => {
                   ELSE
                     CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY id DESC
+              ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año
+          WHERE año = @año AND ISNULL(es_madre, 0) = 0
         )
         SELECT id, proveedor,
                CONVERT(VARCHAR(10), fecha_compra, 120) AS fecha_compra,
@@ -1329,45 +1408,44 @@ exports.getDetalleComprasPorEmision = async (req, res) => {
 // ─── Query ERP No Encadenados (reutilizable) ─────────────────────────────────
 const queryNoEncadenadosERP = async (pool, fechaInicio, fechaFin) => {
   const result = await pool.request()
-    .input('fechaInicio', sql.Date, fechaInicio)
-    .input('fechaFin',    sql.Date, fechaFin)
+    .input('fechaInicio', sql.DateTime, new Date(fechaInicio + 'T00:00:00'))
+    .input('fechaFin',    sql.DateTime, new Date(fechaFin    + 'T23:59:00'))
     .query(`
-      SELECT OC, Proveedor,
-             SUM(Neto)  AS Neto,
-             SUM(Iva)   AS Iva,
-             SUM(Total) AS Total,
-             FechaCreacion, FechaRecepcion, Plazo, FechaPago
+      WITH PlazosPorCondicion AS (
+        SELECT
+          CP_ID_CONDICION_PAGO,
+          COUNT(*) AS CantidadPlazos
+        FROM ERP_PLAZOS_CONDICIONES
+        GROUP BY CP_ID_CONDICION_PAGO
+      )
+      SELECT OC, Proveedor, Neto, Iva, Total, FechaCreacion, FechaRecepcion, Plazo, FechaPago
       FROM (
         SELECT
-          roc.ROC_NUMERO_ORDEN                                                                AS OC,
-          MPR.MPR_RAZON_SOCIAL                                                                AS Proveedor,
-          rig.BIGP_AFECTO                                                                     AS Neto,
-          rig.BIGP_IVA                                                                        AS Iva,
-          rig.BIGP_TOTAL                                                                      AS Total,
-          CONVERT(DATE, roc.ROC_FECHA_INGRESO)                                                AS FechaCreacion,
-          CONVERT(DATE, rig.BIGP_FECHA_HORA_RECEPCION_BODEGA)                                 AS FechaRecepcion,
-          pcod.PCOD_PLAZO                                                                     AS Plazo,
-          CONVERT(DATE, DATEADD(DAY, pcod.PCOD_PLAZO, rig.BIGP_FECHA_HORA_RECEPCION_BODEGA)) AS FechaPago
+          roc.ROC_NUMERO_ORDEN AS OC,
+          (SELECT TOP 1 MP.MPR_RAZON_SOCIAL
+           FROM ERP_MAESTRO_PROVEEDORES MP
+           WHERE MP.MPR_RUT_PROVEEDOR = rig.MPR_RUT_PROVEEDOR) AS Proveedor,
+          ROUND(rig.BIGP_AFECTO / CAST(ppc.CantidadPlazos AS FLOAT), 0) AS Neto,
+          ROUND(rig.BIGP_IVA   / CAST(ppc.CantidadPlazos AS FLOAT), 0) AS Iva,
+          ROUND(rig.BIGP_TOTAL / CAST(ppc.CantidadPlazos AS FLOAT), 0) AS Total,
+          roc.ROC_FECHA_INGRESO                                          AS FechaCreacion,
+          rig.BIGP_FECHA_HORA_RECEPCION_BODEGA                          AS FechaRecepcion,
+          co.PCOD_PLAZO                                                  AS Plazo,
+          DATEADD(DAY, co.PCOD_PLAZO, roc.ROC_FECHA_INGRESO) AS FechaPago
         FROM ERP_BOD_RES_INGRESO_GUIAS rig
-        JOIN ERP_OP_RES_ORDEN_COMPRA roc
-          ON rig.ROC_NUMERO_ORDEN = roc.ROC_NUMERO_ORDEN
-        JOIN ERP_CONDICIONES_PAGO CON
-          ON CON.CP_ID_CONDICION_PAGO = ROC.CP_ID_CONDICION_PAGO
-        JOIN ERP_MAESTRO_PROVEEDORES MPR
-          ON MPR.MPR_RUT_PROVEEDOR = ROC.MPR_RUT_PROVEEDOR
-        CROSS APPLY (
-          SELECT TOP 1 PCOD_PLAZO
-          FROM ERP_PLAZOS_CONDICIONES
-          WHERE CP_ID_CONDICION_PAGO = CON.CP_ID_CONDICION_PAGO
-          ORDER BY PCOD_PLAZO
-        ) pcod
+        JOIN ERP_OP_RES_ORDEN_COMPRA roc         ON rig.ROC_NUMERO_ORDEN = roc.ROC_NUMERO_ORDEN
+        JOIN ERP_BOD_ESTADO_INGRESO_EGRESO eie   ON eie.BEINGE_ID_ESTADO_INGRESO_EGRESO = rig.BEINGE_ID_ESTADO_INGRESO_EGRESO
+        JOIN ERP_USUARIOS_SISTEMAS us            ON us.US_ID_USUARIO_SISTEMA = rig.US_ID_USUARIO_SISTEMA
+        JOIN ERP_TIPO_PROVEEDOR TPR               ON TPR.TPROV_ID_TIPO_PROVEEDOR = rig.TPROV_ID_TIPO_PROVEEDOR
+        JOIN ERP_CONDICIONES_PAGO CON             ON CON.CP_ID_CONDICION_PAGO = ROC.CP_ID_CONDICION_PAGO
+        JOIN ERP_OP_PROCEDENCIA_ORDEN PRO         ON PRO.OPOR_ID_PROCEDENCIA_ORDEN = ROC.OPOR_ID_PROCEDENCIA_ORDEN
+        JOIN ERP_PLAZOS_CONDICIONES co            ON co.CP_ID_CONDICION_PAGO = CON.CP_ID_CONDICION_PAGO
+        JOIN PlazosPorCondicion ppc               ON ppc.CP_ID_CONDICION_PAGO = CON.CP_ID_CONDICION_PAGO
         WHERE
-          ROC.TPROV_ID_TIPO_PROVEEDOR = '2'
-          AND MPR.TPROV_ID_TIPO_PROVEEDOR = '2'
-          AND rig.BEINGE_ID_ESTADO_INGRESO_EGRESO = '1'
-          AND rig.BIGP_FECHA_HORA_RECEPCION_BODEGA BETWEEN @fechaInicio AND @fechaFin
+          eie.BEINGE_DESCRIPCION_ESTADO = 'VIGENTE'
+          AND TPR.TPROV_DESCRIPCION_TIPO_PROV LIKE '%NO%'
       ) t
-      GROUP BY OC, Proveedor, FechaCreacion, FechaRecepcion, Plazo, FechaPago
+      WHERE FechaPago BETWEEN @fechaInicio AND @fechaFin
     `);
   return result.recordset;
 };
@@ -1395,82 +1473,156 @@ exports.getNoEncadenadosERP = async (req, res) => {
   }
 };
 
-// ─── POST: Cargar No Encadenados desde ERP y guardar en panificacion_compras ──
-exports.cargarNoEncadenadosERP = async (req, res) => {
-  try {
-    let { fechaInicio, fechaFin, semana, año, reemplazar } = req.body;
+// ─── Lógica central de carga ERP (reutilizable por cargar y recargar) ─────────
+const _cargarSucursalesERP = async ({ sucursalesACargar, fechaInicio, fechaFin, semana, lote, pool }) => {
+  let insertados = 0, errores = 0, totalErp = 0;
+  const cargadas = [];
+  const fallidas = [];
 
-    // Si se pasa semana/año, calcular rango de RECEPCIÓN automáticamente.
-    // Las OCs que vencen en una semana fueron recibidas con anterioridad
-    // (según el plazo, típicamente 30-120 días antes). Para capturarlas todas,
-    // retrocedemos 150 días desde el inicio de la semana de pago.
+  for (const suc of sucursalesACargar) {
+    try {
+      const sucPool = await getPoolSucursal(suc);
+      const filas = await queryNoEncadenadosERP(sucPool, fechaInicio, fechaFin);
+      totalErp += filas.length;
+      let ins = 0, err = 0;
+
+      // Cada fila es un plazo distinto (monto ya dividido en SQL) → insertar directamente sin agrupar
+      console.log(`   [cargarNEnc] ${suc.nombre}: ${filas.length} filas ERP (cuotas)`);
+
+      for (const fila of filas) {
+        try {
+          const fechaCompra = fila.FechaCreacion ? new Date(fila.FechaCreacion) : null;
+          const plazo       = parseInt(fila.Plazo) || 0;
+          if (!fechaCompra) continue;
+          const fechaPago   = new Date(fechaCompra);
+          fechaPago.setDate(fechaPago.getDate() + plazo);
+
+          const semanaCompra = getWeekNumber(fechaCompra);
+          const semanaVenc   = getWeekNumber(fechaPago);
+          const añoCompra    = fechaPago.getFullYear();
+
+          // UPSERT: actualiza si ya existe la misma OC+sucursal+plazo, inserta si no
+          await pool.request()
+            .input('proveedor',          sql.NVarChar,      String(fila.Proveedor || '').trim())
+            .input('fecha_compra',       sql.Date,          formatDate(fechaCompra))
+            .input('semana_compra',      sql.Int,           semanaCompra)
+            .input('año',                sql.Int,           añoCompra)
+            .input('mes',                sql.NVarChar,      getMesNombre(fechaCompra))
+            .input('numero_orden',       sql.NVarChar,      String(fila.OC || ''))
+            .input('monto_neto',         sql.Decimal(18,2), parseFloat(fila.Neto)  || 0)
+            .input('monto_con_iva',      sql.Decimal(18,2), parseFloat(fila.Total) || 0)
+            .input('plazo_dias',         sql.Int,           plazo)
+            .input('fecha_vencimiento',  sql.Date,          formatDate(fechaPago))
+            .input('semana_vencimiento', sql.Int,           semanaVenc)
+            .input('sucursal',           sql.NVarChar,      suc.nombre || '')
+            .input('lote',               sql.NVarChar,      lote)
+            .query(`
+              MERGE panificacion_compras AS t
+              USING (SELECT
+                @numero_orden      AS numero_orden,
+                @sucursal          AS sucursal,
+                @plazo_dias        AS plazo_dias,
+                @fecha_vencimiento AS fecha_vencimiento,
+                @monto_con_iva     AS monto_con_iva
+              ) AS s
+              ON  t.tipo_proveedor    = 'No Encadenado'
+              AND t.fuente            = 'ERP'
+              AND t.sucursal          = s.sucursal
+              AND t.fecha_vencimiento = s.fecha_vencimiento
+              AND t.monto_con_iva     = s.monto_con_iva
+              AND (
+                (LEN(s.numero_orden) > 0 AND t.numero_orden = s.numero_orden)
+                OR
+                (LEN(s.numero_orden) = 0 AND t.proveedor = @proveedor AND t.plazo_dias = s.plazo_dias)
+              )
+              WHEN MATCHED THEN UPDATE SET
+                proveedor          = @proveedor,
+                fecha_compra       = @fecha_compra,
+                semana_compra      = @semana_compra,
+                año                = @año,
+                mes                = @mes,
+                monto_neto         = @monto_neto,
+                monto_con_iva      = @monto_con_iva,
+                fecha_vencimiento  = @fecha_vencimiento,
+                semana_vencimiento = @semana_vencimiento,
+                lote_carga         = @lote,
+                fecha_carga        = GETDATE()
+              WHEN NOT MATCHED THEN INSERT
+                (proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
+                 monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
+                 semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga)
+              VALUES
+                (@proveedor, @fecha_compra, @semana_compra, @año, @mes, @numero_orden,
+                 @monto_neto, @monto_con_iva, @plazo_dias, @fecha_vencimiento,
+                 @semana_vencimiento, 'No Encadenado', @sucursal, 'ERP', @lote);
+            `);
+          ins++; insertados++;
+        } catch (e) { err++; errores++; }
+      }
+      cargadas.push({ id: suc.id, sucursal: suc.nombre, total: filas.length, insertados: ins, errores: err });
+    } catch (sucError) {
+      console.log(`[Planificacion] ${suc.nombre} sin ERP: ${sucError.message}`);
+      fallidas.push({ id: suc.id, sucursal: suc.nombre, error: sucError.message });
+    }
+  }
+
+  return { insertados, errores, totalErp, cargadas, fallidas };
+};
+
+// ─── POST: Cargar No Encadenados desde ERP (SSE — progreso en tiempo real) ────
+exports.cargarNoEncadenadosERP = async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const emit = (tipo, data) => res.write(`data: ${JSON.stringify({ tipo, ...data })}\n\n`);
+
+  try {
+    let { fechaInicio, fechaFin, semana, año } = req.body;
+
     if (semana && año) {
       const payRange = getWeekDateRange(parseInt(semana), parseInt(año));
       const inicio   = new Date(payRange.fechaInicio);
-      inicio.setDate(inicio.getDate() - 150);          // lookback 150 días
+      inicio.setDate(inicio.getDate() - 150);
       fechaInicio = inicio.toISOString().split('T')[0];
-      fechaFin    = payRange.fechaFin;                 // hasta el fin de la semana de pago
+      fechaFin    = payRange.fechaFin;
     }
 
-    if (!fechaInicio || !fechaFin)
-      return res.status(400).json({ success: false, message: 'Se requiere semana/año o fechaInicio y fechaFin' });
+    if (!fechaInicio || !fechaFin) {
+      emit('error', { msg: 'Se requiere semana/año o fechaInicio y fechaFin' });
+      return res.end();
+    }
 
     const pool = await poolPromise;
     await asegurarTablas(pool);
 
-    // Borrar registros ERP del rango de recepción para refrescar (evita duplicados)
-    if (reemplazar === true || reemplazar === 'true') {
-      await pool.request()
-        .input('dtI', sql.Date, fechaInicio)
-        .input('dtF', sql.Date, fechaFin)
-        .query(`DELETE FROM panificacion_compras
-                WHERE fuente='ERP' AND tipo_proveedor='No Encadenado'
-                  AND fecha_compra BETWEEN @dtI AND @dtF`);
-    }
-
-    // Consultar ERP en todas las sucursales disponibles
-    const sucursales = await obtenerSucursalesERP();
+    const todasSucursales = await obtenerSucursalesERP();
     const lote = `ERP_${Date.now()}`;
-    let insertados = 0, errores = 0, totalErp = 0;
-    const porSucursal = [];
+    emit('log', { msg: `Iniciando sincronización ERP — ${todasSucursales.length} sucursales` });
 
-    for (const suc of sucursales) {
+    let totalInsertados = 0, totalErrores = 0;
+    const cargadas = [], fallidas = [];
+
+    for (const suc of todasSucursales) {
+      emit('sucursal_inicio', { sucursal: suc.nombre });
       try {
         const sucPool = await getPoolSucursal(suc);
-        const filas = await queryNoEncadenadosERP(sucPool, fechaInicio, fechaFin);
-        totalErp += filas.length;
+        const filas   = await queryNoEncadenadosERP(sucPool, fechaInicio, fechaFin);
+        emit('log', { msg: `${suc.nombre}: ${filas.length} registros encontrados en ERP` });
+
         let ins = 0, err = 0;
-
-        // Agrupar por OC antes de insertar para evitar duplicados
-        // (la query puede devolver múltiples filas por OC si hay varias guías con distintas fechas)
-        const porOC = new Map();
-        for (const f of filas) {
-          const key = String(f.OC || '').trim() || `${f.Proveedor}__${f.FechaCreacion}`;
-          if (!porOC.has(key)) {
-            porOC.set(key, { ...f, Neto: parseFloat(f.Neto)||0, Iva: parseFloat(f.Iva)||0, Total: parseFloat(f.Total)||0 });
-          } else {
-            const e = porOC.get(key);
-            e.Neto  += parseFloat(f.Neto)  || 0;
-            e.Iva   += parseFloat(f.Iva)   || 0;
-            e.Total += parseFloat(f.Total) || 0;
-            // Tomar la fecha de creación y pago más temprana
-            if (f.FechaCreacion  && (!e.FechaCreacion  || f.FechaCreacion  < e.FechaCreacion))  e.FechaCreacion  = f.FechaCreacion;
-            if (f.FechaRecepcion && (!e.FechaRecepcion || f.FechaRecepcion < e.FechaRecepcion)) e.FechaRecepcion = f.FechaRecepcion;
-            if (f.FechaPago      && (!e.FechaPago      || f.FechaPago      < e.FechaPago))      e.FechaPago      = f.FechaPago;
-          }
-        }
-        const filasAgrupadas = Array.from(porOC.values());
-        console.log(`   [cargarNEnc] ${suc.nombre}: ${filas.length} filas ERP → ${filasAgrupadas.length} OCs únicas`);
-
-        for (const fila of filasAgrupadas) {
+        for (const fila of filas) {
           try {
             const fechaCompra = fila.FechaCreacion ? new Date(fila.FechaCreacion) : null;
-            const fechaPago   = fila.FechaPago     ? new Date(fila.FechaPago)     : null;
-            if (!fechaCompra || !fechaPago) continue;
+            const plazo       = parseInt(fila.Plazo) || 0;
+            if (!fechaCompra) continue;
+            const fechaPago   = new Date(fechaCompra);
+            fechaPago.setDate(fechaPago.getDate() + plazo);
 
             const semanaCompra = getWeekNumber(fechaCompra);
             const semanaVenc   = getWeekNumber(fechaPago);
-            const añoCompra    = fechaCompra.getFullYear();
+            const añoCompra    = fechaPago.getFullYear();
 
             await pool.request()
               .input('proveedor',          sql.NVarChar,      String(fila.Proveedor || '').trim())
@@ -1481,44 +1633,104 @@ exports.cargarNoEncadenadosERP = async (req, res) => {
               .input('numero_orden',       sql.NVarChar,      String(fila.OC || ''))
               .input('monto_neto',         sql.Decimal(18,2), parseFloat(fila.Neto)  || 0)
               .input('monto_con_iva',      sql.Decimal(18,2), parseFloat(fila.Total) || 0)
-              .input('plazo_dias',         sql.Int,           parseInt(fila.Plazo)   || 30)
+              .input('plazo_dias',         sql.Int,           plazo)
               .input('fecha_vencimiento',  sql.Date,          formatDate(fechaPago))
               .input('semana_vencimiento', sql.Int,           semanaVenc)
               .input('sucursal',           sql.NVarChar,      suc.nombre || '')
               .input('lote',               sql.NVarChar,      lote)
               .query(`
-                INSERT INTO panificacion_compras
-                  (proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
-                   monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
-                   semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga)
+                MERGE panificacion_compras AS t
+                USING (SELECT @numero_orden AS numero_orden, @sucursal AS sucursal, @plazo_dias AS plazo_dias, @fecha_vencimiento AS fecha_vencimiento, @monto_con_iva AS monto_con_iva) AS s
+                ON  t.tipo_proveedor    = 'No Encadenado'
+                AND t.fuente            = 'ERP'
+                AND t.sucursal          = s.sucursal
+                AND t.fecha_vencimiento = s.fecha_vencimiento
+                AND t.monto_con_iva     = s.monto_con_iva
+                AND (
+                  (LEN(s.numero_orden) > 0 AND t.numero_orden = s.numero_orden)
+                  OR
+                  (LEN(s.numero_orden) = 0 AND t.proveedor = @proveedor AND t.plazo_dias = s.plazo_dias)
+                )
+                WHEN MATCHED THEN UPDATE SET
+                  proveedor=@proveedor, fecha_compra=@fecha_compra, semana_compra=@semana_compra,
+                  año=@año, mes=@mes, monto_neto=@monto_neto, monto_con_iva=@monto_con_iva,
+                  fecha_vencimiento=@fecha_vencimiento, semana_vencimiento=@semana_vencimiento,
+                  lote_carga=@lote, fecha_carga=GETDATE()
+                WHEN NOT MATCHED THEN INSERT
+                  (proveedor,fecha_compra,semana_compra,año,mes,numero_orden,monto_neto,monto_con_iva,
+                   plazo_dias,fecha_vencimiento,semana_vencimiento,tipo_proveedor,sucursal,fuente,lote_carga)
                 VALUES
-                  (@proveedor, @fecha_compra, @semana_compra, @año, @mes, @numero_orden,
-                   @monto_neto, @monto_con_iva, @plazo_dias, @fecha_vencimiento,
-                   @semana_vencimiento, 'No Encadenado', @sucursal, 'ERP', @lote)
+                  (@proveedor,@fecha_compra,@semana_compra,@año,@mes,@numero_orden,@monto_neto,@monto_con_iva,
+                   @plazo_dias,@fecha_vencimiento,@semana_vencimiento,'No Encadenado',@sucursal,'ERP',@lote);
               `);
-            ins++; insertados++;
-          } catch (e) { err++; errores++; }
+            ins++;
+          } catch { err++; }
         }
 
-        if (filas.length > 0) {
-          porSucursal.push({ sucursal: suc.nombre, total: filas.length, insertados: ins, errores: err });
-        }
+        totalInsertados += ins; totalErrores += err;
+        cargadas.push({ id: suc.id, sucursal: suc.nombre, total: filas.length, insertados: ins, errores: err });
+        emit('sucursal_ok', { sucursal: suc.nombre, total: filas.length, insertados: ins, errores: err });
       } catch (sucError) {
-        // Sucursal sin tablas ERP o sin conexión → continuar con la siguiente
-        console.log(`[Planificacion] ${suc.nombre} sin ERP: ${sucError.message}`);
+        fallidas.push({ id: suc.id, sucursal: suc.nombre, error: sucError.message });
+        emit('sucursal_error', { sucursal: suc.nombre, error: sucError.message });
       }
     }
 
-    res.json({
-      success: true,
-      message: porSucursal.length === 0
-        ? 'ERP no disponible en ninguna sucursal'
-        : `ERP semana ${semana || '?'}: ${insertados} No Encadenados de ${porSucursal.length} sucursal(es)`,
-      insertados, errores, lote, total_erp: totalErp,
-      fechaInicio, fechaFin, sucursales: porSucursal,
+    const todoOk = fallidas.length === 0;
+    emit('fin', {
+      success: true, completo: todoOk,
+      insertados: totalInsertados, errores: totalErrores,
+      sucursales_cargadas: cargadas, sucursales_fallidas: fallidas,
+      message: todoOk
+        ? `Semana ${semana || '?'}: ${totalInsertados} registros sincronizados en ${cargadas.length} sucursal(es)`
+        : `${cargadas.length}/${todasSucursales.length} sucursales OK — fallaron: ${fallidas.map(f=>f.sucursal).join(', ')}`,
     });
   } catch (error) {
     console.error('Error cargarNoEncadenadosERP:', error);
+    emit('error', { msg: error.message });
+  } finally {
+    res.end();
+  }
+};
+
+// ─── POST: Recargar una sucursal específica ────────────────────────────────────
+exports.recargarSucursalERP = async (req, res) => {
+  try {
+    let { sucursalId, semana, año } = req.body;
+    if (!sucursalId || !semana || !año)
+      return res.status(400).json({ success: false, message: 'Se requiere sucursalId, semana y año' });
+
+    const payRange  = getWeekDateRange(parseInt(semana), parseInt(año));
+    const inicio    = new Date(payRange.fechaInicio);
+    inicio.setDate(inicio.getDate() - 150);
+    const fechaInicio = inicio.toISOString().split('T')[0];
+    const fechaFin    = payRange.fechaFin;
+
+    const pool = await poolPromise;
+    await asegurarTablas(pool);
+
+    const todasSucursales = await obtenerSucursalesERP();
+    const suc = todasSucursales.find(s => s.id == sucursalId);
+    if (!suc)
+      return res.status(404).json({ success: false, message: 'Sucursal no encontrada' });
+
+    const lote = `ERP_${Date.now()}`;
+    const { insertados, errores, cargadas, fallidas } =
+      await _cargarSucursalesERP({ sucursalesACargar: [suc], fechaInicio, fechaFin, semana, lote, pool });
+
+    res.json({
+      success: fallidas.length === 0,
+      sucursal: suc.nombre,
+      insertados,
+      errores,
+      cargadas,
+      fallidas,
+      message: fallidas.length === 0
+        ? `Sucursal ${suc.nombre} recargada: ${insertados} registros`
+        : `Error al recargar ${suc.nombre}: ${fallidas[0]?.error}`,
+    });
+  } catch (error) {
+    console.error('Error recargarSucursalERP:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1561,7 +1773,11 @@ exports.getAlertasSemanas = async (req, res) => {
         SELECT semana_vencimiento,
                SUM(CASE WHEN tipo_proveedor = 'Encadenado' THEN monto_con_iva ELSE 0 END) AS encadenados
         FROM panificacion_compras
-        WHERE año = @año
+        WHERE (
+          (tipo_proveedor = 'Encadenado'    AND YEAR(fecha_vencimiento) = @año)
+          OR
+          (tipo_proveedor = 'No Encadenado' AND año = @año)
+        )
         GROUP BY semana_vencimiento
       `);
 
@@ -1668,12 +1884,22 @@ exports.uploadFacturasPBI = async (req, res) => {
 
         // Si estado es "Modificado": borrar toda la OC y reinsertar desde cero
         if (estado && estado.toLowerCase() === 'modificado' && oc) {
+          // Rescatar plazo original antes de borrar (viene de la OC, ej. 30/60/90/120d)
+          const existingMod = await pool.request()
+            .input('oc', sql.NVarChar, oc)
+            .query(`SELECT TOP 1 plazo_dias, fecha_compra FROM panificacion_compras WHERE numero_orden = @oc ORDER BY id`);
+          const plazoOriginal   = existingMod.recordset.length > 0 ? existingMod.recordset[0].plazo_dias : null;
+          const fechaCompraOrig = existingMod.recordset.length > 0 ? existingMod.recordset[0].fecha_compra : null;
           await pool.request()
             .input('oc', sql.NVarChar, oc)
             .query(`DELETE FROM panificacion_compras WHERE numero_orden = @oc`);
           const semanaCompra  = getWeekNumber(new Date());
-          // Plazo = días que faltan desde hoy hasta el vencimiento (mínimo 1)
-          const plazoMod = Math.max(1, Math.round((fechaVenc - new Date()) / 86400000));
+          // Usar plazo original de la OC; si no existía, calcular desde fecha_compra original o desde hoy
+          const plazoMod = plazoOriginal
+            ? plazoOriginal
+            : redondearPlazo(fechaCompraOrig
+                ? Math.round((fechaVenc - new Date(fechaCompraOrig)) / 86400000)
+                : Math.round((fechaVenc - new Date()) / 86400000));
           await insertarCompra(pool, {
             proveedor,
             fecha_compra:       hoy,
@@ -1716,13 +1942,7 @@ exports.uploadFacturasPBI = async (req, res) => {
                   semana_vencimiento = @semana_vencimiento,
                   monto_con_iva      = @monto_con_iva,
                   monto_neto         = @monto_neto,
-                  -- DATEDIFF puede dar 0 o negativo si fecha_compra en BD es reciente;
-                  -- en ese caso se preserva el plazo original del registro.
-                  plazo_dias         = CASE
-                    WHEN DATEDIFF(day, fecha_compra, @fecha_vencimiento) > 0
-                    THEN DATEDIFF(day, fecha_compra, @fecha_vencimiento)
-                    ELSE plazo_dias
-                  END,
+                  -- plazo_dias NO se recalcula: viene de la OC original (30/60/90/120d)
                   fuente             = @fuente,
                   lote_carga         = @lote,
                   fecha_carga        = GETDATE()
@@ -1736,7 +1956,7 @@ exports.uploadFacturasPBI = async (req, res) => {
         // Si no había OC coincidente, insertar como nuevo con plazo por defecto 30 días
         if (!actualizado) {
           const semanaCompra = getWeekNumber(hoyDate);
-          const plazoNuevo = Math.max(0, Math.round((fechaVenc - hoyDate) / 86400000)) || 30;
+          const plazoNuevo = redondearPlazo(Math.round((fechaVenc - hoyDate) / 86400000));
           await insertarCompra(pool, {
             proveedor,
             fecha_compra:       hoy,
@@ -1951,17 +2171,17 @@ exports.actualizarEstadoOrden = async (req, res) => {
 // Usa CTE con ROW_NUMBER (evita NOT IN sobre tabla completa → mucho más eficiente)
 const _deduplicar = async (pool) => {
   // 1) Encadenados con numero_orden
-  //    Particionamos por (numero_orden + plazo_dias + sucursal) para que distintos
-  //    plazos de la misma OC se preserven como filas separadas — solo se eliminan
-  //    duplicados exactos (misma OC + mismo plazo + misma sucursal).
+  //    Particionamos por (numero_orden + plazo_dias) sin importar sucursal:
+  //    un N° de OC es globalmente único → no puede existir la misma OC en dos sucursales.
+  //    Si hay dos filas con la misma OC, conservamos la más reciente (MAX id),
+  //    priorizando fuente='FACTURA' sobre 'EXCEL'.
   await pool.request().query(`
     WITH cte AS (
       SELECT id,
              ROW_NUMBER() OVER (
                PARTITION BY numero_orden,
-                            ISNULL(CAST(plazo_dias AS NVARCHAR(10)), 'X'),
-                            ISNULL(sucursal, '')
-               ORDER BY id DESC
+                            ISNULL(CAST(plazo_dias AS NVARCHAR(10)), 'X')
+               ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
              ) AS rn
       FROM panificacion_compras
       WHERE numero_orden <> '' AND numero_orden IS NOT NULL
@@ -1980,11 +2200,12 @@ const _deduplicar = async (pool) => {
     )
     DELETE FROM cte WHERE rn > 1
   `);
-  // 3a) No Encadenados con numero_orden — dedup por (numero_orden + sucursal)
+  // 3a) No Encadenados con numero_orden — dedup por (numero_orden + plazo_dias + sucursal)
+  //     plazo_dias en la clave para preservar cada cuota de la misma OC como registro independiente
   await pool.request().query(`
     WITH cte AS (
       SELECT id,
-             ROW_NUMBER() OVER (PARTITION BY numero_orden, ISNULL(sucursal,'') ORDER BY id DESC) AS rn
+             ROW_NUMBER() OVER (PARTITION BY numero_orden, plazo_dias, ISNULL(sucursal,'') ORDER BY id DESC) AS rn
       FROM panificacion_compras
       WHERE tipo_proveedor = 'No Encadenado'
         AND numero_orden IS NOT NULL AND numero_orden <> ''
