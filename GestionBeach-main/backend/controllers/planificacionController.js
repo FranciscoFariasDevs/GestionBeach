@@ -664,6 +664,8 @@ exports.uploadExcelEncadenados = async (req, res) => {
         const iPlazo      = col(['plazo']);
         const iFechaVenc  = col(['fecha vencimiento','vencimiento']);
         const iSemanaVenc = col(['semana vencimiento']);
+        // Leer N° de OC si la hoja lo trae (columna opcional)
+        const iOrden = col(['n° orden','nro orden','numero orden','n_orden','orden','oc','n_oc']);
 
         // ── PASO 1: recolectar filas válidas y contar plazos por (proveedor+fecha+monto) ──
         // Si el mismo proveedor+fecha+monto aparece N veces con distintos plazos → N cuotas
@@ -684,35 +686,80 @@ exports.uploadExcelEncadenados = async (req, res) => {
           const semanaCompra = parseInt(row[iSemana])     || getWeekNumber(fechaCompra);
           const semanaVenc   = parseInt(row[iSemanaVenc]) || getWeekNumber(fechaVenc);
           const año          = fechaCompra.getFullYear();
+          const orden        = iOrden !== -1 ? String(row[iOrden] || '').trim() : '';
 
           const grupoKey = `${proveedor}|${formatDate(fechaCompra)}|${montoIva}`;
           comprasGrupoCount[grupoKey] = (comprasGrupoCount[grupoKey] || 0) + 1;
-          comprasFilasValidas.push({ proveedor, fechaCompra, montoNeto, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey });
+          comprasFilasValidas.push({ proveedor, fechaCompra, montoNeto, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey, orden });
         }
 
         // ── PASO 2: insertar dividiendo monto por cantidad de plazos del grupo ──
         for (const r of comprasFilasValidas) {
           try {
-            const { proveedor, fechaCompra, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey } = r;
+            const { proveedor, fechaCompra, montoIva, plazo, fechaVenc, semanaCompra, semanaVenc, año, grupoKey, orden } = r;
             const cantidadCuotas = comprasGrupoCount[grupoKey] || 1;
             const montoCuota = Math.round(montoIva / cantidadCuotas);
             const montoNetoCuota = Math.round(montoCuota / 1.19);
 
-            // Deduplicar por (proveedor + semana + monto_original + plazo)
-            const dup = await pool.request()
-              .input('prov',  sql.NVarChar,      proveedor)
-              .input('sem',   sql.Int,            semanaCompra)
-              .input('monto', sql.Decimal(18,2),  montoCuota)
-              .input('plazo', sql.Int,            plazo)
-              .query(`SELECT id FROM panificacion_compras
-                      WHERE tipo_proveedor='Encadenado' AND proveedor=@prov
-                        AND semana_compra=@sem AND monto_con_iva=@monto AND plazo_dias=@plazo`);
-            if (dup.recordset.length > 0) { ignorados++; continue; }
+            // Si la fila trae N° de OC, hacer UPSERT igual que InformeOrdenesCompra
+            if (orden) {
+              const existente = await pool.request()
+                .input('orden', sql.NVarChar, orden)
+                .input('plazo', sql.Int,      plazo)
+                .query(`SELECT TOP 1 id, fuente FROM panificacion_compras
+                        WHERE numero_orden = @orden AND ISNULL(plazo_dias,-1) = @plazo
+                          AND tipo_proveedor = 'Encadenado' ORDER BY id DESC`);
+              if (existente.recordset.length > 0) {
+                if ((existente.recordset[0].fuente || '').toUpperCase() !== 'FACTURA') {
+                  await pool.request()
+                    .input('id',                sql.Int,           existente.recordset[0].id)
+                    .input('monto_neto',        sql.Decimal(18,2), montoNetoCuota)
+                    .input('monto_con_iva',     sql.Decimal(18,2), montoCuota)
+                    .input('plazo_dias',        sql.Int,           plazo)
+                    .input('fecha_vencimiento', sql.Date,          formatDate(fechaVenc))
+                    .input('semana_vencimiento',sql.Int,           semanaVenc)
+                    .input('lote',              sql.NVarChar,      lote)
+                    .query(`UPDATE panificacion_compras SET
+                              monto_neto=@monto_neto, monto_con_iva=@monto_con_iva,
+                              plazo_dias=@plazo_dias, fecha_vencimiento=@fecha_vencimiento,
+                              semana_vencimiento=@semana_vencimiento, lote_carga=@lote,
+                              fecha_carga=GETDATE()
+                            WHERE id=@id`);
+                  actualizados++;
+                } else { ignorados++; }
+                continue;
+              }
+            } else {
+              // Sin OC: verificar si ya existe un encadenado con OC# del mismo proveedor+semana+plazo
+              // para evitar duplicar lo que ya viene de InformeOrdenesCompra
+              const existeConOC = await pool.request()
+                .input('prov',  sql.NVarChar, proveedor)
+                .input('sem',   sql.Int,      semanaCompra)
+                .input('plazo', sql.Int,      plazo)
+                .input('año',   sql.Int,      año)
+                .query(`SELECT id FROM panificacion_compras
+                        WHERE tipo_proveedor='Encadenado' AND proveedor=@prov
+                          AND semana_compra=@sem AND plazo_dias=@plazo AND año=@año
+                          AND LEN(ISNULL(numero_orden,'')) > 0`);
+              if (existeConOC.recordset.length > 0) { ignorados++; continue; }
+
+              // Deduplicar por (proveedor + semana + monto + plazo) entre registros sin OC
+              const dup = await pool.request()
+                .input('prov',  sql.NVarChar,     proveedor)
+                .input('sem',   sql.Int,           semanaCompra)
+                .input('monto', sql.Decimal(18,2), montoCuota)
+                .input('plazo', sql.Int,           plazo)
+                .query(`SELECT id FROM panificacion_compras
+                        WHERE tipo_proveedor='Encadenado' AND proveedor=@prov
+                          AND semana_compra=@sem AND monto_con_iva=@monto AND plazo_dias=@plazo
+                          AND (numero_orden IS NULL OR numero_orden='')`);
+              if (dup.recordset.length > 0) { ignorados++; continue; }
+            }
 
             await insertarCompra(pool, {
               proveedor, fecha_compra: formatDate(fechaCompra),
               semana_compra: semanaCompra, año, mes: getMesNombre(fechaCompra),
-              numero_orden: '', monto_neto: montoNetoCuota, monto_con_iva: montoCuota,
+              numero_orden: orden, monto_neto: montoNetoCuota, monto_con_iva: montoCuota,
               plazo_dias: plazo, fecha_vencimiento: formatDate(fechaVenc),
               semana_vencimiento: semanaVenc, tipo_proveedor: 'Encadenado', sucursal: '',
             }, lote);
@@ -2189,11 +2236,27 @@ const _deduplicar = async (pool) => {
     )
     DELETE FROM cte WHERE rn > 1
   `);
-  // 2) Encadenados sin numero_orden
+  // 2a) Encadenados sin numero_orden que ya tienen equivalente CON numero_orden
+  //     (mismo proveedor + año + semana_compra + plazo_dias → el sin OC es redundante)
+  await pool.request().query(`
+    DELETE c1 FROM panificacion_compras c1
+    WHERE c1.tipo_proveedor = 'Encadenado'
+      AND (c1.numero_orden IS NULL OR c1.numero_orden = '')
+      AND EXISTS (
+        SELECT 1 FROM panificacion_compras c2
+        WHERE c2.tipo_proveedor = 'Encadenado'
+          AND LEN(ISNULL(c2.numero_orden,'')) > 0
+          AND c2.proveedor     = c1.proveedor
+          AND c2.semana_compra = c1.semana_compra
+          AND c2.plazo_dias    = c1.plazo_dias
+          AND c2.año           = c1.año
+      )
+  `);
+  // 2b) Encadenados sin numero_orden — dedup por (proveedor + semana_compra + monto_con_iva + plazo_dias)
   await pool.request().query(`
     WITH cte AS (
       SELECT id,
-             ROW_NUMBER() OVER (PARTITION BY proveedor, semana_compra, monto_con_iva ORDER BY id DESC) AS rn
+             ROW_NUMBER() OVER (PARTITION BY proveedor, semana_compra, monto_con_iva, ISNULL(plazo_dias,0) ORDER BY id DESC) AS rn
       FROM panificacion_compras
       WHERE (numero_orden = '' OR numero_orden IS NULL)
         AND tipo_proveedor = 'Encadenado'
