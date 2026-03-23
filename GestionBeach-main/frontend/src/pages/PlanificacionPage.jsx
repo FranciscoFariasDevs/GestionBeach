@@ -1,5 +1,5 @@
 // frontend/src/pages/PlanificacionPage.jsx
-import React, { useState, useEffect, useCallback, useRef, useReducer } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'react';
 import {
   Box, Typography, Grid, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   CircularProgress, Button, IconButton, Tabs, Tab, Card, CardContent, Chip, Avatar,
@@ -32,10 +32,13 @@ import {
   NotesOutlined as NotesIcon,
   Assignment as OcIcon,
   Sync as SyncIcon,
+  Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
   ErrorOutline as ErrorOutlineIcon,
   CalendarMonth as CalendarMonthIcon,
   Close as CloseIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon,
 } from '@mui/icons-material';
 import InputAdornment from '@mui/material/InputAdornment';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -63,7 +66,14 @@ const STATUS_MAP = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmtM    = n => `$${(Math.round(n||0)).toLocaleString('es-CL')}`;
 const fmtFull = n => `$${(Math.round(n||0)).toLocaleString('es-CL')}`;
-const fmtDate = d => { if(!d)return'–'; return new Date(d).toLocaleDateString('es-CL',{day:'2-digit',month:'short'}); };
+const fmtDate = d => {
+  if (!d) return '–';
+  // Parsear YYYY-MM-DD sin desfase de timezone (new Date("YYYY-MM-DD") lo trata como UTC)
+  const s = String(d).slice(0, 10);
+  const [y, m, day] = s.split('-').map(Number);
+  if (!y || !m || !day) return new Date(d).toLocaleDateString('es-CL', { day:'2-digit', month:'short' });
+  return new Date(y, m - 1, day).toLocaleDateString('es-CL', { day:'2-digit', month:'short' });
+};
 const getCurrentWeek = () => {
   const now=new Date(), d=new Date(Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()));
   const day=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-day);
@@ -233,15 +243,16 @@ function AlertasCriticas({ weeksData, currentWeek, onJump }) {
 }
 
 // ─── Mini bar chart de 52 semanas ─────────────────────────────────────────────
+const BAR_H = 80; // altura máxima de la barra en px
 function WeekMiniBar({ w, isCurrent, onClick }) {
   const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
-  const hasDatos = (w.encadenados || 0) > 0;
+  const hasDatos = (w.encadenados || 0) > 0 || (w.deuda_facturada_nenc || 0) > 0;
   const pct = w.porcentaje_uso || 0;
-  const height = hasDatos ? Math.max(4, Math.min(32, Math.round(pct / 100 * 32))) : 4;
+  const height = hasDatos ? Math.max(5, Math.min(BAR_H, Math.round(pct / 100 * BAR_H))) : 5;
   const barColor = isCurrent ? '#1a237e' : hasDatos ? sc.color : '#bdbdbd';
-  const enc = w.encadenados || 0;
+  const enc  = w.encadenados || 0;
   const nenc = w.deuda_facturada_nenc || 0;
-  const lim = w.limite_semanal || 100000000;
+  const lim  = w.limite_semanal || 100000000;
 
   return (
     <Tooltip title={
@@ -260,28 +271,446 @@ function WeekMiniBar({ w, isCurrent, onClick }) {
         )}
       </Box>
     }>
-      <Box
-        onClick={onClick}
-        sx={{
-          width: 7,
-          height: 36,
-          display: 'flex',
-          alignItems: 'flex-end',
-          cursor: 'pointer',
-          '&:hover': { opacity: 0.8 },
-        }}
-      >
-        <Box sx={{
+      <Box onClick={onClick} sx={{
+        width: 10,
+        height: BAR_H + 4,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        cursor: 'pointer',
+        position: 'relative',
+        '&:hover .bar': { opacity: 1, transform: 'scaleY(1.05)', transformOrigin: 'bottom' },
+      }}>
+        {/* Etiqueta semana actual encima */}
+        {isCurrent && (
+          <Typography variant="caption" sx={{
+            position: 'absolute', top: -16, fontSize: '0.65rem',
+            fontWeight: 800, color: '#1a237e', whiteSpace: 'nowrap',
+          }}>S{w.semana}</Typography>
+        )}
+        <Box className="bar" sx={{
           width: '100%',
           height: `${height}px`,
-          borderRadius: '2px 2px 0 0',
+          borderRadius: '3px 3px 0 0',
           bgcolor: barColor,
-          opacity: isCurrent ? 1 : hasDatos ? 0.65 : 0.3,
-          transition: 'height .2s ease',
-          ...(isCurrent && { boxShadow: '0 0 0 1.5px #1a237e' }),
+          opacity: isCurrent ? 1 : hasDatos ? 0.7 : 0.25,
+          transition: 'height .2s ease, opacity .15s',
+          ...(isCurrent && { boxShadow: '0 0 0 2px #1a237e' }),
         }}/>
       </Box>
     </Tooltip>
+  );
+}
+
+// ─── Gráfico Anual Pantalla Completa ─────────────────────────────────────────
+const FULL_BAR_H = 340;
+const FULL_BAR_W = 20;
+const MESES_COMPLETOS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const CHART_BG    = '#0f172a';
+const CHART_GRID  = 'rgba(255,255,255,0.06)';
+const CHART_AXIS  = 'rgba(255,255,255,0.25)';
+
+function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, onJump }) {
+  if (!weeksData || weeksData.length === 0) return null;
+
+  const totEncOC    = weeksData.reduce((s,w) => s + (parseFloat(w.encadenados)          || 0), 0);
+  const totFactEnc  = weeksData.reduce((s,w) => s + (parseFloat(w.deuda_facturada_enc)  || 0), 0);
+  const totNoEnc    = weeksData.reduce((s,w) => s + (parseFloat(w.deuda_facturada_nenc) || 0), 0);
+  const totGeneral  = totEncOC + totFactEnc + totNoEnc;
+
+  const maxVal = Math.max(...weeksData.map(w =>
+    (parseFloat(w.encadenados)||0) + (parseFloat(w.deuda_facturada_enc)||0) + (parseFloat(w.deuda_facturada_nenc)||0)
+  ), 1);
+
+  const avgLimite   = weeksData.reduce((s,w) => s + (parseFloat(w.limite_semanal)||100_000_000), 0) / weeksData.length;
+  const limiteFrac  = Math.min(avgLimite / maxVal, 1);
+  const limiteTopPx = FULL_BAR_H * (1 - limiteFrac);
+  const alerta80Top = FULL_BAR_H * (1 - limiteFrac * 0.8);
+
+  const semanasAlerta = weeksData.filter(w => w.estado && w.estado !== 'OK' && w.estado !== 'SIN_DATOS');
+
+  // Etiquetas del eje Y (4 niveles)
+  const yLabels = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: maxVal * f, y: FULL_BAR_H * (1 - f) }));
+
+  return (
+    <Dialog open={open} onClose={onClose} fullScreen
+      PaperProps={{ sx: { bgcolor: '#0d1117', backgroundImage:'none' } }}>
+      <Box sx={{ display:'flex', flexDirection:'column', height:'100vh', color:'white' }}>
+
+        {/* ── Header con gradiente ── */}
+        <Box sx={{
+          display:'flex', alignItems:'center', justifyContent:'space-between',
+          px:3, py:1.8, flexShrink:0,
+          background: `linear-gradient(135deg, ${ENC_DARK} 0%, #283593 60%, #1a237e 100%)`,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+        }}>
+          <Box sx={{ display:'flex', alignItems:'center', gap:2 }}>
+            <Box sx={{ p:0.8, bgcolor:'rgba(255,255,255,0.15)', borderRadius:2, display:'flex' }}>
+              <TrendingUpIcon sx={{ color:'white', fontSize:22 }}/>
+            </Box>
+            <Box>
+              <Typography variant="h6" fontWeight={800} color="white" lineHeight={1.1}>
+                Control de Pagos Semanales
+              </Typography>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.65)', letterSpacing:1 }}>
+                AÑO {año} · VISTA ANUAL COMPLETA
+              </Typography>
+            </Box>
+            <Chip label={`S${currentWeek} en curso`} size="small"
+              sx={{ bgcolor:'rgba(255,255,255,0.18)', color:'white', fontWeight:700,
+                border:'1px solid rgba(255,255,255,0.3)', ml:1 }}/>
+          </Box>
+          <IconButton onClick={onClose} sx={{ color:'rgba(255,255,255,0.8)', '&:hover':{ bgcolor:'rgba(255,255,255,0.12)' } }}>
+            <CloseIcon/>
+          </IconButton>
+        </Box>
+
+        {/* ── Tarjetas resumen ── */}
+        <Box sx={{ display:'flex', gap:1.5, px:3, py:1.5, flexShrink:0, flexWrap:'wrap',
+          bgcolor:'#161b22', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+          {[
+            { label:'Enc. OC',            val: totEncOC,              color:'#60a5fa', icon:'📋' },
+            { label:'Enc. Facturado PBI',  val: totFactEnc,            color:'#c084fc', icon:'🧾' },
+            { label:'Total Encadenados',   val: totEncOC + totFactEnc, color:'#93c5fd', bold:true, icon:'🔗' },
+            { label:'No Encadenados (ERP)',val: totNoEnc,              color:'#34d399', icon:'🏪' },
+            { label:'Total General',       val: totGeneral,            color:'#f87171', bold:true, icon:'💰' },
+          ].map(({ label, val, color, bold, icon }) => (
+            <Box key={label} sx={{
+              px:2, py:1, borderRadius:2, minWidth:150, flex:'1 1 140px',
+              bgcolor:'rgba(255,255,255,0.04)',
+              border:`1px solid ${alpha(color, 0.25)}`,
+              backdropFilter:'blur(4px)',
+            }}>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.45)', fontSize:'0.65rem', letterSpacing:0.5 }}>
+                {icon} {label}
+              </Typography>
+              <Typography variant="subtitle1" fontWeight={bold ? 900 : 700}
+                sx={{ color, lineHeight:1.2, mt:0.3 }}>{fmtM(val)}</Typography>
+            </Box>
+          ))}
+        </Box>
+
+        {/* ── Área del gráfico ── */}
+        <Box sx={{ flex:1, overflowX:'auto', overflowY:'auto', px:3, py:3,
+          '&::-webkit-scrollbar':{ height:6 },
+          '&::-webkit-scrollbar-track':{ bgcolor:'rgba(255,255,255,0.04)' },
+          '&::-webkit-scrollbar-thumb':{ bgcolor:'rgba(255,255,255,0.15)', borderRadius:3 },
+        }}>
+          {/* Contenedor principal del gráfico */}
+          <Box sx={{ display:'flex', gap:0, minWidth: weeksData.length * (FULL_BAR_W + 4) + 60 }}>
+
+            {/* Eje Y */}
+            <Box sx={{ width:52, flexShrink:0, position:'relative', height: FULL_BAR_H, mr:1 }}>
+              {yLabels.map(({ frac, val, y }) => (
+                <Box key={frac} sx={{ position:'absolute', top: y, right:0, transform:'translateY(-50%)',
+                  display:'flex', alignItems:'center', gap:0.5 }}>
+                  <Typography variant="caption" sx={{ fontSize:'0.58rem', color:CHART_AXIS, whiteSpace:'nowrap', textAlign:'right' }}>
+                    {frac === 0 ? '' : fmtM(val).replace('$','')}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+
+            {/* Gráfico con fondo oscuro */}
+            <Box sx={{ position:'relative', bgcolor: CHART_BG, borderRadius:2, p:2, flex:1,
+              border:'1px solid rgba(255,255,255,0.06)',
+              boxShadow:'inset 0 0 40px rgba(0,0,0,0.3)',
+            }}>
+              {/* Líneas de cuadrícula horizontales */}
+              {yLabels.slice(1).map(({ frac, y }) => (
+                <Box key={frac} sx={{
+                  position:'absolute', top: y + 16, left:16, right:16,
+                  borderTop: frac === limiteFrac ? '2px dashed rgba(239,68,68,0.6)' : `1px solid ${CHART_GRID}`,
+                  zIndex:1, pointerEvents:'none',
+                }}/>
+              ))}
+
+              {/* Línea límite */}
+              <Box sx={{ position:'absolute', top: limiteTopPx + 16, left:16, right:16,
+                borderTop:'2px dashed rgba(239,68,68,0.7)', zIndex:3, pointerEvents:'none' }}>
+                <Box sx={{ position:'absolute', right:0, top:-22, bgcolor:'rgba(239,68,68,0.15)',
+                  border:'1px solid rgba(239,68,68,0.4)', borderRadius:1, px:1, py:0.2 }}>
+                  <Typography variant="caption" sx={{ color:'#f87171', fontSize:'0.62rem', fontWeight:700 }}>
+                    Límite {fmtM(avgLimite)}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Línea 80% */}
+              <Box sx={{ position:'absolute', top: alerta80Top + 16, left:16, right:16,
+                borderTop:'1px dashed rgba(251,146,60,0.5)', zIndex:2, pointerEvents:'none' }}>
+                <Box sx={{ position:'absolute', left:0, top:-18, bgcolor:'rgba(251,146,60,0.12)',
+                  border:'1px solid rgba(251,146,60,0.35)', borderRadius:1, px:0.8, py:0.1 }}>
+                  <Typography variant="caption" sx={{ color:'#fb923c', fontSize:'0.58rem', fontWeight:700 }}>80%</Typography>
+                </Box>
+              </Box>
+
+              {/* Separadores de mes */}
+              {MESES_COMPLETOS.map((_, i) => {
+                if (i === 0) return null;
+                const leftPx = 16 + Math.round(i * 52 / 12) * (FULL_BAR_W + 4);
+                return (
+                  <Box key={i} sx={{ position:'absolute', top:16, bottom:0, left: leftPx,
+                    borderLeft:'1px solid rgba(255,255,255,0.04)', zIndex:0, pointerEvents:'none' }}/>
+                );
+              })}
+
+              {/* Barras */}
+              <Box sx={{ display:'flex', gap:'4px', alignItems:'flex-end', height: FULL_BAR_H, position:'relative', zIndex:2 }}>
+                {weeksData.map(w => {
+                  const enc      = parseFloat(w.encadenados)           || 0;
+                  const factEnc  = parseFloat(w.deuda_facturada_enc)   || 0;
+                  const noEnc    = parseFloat(w.deuda_facturada_nenc)  || 0;
+                  const total    = enc + factEnc + noEnc;
+                  const hEnc     = total > 0 ? Math.max(2, Math.round(enc     / maxVal * FULL_BAR_H)) : 0;
+                  const hFactEnc = total > 0 ? Math.max(0, Math.round(factEnc / maxVal * FULL_BAR_H)) : 0;
+                  const hNoEnc   = total > 0 ? Math.max(0, Math.round(noEnc   / maxVal * FULL_BAR_H)) : 0;
+                  const isCurrent = w.semana === currentWeek;
+                  const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
+                  const hasDatos = total > 0;
+                  const isExcedido = w.estado === 'EXCEDIDO';
+                  const isAlerta   = w.estado === 'ALERTA';
+
+                  return (
+                    <Tooltip key={w.semana} arrow placement="top"
+                      componentsProps={{ tooltip:{ sx:{ bgcolor:'#1e293b', border:'1px solid rgba(255,255,255,0.12)', p:1.5, maxWidth:220 } } }}
+                      title={
+                        <Box>
+                          <Typography fontWeight={800} display="block" sx={{ color:'white', fontSize:'0.78rem' }}>
+                            Semana {w.semana} {w.fecha_inicio ? `· ${fmtDate(w.fecha_inicio)} – ${fmtDate(w.fecha_fin)}` : ''}
+                          </Typography>
+                          <Divider sx={{ my:0.8, borderColor:'rgba(255,255,255,0.12)' }}/>
+                          {[
+                            { l:'Enc. OC',        v: enc,      c:'#60a5fa' },
+                            { l:'Enc. Fact.',      v: factEnc,  c:'#c084fc' },
+                            { l:'No Enc.',         v: noEnc,    c:'#34d399' },
+                            { l:'Total',           v: total,    c:'white', bold:true },
+                            { l:'Límite',          v: parseFloat(w.limite_semanal)||100_000_000, c:'rgba(255,255,255,0.5)' },
+                          ].map(({ l, v, c, bold }) => (
+                            <Box key={l} sx={{ display:'flex', justifyContent:'space-between', gap:2, mb:0.3 }}>
+                              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)' }}>{l}</Typography>
+                              <Typography variant="caption" sx={{ color:c, fontWeight: bold ? 800 : 500 }}>{fmtM(v)}</Typography>
+                            </Box>
+                          ))}
+                          <Box sx={{ mt:0.8, px:1, py:0.4, borderRadius:1, bgcolor: alpha(sc.color, 0.2), border:`1px solid ${alpha(sc.color,0.4)}`, textAlign:'center' }}>
+                            <Typography variant="caption" sx={{ color: sc.color, fontWeight:800 }}>{sc.label}</Typography>
+                          </Box>
+                        </Box>
+                      }>
+                      <Box
+                        onClick={() => { onJump(w.semana); onClose(); }}
+                        sx={{
+                          width: FULL_BAR_W, height:'100%',
+                          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end',
+                          cursor:'pointer', position:'relative',
+                          '&:hover .bar-stack': { filter:'brightness(1.25)', transform:'scaleY(1.03)', transformOrigin:'bottom' },
+                        }}
+                      >
+                        {/* Etiqueta semana actual */}
+                        {isCurrent && (
+                          <Box sx={{ position:'absolute', top:-8, left:'50%', transform:'translateX(-50%)',
+                            bgcolor: ENC_DARK, borderRadius:1, px:0.6, py:0.1, border:'1px solid rgba(255,255,255,0.3)' }}>
+                            <Typography variant="caption" sx={{ fontSize:'0.58rem', fontWeight:900, color:'white', whiteSpace:'nowrap' }}>
+                              S{w.semana}
+                            </Typography>
+                          </Box>
+                        )}
+                        {/* Barra apilada */}
+                        <Box className="bar-stack" sx={{
+                          width:'100%', display:'flex', flexDirection:'column', justifyContent:'flex-end',
+                          borderRadius:'3px 3px 0 0', overflow:'hidden',
+                          opacity: isCurrent ? 1 : hasDatos ? 0.78 : 0.15,
+                          transition:'filter .12s, transform .12s, opacity .12s',
+                          ...(isCurrent && { boxShadow:`0 0 12px 2px ${alpha(ENC_MID, 0.6)}`, opacity:1 }),
+                          ...(isExcedido && { boxShadow:'0 0 8px 2px rgba(239,68,68,0.45)' }),
+                        }}>
+                          {hNoEnc   > 0 && <Box sx={{ height: hNoEnc,   background:'linear-gradient(180deg,#34d399,#059669)' }}/>}
+                          {hFactEnc > 0 && <Box sx={{ height: hFactEnc, background:'linear-gradient(180deg,#c084fc,#7c3aed)' }}/>}
+                          {hEnc     > 0 && <Box sx={{ height: hEnc,
+                            background: isExcedido
+                              ? 'linear-gradient(180deg,#f87171,#dc2626)'
+                              : isAlerta
+                              ? 'linear-gradient(180deg,#fb923c,#ea580c)'
+                              : isCurrent
+                              ? 'linear-gradient(180deg,#93c5fd,#1d4ed8)'
+                              : 'linear-gradient(180deg,#60a5fa,#1e40af)'
+                          }}/>}
+                          {!hasDatos && <Box sx={{ height:3, bgcolor:'rgba(255,255,255,0.1)', borderRadius:'3px 3px 0 0' }}/>}
+                        </Box>
+                      </Box>
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+
+              {/* Eje X — números semana */}
+              <Box sx={{ display:'flex', gap:'4px', mt:1 }}>
+                {weeksData.map(w => {
+                  const isCurrent = w.semana === currentWeek;
+                  const show = isCurrent || w.semana % 4 === 1;
+                  return (
+                    <Box key={w.semana} sx={{ width: FULL_BAR_W, textAlign:'center', flexShrink:0 }}>
+                      <Typography variant="caption" sx={{
+                        fontSize:'0.58rem',
+                        color: isCurrent ? '#93c5fd' : 'rgba(255,255,255,0.3)',
+                        fontWeight: isCurrent ? 900 : 400,
+                      }}>{show ? `S${w.semana}` : ''}</Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+
+              {/* Eje X — meses */}
+              <Box sx={{ position:'relative', height:18, mt:0.5 }}>
+                {MESES_COMPLETOS.map((mes, i) => {
+                  const leftPx = Math.round(i * 52 / 12) * (FULL_BAR_W + 4);
+                  return (
+                    <Typography key={mes} variant="caption" sx={{
+                      position:'absolute', left: leftPx,
+                      fontSize:'0.68rem', color:'rgba(255,255,255,0.45)', fontWeight:600,
+                      whiteSpace:'nowrap', letterSpacing:0.3,
+                    }}>{mes}</Typography>
+                  );
+                })}
+              </Box>
+            </Box>
+          </Box>
+
+          {/* ── Leyenda ── */}
+          <Box sx={{ display:'flex', gap:2.5, mt:2.5, flexWrap:'wrap', alignItems:'center',
+            px:2, py:1.2, bgcolor:'rgba(255,255,255,0.04)', borderRadius:2,
+            border:'1px solid rgba(255,255,255,0.07)' }}>
+            {[
+              { gradient:'linear-gradient(180deg,#60a5fa,#1e40af)', label:'Encadenados OC' },
+              { gradient:'linear-gradient(180deg,#c084fc,#7c3aed)', label:'Enc. Facturado (PBI)' },
+              { gradient:'linear-gradient(180deg,#34d399,#059669)', label:'No Encadenados (ERP)' },
+            ].map(({ gradient, label }) => (
+              <Box key={label} sx={{ display:'flex', alignItems:'center', gap:1 }}>
+                <Box sx={{ width:12, height:14, borderRadius:'2px', background:gradient, flexShrink:0 }}/>
+                <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>{label}</Typography>
+              </Box>
+            ))}
+            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+              <Box sx={{ width:20, borderTop:'2px dashed rgba(239,68,68,0.7)' }}/>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>Límite semanal</Typography>
+            </Box>
+            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+              <Box sx={{ width:20, borderTop:'2px dashed rgba(251,146,60,0.6)' }}/>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>80% del límite</Typography>
+            </Box>
+          </Box>
+
+          {/* ── Alertas ── */}
+          {semanasAlerta.length > 0 && (
+            <Box sx={{ mt:2.5, p:2, bgcolor:'rgba(255,255,255,0.03)', borderRadius:2, border:'1px solid rgba(255,255,255,0.07)' }}>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.45)', fontWeight:700, letterSpacing:1, fontSize:'0.65rem' }}>
+                SEMANAS CON ALERTAS
+              </Typography>
+              <Box sx={{ display:'flex', flexWrap:'wrap', gap:1, mt:1 }}>
+                {semanasAlerta.map(w => {
+                  const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
+                  const total = (parseFloat(w.encadenados)||0) + (parseFloat(w.deuda_facturada_enc)||0);
+                  return (
+                    <Chip key={w.semana} size="small"
+                      label={`S${w.semana} · ${sc.label} · ${fmtM(total)}`}
+                      onClick={() => { onJump(w.semana); onClose(); }}
+                      sx={{ bgcolor: alpha(sc.color, 0.15), color: sc.color, fontWeight:700,
+                        border:`1px solid ${alpha(sc.color,0.3)}`, cursor:'pointer',
+                        '&:hover':{ bgcolor: alpha(sc.color, 0.25) } }}
+                    />
+                  );
+                })}
+              </Box>
+            </Box>
+          )}
+
+          {/* ── Tabla compacta ── */}
+          <Box sx={{ mt:2.5 }}>
+            <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.45)', fontWeight:700, letterSpacing:1, fontSize:'0.65rem' }}>
+              DETALLE POR SEMANA
+            </Typography>
+            <Box sx={{ overflowX:'auto', mt:1, borderRadius:2, border:'1px solid rgba(255,255,255,0.07)', overflow:'hidden' }}>
+              <Table size="small" sx={{ bgcolor:'rgba(255,255,255,0.03)' }}>
+                <TableHead>
+                  <TableRow sx={{ '& th':{ fontWeight:700, fontSize:'0.65rem', whiteSpace:'nowrap', py:1,
+                    color:'rgba(255,255,255,0.5)', bgcolor:'rgba(255,255,255,0.05)',
+                    borderBottom:'1px solid rgba(255,255,255,0.08)' } }}>
+                    <TableCell>Sem.</TableCell>
+                    <TableCell>Período</TableCell>
+                    <TableCell align="right" sx={{ color:'#60a5fa !important' }}>Enc. OC</TableCell>
+                    <TableCell align="right" sx={{ color:'#c084fc !important' }}>Enc. Fact.</TableCell>
+                    <TableCell align="right" sx={{ color:'#93c5fd !important' }}>Total Enc.</TableCell>
+                    <TableCell align="right" sx={{ color:'#34d399 !important' }}>No Enc.</TableCell>
+                    <TableCell align="right">Total General</TableCell>
+                    <TableCell align="right">Límite</TableCell>
+                    <TableCell align="center">% Uso</TableCell>
+                    <TableCell align="center">Estado</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {weeksData.map(w => {
+                    const enc       = parseFloat(w.encadenados)           || 0;
+                    const factEnc   = parseFloat(w.deuda_facturada_enc)   || 0;
+                    const noEnc     = parseFloat(w.deuda_facturada_nenc)  || 0;
+                    const totalEnc  = enc + factEnc;
+                    const totalGen  = totalEnc + noEnc;
+                    const limite    = parseFloat(w.limite_semanal)        || 100_000_000;
+                    const pctUso    = limite > 0 ? Math.round(totalEnc / limite * 100) : 0;
+                    const isCurrent = w.semana === currentWeek;
+                    const sc        = STATUS_MAP[w.estado] || STATUS_MAP.OK;
+                    const hasDatos  = enc > 0 || factEnc > 0 || noEnc > 0;
+                    return (
+                      <TableRow key={w.semana} onClick={() => { onJump(w.semana); onClose(); }}
+                        sx={{
+                          cursor:'pointer',
+                          bgcolor: isCurrent ? 'rgba(96,165,250,0.08)' : 'transparent',
+                          '&:hover':{ bgcolor:'rgba(255,255,255,0.04)' },
+                          '& td':{ py:0.4, fontSize:'0.7rem', color:'rgba(255,255,255,0.75)',
+                            borderBottom:'1px solid rgba(255,255,255,0.05)' },
+                        }}>
+                        <TableCell>
+                          <Typography variant="caption" fontWeight={isCurrent ? 900 : 500}
+                            sx={{ color: isCurrent ? '#93c5fd' : 'rgba(255,255,255,0.75)' }}>
+                            {isCurrent ? '▶ ' : ''}S{w.semana}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ color:'rgba(255,255,255,0.4) !important', whiteSpace:'nowrap' }}>
+                          {w.fecha_inicio ? `${fmtDate(w.fecha_inicio)} – ${fmtDate(w.fecha_fin)}` : '–'}
+                        </TableCell>
+                        <TableCell align="right"><Typography variant="caption" sx={{ color: enc>0?'#60a5fa':'rgba(255,255,255,0.2)', fontWeight:enc>0?700:400 }}>{enc>0?fmtM(enc):'–'}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="caption" sx={{ color: factEnc>0?'#c084fc':'rgba(255,255,255,0.2)', fontWeight:factEnc>0?700:400 }}>{factEnc>0?fmtM(factEnc):'–'}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="caption" sx={{ color: totalEnc>0?'#93c5fd':'rgba(255,255,255,0.2)', fontWeight:900 }}>{totalEnc>0?fmtM(totalEnc):'–'}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="caption" sx={{ color: noEnc>0?'#34d399':'rgba(255,255,255,0.2)', fontWeight:noEnc>0?700:400 }}>{noEnc>0?fmtM(noEnc):'–'}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="caption" sx={{ fontWeight:900, color: totalGen>0?(totalEnc>limite?'#f87171':'rgba(255,255,255,0.85)'):'rgba(255,255,255,0.2)' }}>{totalGen>0?fmtM(totalGen):'–'}</Typography></TableCell>
+                        <TableCell align="right" sx={{ color:'rgba(255,255,255,0.35) !important' }}>{fmtM(limite)}</TableCell>
+                        <TableCell align="center">
+                          {hasDatos ? (
+                            <Box sx={{ display:'inline-flex', alignItems:'center', gap:0.5 }}>
+                              <LinearProgress variant="determinate" value={Math.min(pctUso,100)}
+                                sx={{ width:44, height:4, borderRadius:2,
+                                  bgcolor:'rgba(255,255,255,0.08)',
+                                  '& .MuiLinearProgress-bar':{ bgcolor: sc.color, borderRadius:2 } }}/>
+                              <Typography variant="caption" sx={{ color: sc.color, fontWeight:700, fontSize:'0.62rem' }}>{pctUso}%</Typography>
+                            </Box>
+                          ) : <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.2)' }}>–</Typography>}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip size="small" label={sc.label}
+                            sx={{ bgcolor: alpha(sc.color, 0.18), color: sc.color,
+                              border:`1px solid ${alpha(sc.color,0.35)}`,
+                              fontWeight:700, fontSize:'0.58rem', height:17 }}/>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </Dialog>
   );
 }
 
@@ -825,7 +1254,7 @@ function ProductosOCDialog({ open, onClose, numeroOrden, sucursal }) {
 }
 
 // ─── Vista árbol: Año → Semana → Día (Compras por Emisión) ────────────────────
-function VistaArbolEmision({ registros, loading }) {
+function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onMadre }) {
   const [prodDialog, setProdDialog] = React.useState({ open: false, numeroOrden: '', sucursal: '' });
   const tree = React.useMemo(() => {
     const años = {};
@@ -862,6 +1291,26 @@ function VistaArbolEmision({ registros, loading }) {
       else dObj.enc += r.monto_con_iva || 0;
       dObj.registros.push(r);
     });
+    // Agrupar visualmente: misma OC con distintos plazos → 1 fila con total sumado
+    Object.values(años).forEach(añoData =>
+      Object.values(añoData.semanas).forEach(semData =>
+        Object.values(semData.dias).forEach(diaData => {
+          const map = {};
+          diaData.registros.forEach(r => {
+            const k = r.numero_orden
+              ? `${r.proveedor||''}|${r.numero_orden}|${r.sucursal||''}`
+              : `id_${r.id}`;
+            if (map[k]) {
+              map[k].monto_con_iva = (map[k].monto_con_iva || 0) + (r.monto_con_iva || 0);
+              map[k].monto_neto    = (map[k].monto_neto    || 0) + (r.monto_neto    || 0);
+            } else {
+              map[k] = { ...r };
+            }
+          });
+          diaData.registros = Object.values(map);
+        })
+      )
+    );
     return años;
   }, [registros]);
 
@@ -985,15 +1434,28 @@ function VistaArbolEmision({ registros, loading }) {
                                           <TableCell align="right">Monto Neto</TableCell>
                                           <TableCell align="right">Monto c/IVA</TableCell>
                                           <TableCell>Estado</TableCell>
+                                          <TableCell/>
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
                                         {diaData.registros.map(r => {
-                                          const isEnc = !(r.tipo_proveedor || '').toLowerCase().includes('no');
+                                          const isEnc      = !(r.tipo_proveedor || '').toLowerCase().includes('no');
+                                          const esSosp     = sospechosasIds.has(r.id);
                                           return (
-                                            <TableRow key={r.id} sx={{ '& td':{ fontSize:'0.72rem', py:0.4 } }}>
+                                            <TableRow key={r.id} sx={{
+                                              '& td':{ fontSize:'0.72rem', py:0.4 },
+                                              bgcolor: esSosp ? alpha('#f57c00', 0.07) : 'inherit',
+                                              outline: esSosp ? `1px solid ${alpha('#f57c00', 0.25)}` : 'none',
+                                            }}>
                                               <TableCell sx={{ maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                                                {r.proveedor || '–'}
+                                                <Box sx={{ display:'flex', alignItems:'center', gap:0.6 }}>
+                                                  {esSosp && (
+                                                    <Tooltip title="Posible compra madre (monto inusualmente alto)">
+                                                      <span style={{ fontSize:13, lineHeight:1 }}>⚠️</span>
+                                                    </Tooltip>
+                                                  )}
+                                                  {r.proveedor || '–'}
+                                                </Box>
                                               </TableCell>
                                               <TableCell>
                                                 {r.numero_orden
@@ -1012,13 +1474,24 @@ function VistaArbolEmision({ registros, loading }) {
                                                 }}/>
                                               </TableCell>
                                               <TableCell align="right" sx={{ color:'text.secondary' }}>{fmtM(r.monto_neto)}</TableCell>
-                                              <TableCell align="right" sx={{ color: EMIT_COLOR, fontWeight:700 }}>{fmtM(r.monto_con_iva)}</TableCell>
+                                              <TableCell align="right" sx={{ color: esSosp ? '#f57c00' : EMIT_COLOR, fontWeight:700 }}>{fmtM(r.monto_con_iva)}</TableCell>
                                               <TableCell>
                                                 <Chip label={r.estado_pago || 'Pendiente'} size="small" sx={{
                                                   height:16, fontSize:'0.6rem',
                                                   bgcolor: r.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.08),
                                                   color:   r.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
                                                 }}/>
+                                              </TableCell>
+                                              <TableCell align="right" onClick={e => e.stopPropagation()}>
+                                                {onMadre && (
+                                                  <Tooltip title="Marcar como compra madre (se excluye de planificación)">
+                                                    <IconButton size="small" onClick={() => onMadre(r)}
+                                                      sx={{ opacity: esSosp ? 0.85 : 0.3, color: esSosp ? '#f57c00' : 'inherit',
+                                                            '&:hover':{ opacity:1, color:'#f57c00' } }}>
+                                                      <span style={{ fontSize:13 }}>🏠</span>
+                                                    </IconButton>
+                                                  </Tooltip>
+                                                )}
                                               </TableCell>
                                             </TableRow>
                                           );
@@ -1357,7 +1830,7 @@ const agruparEncadenados = (items) => {
 };
 
 // ─── Fila de encadenado ───────────────────────────────────────────────────────
-function EncRow({ item, onDelete, onVerProductos }) {
+function EncRow({ item, onDelete, onVerProductos, onMadre }) {
   const [open, setOpen] = useState(false);
 
   // Soporte para item agrupado (plazos múltiples) o individual
@@ -1432,12 +1905,22 @@ function EncRow({ item, onDelete, onVerProductos }) {
           )}
         </TableCell>
         <TableCell sx={{py:0.6}} align="right" onClick={e=>e.stopPropagation()}>
-          {/* Solo mostrar botón eliminar si hay un único plazo */}
-          {onDelete && !tieneMultiple && (
-            <IconButton size="small" onClick={()=>onDelete(item.id)} sx={{opacity:.35,'&:hover':{opacity:1,color:'error.main'}}}>
-              <DeleteIcon sx={{fontSize:14}}/>
-            </IconButton>
-          )}
+          <Box sx={{display:'flex',alignItems:'center',gap:0.3}}>
+            {/* Botón compra madre — siempre visible */}
+            {onMadre && (
+              <Tooltip title="Marcar como compra madre (se excluye de la planificación)">
+                <IconButton size="small" onClick={()=>onMadre(item)} sx={{opacity:.35,'&:hover':{opacity:1,color:'#f57c00'}}}>
+                  <span style={{fontSize:12}}>🏠</span>
+                </IconButton>
+              </Tooltip>
+            )}
+            {/* Solo mostrar botón eliminar si hay un único plazo */}
+            {onDelete && !tieneMultiple && (
+              <IconButton size="small" onClick={()=>onDelete(item.id)} sx={{opacity:.35,'&:hover':{opacity:1,color:'error.main'}}}>
+                <DeleteIcon sx={{fontSize:14}}/>
+              </IconButton>
+            )}
+          </Box>
         </TableCell>
       </TableRow>
       <TableRow>
@@ -1635,7 +2118,7 @@ function FuenteBadge({ fuente }) {
     bgcolor:'#f5f5f5', color:'#757575' }}/>;
 }
 
-function EncOcSubRow({ item, onDelete, onVerProductos }) {
+function EncOcSubRow({ item, onDelete, onVerProductos, onMadre }) {
   const plazos = item.plazos?.length > 0 ? item.plazos : [{
     plazo_dias: item.plazo_dias,
     fecha_vencimiento: item.fecha_vencimiento,
@@ -1696,20 +2179,29 @@ function EncOcSubRow({ item, onDelete, onVerProductos }) {
       <TableCell sx={{ py:0.5 }} align="center">
         <FuenteBadge fuente={item.fuente}/>
       </TableCell>
-      {/* Delete */}
+      {/* Acciones: madre + eliminar */}
       <TableCell sx={{ py:0.5 }} align="right">
-        {onDelete && !tieneMultiple && (
-          <IconButton size="small" onClick={() => onDelete(item.id)} sx={{opacity:.35,'&:hover':{opacity:1,color:'error.main'}}}>
-            <DeleteIcon sx={{fontSize:14}}/>
-          </IconButton>
-        )}
+        <Box sx={{display:'flex',alignItems:'center',gap:0.3}}>
+          {onMadre && (
+            <Tooltip title="Marcar como compra madre (se excluye de planificación)">
+              <IconButton size="small" onClick={() => onMadre(item)} sx={{opacity:.35,'&:hover':{opacity:1,color:'#f57c00'}}}>
+                <span style={{fontSize:12}}>🏠</span>
+              </IconButton>
+            </Tooltip>
+          )}
+          {onDelete && !tieneMultiple && (
+            <IconButton size="small" onClick={() => onDelete(item.id)} sx={{opacity:.35,'&:hover':{opacity:1,color:'error.main'}}}>
+              <DeleteIcon sx={{fontSize:14}}/>
+            </IconButton>
+          )}
+        </Box>
       </TableCell>
     </TableRow>
   );
 }
 
 // ─── Grupo de proveedor encadenado (nivel 1 → lista OCs → productos) ──────────
-function EncProveedorGrupo({ grupo, onDelete, onVerProductos }) {
+function EncProveedorGrupo({ grupo, onDelete, onVerProductos, onMadre }) {
   const [open, setOpen] = useState(false);
   const numOC = grupo.ordenes.length;
   const numPBI   = grupo.ordenes.filter(o => (o.fuente||'').toUpperCase() === 'FACTURA').length;
@@ -1776,6 +2268,7 @@ function EncProveedorGrupo({ grupo, onDelete, onVerProductos }) {
                     item={item}
                     onDelete={onDelete}
                     onVerProductos={onVerProductos}
+                    onMadre={onMadre}
                   />
                 ))}
               </TableBody>
@@ -1971,6 +2464,18 @@ function ProyCard({ grupo, totalActual, limite }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // REDUCER: Estado PBI (mini-Redux pattern)
 // Agrupa los 5 estados del flujo de sincronización PBI en un solo objeto
+// ─── Reducer: sync ERP No Encadenados ────────────────────────────────────────
+const erpSyncInitial = { open: false, loading: false, logs: [], result: null };
+function erpSyncReducer(state, action) {
+  switch (action.type) {
+    case 'OPEN':   return { ...erpSyncInitial, open: true, loading: true };
+    case 'CLOSE':  return { ...state, open: false };
+    case 'LOG':    return { ...state, logs: [...state.logs, action.payload] };
+    case 'DONE':   return { ...state, loading: false, result: action.payload };
+    default:       return state;
+  }
+}
+
 // Actions: OPEN, CLOSE, START, ADD_LOG, NEXT_STEP, SET_RESULT
 // ═══════════════════════════════════════════════════════════════════════════════
 const pbiInitialState = {
@@ -2016,7 +2521,15 @@ const PlanificacionPage = () => {
   const [year, setYear]             = useState(new Date().getFullYear());
   const [week, setWeek]             = useState(getCurrentWeek());
   const [direction, setDirection]   = useState(1);
+  const [appliedWeek, setAppliedWeek] = useState(getCurrentWeek());
+  const [appliedYear, setAppliedYear] = useState(new Date().getFullYear());
+
+  useEffect(() => {
+    setAppliedWeek(week);
+    setAppliedYear(year);
+  }, [week, year]);
   const [weeksData, setWeeksData]   = useState([]);
+  const [openChartFull, setOpenChartFull] = useState(false);
   const [compras, setCompras]       = useState([]);
   const [proyeccion, setProyeccion] = useState([]);
   const [sucursales, setSucursales] = useState([]);
@@ -2030,8 +2543,16 @@ const PlanificacionPage = () => {
   const [loadingEmision,       setLoadingEmision]       = useState(false);
   const [detalleEmision,       setDetalleEmision]       = useState([]);
   const [loadingDetalleEmision,setLoadingDetalleEmision]= useState(false);
+  const [ultimasCargas,        setUltimasCargas]        = useState({});
+  // Compras madre (dialog para selección manual desde tab Encadenados)
+  const [dialogMadreOpen,        setDialogMadreOpen]        = useState(false);
+  const [comprasMadrePendientes, setComprasMadrePendientes] = useState([]);
+  const [madreSeleccionadas,     setMadreSeleccionadas]     = useState({});
 
   const [erpLoading, setErpLoading] = useState(false);
+  const [erpFallidas, setErpFallidas] = useState([]);   // sucursales que no cargaron
+  const [recargarLoading, setRecargarLoading] = useState(false);
+  const [erpRecargando, setErpRecargando] = useState({}); // { [sucursalId]: true }
   const [searchEnc,       setSearchEnc]       = useState('');
   const [searchNenc,      setSearchNenc]      = useState('');
   const [filterEncDesde,  setFilterEncDesde]  = useState('');
@@ -2054,6 +2575,8 @@ const PlanificacionPage = () => {
   const [tabDetalle, setTabDetalle]         = useState(0); // 0=Enc, 1=NoEnc, 2=Proyección, 3=Sucursales
   const [calOpen,    setCalOpen]    = useState(false);
   const [tabVista,   setTabVista]   = useState(0); // 0=Resumen, 1=Detalle, 2=Cargar Datos
+  const [minWaitDone] = useState(true);
+  const [erpSync, erpSyncDispatch] = useReducer(erpSyncReducer, erpSyncInitial);
   const [pbiState, pbiDispatch] = useReducer(pbiReducer, pbiInitialState);
   const { open: pbiAutoOpen, loading: pbiAutoLoading, logs: pbiAutoLogs, step: pbiStep, result: pbiResult } = pbiState;
   const [syncStatus,     setSyncStatus]     = useState(null); // null | { estado, ultimaSync }
@@ -2096,8 +2619,22 @@ const PlanificacionPage = () => {
   });
 
   // Agrupar encadenados Y no encadenados (evita duplicados por múltiples plazos en el mismo proveedor/orden)
-  const encAgrupados  = agruparEncadenados(encadenados);
-  const nencAgrupados = agruparEncadenados(noEncadenados);
+  // Orden estable: por numero_orden asc (numérico), luego proveedor, luego id — evita fluctuación entre recargas
+  const _sortAgrupados = (arr) => arr.sort((a, b) => {
+    const oa = a.numero_orden, ob = b.numero_orden;
+    if (oa && ob) {
+      const na = parseFloat(oa), nb = parseFloat(ob);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return String(oa).localeCompare(String(ob));
+    }
+    if (oa) return -1;
+    if (ob) return 1;
+    const cp = (a.proveedor||'').localeCompare(b.proveedor||'');
+    if (cp !== 0) return cp;
+    return (a.id||0) - (b.id||0);
+  });
+  const encAgrupados  = _sortAgrupados(agruparEncadenados(encadenados));
+  const nencAgrupados = _sortAgrupados(agruparEncadenados(noEncadenados));
 
   // Listas filtradas por búsqueda y rango de fechas
   const encFiltrados = encAgrupados.filter(c => {
@@ -2190,12 +2727,12 @@ const PlanificacionPage = () => {
   const loadCompras = useCallback(async () => {
     try {
       setLoadingCompras(true);
-      const r = await api.get(`/planificacion/compras?año=${year}&semana=${week}`);
+      const r = await api.get(`/planificacion/compras?año=${appliedYear}&semana=${appliedWeek}`);
       const d = r.data;
       setCompras(Array.isArray(d) ? d : (Array.isArray(d?.compras) ? d.compras : []));
     } catch { setCompras([]); }
     finally { setLoadingCompras(false); }
-  }, [year, week]);
+  }, [appliedYear, appliedWeek]);
 
   const loadProyeccion = useCallback(async () => {
     try {
@@ -2213,24 +2750,91 @@ const PlanificacionPage = () => {
   const loadComprasOC = useCallback(async () => {
     setLoadingOC(true);
     try {
-      const r = await api.get(`/planificacion/compras?año=${year}&semana=${week}&campo=compra&tipo=Encadenado`);
+      const r = await api.get(`/planificacion/compras?año=${appliedYear}&semana=${appliedWeek}&campo=compra&tipo=Encadenado`);
       const d = r.data;
       setComprasOC(Array.isArray(d) ? d : (Array.isArray(d?.compras) ? d.compras : []));
     } catch { setComprasOC([]); }
     finally { setLoadingOC(false); }
-  }, [year, week]);
+  }, [appliedYear, appliedWeek]);
 
-  const loadNoEncadenadosERP = useCallback(async () => {
+  const loadNoEncadenadosERP = useCallback(() => {
+    erpSyncDispatch({ type: 'OPEN' });
     setErpLoading(true);
+    setErpFallidas([]);
+
+    const token   = localStorage.getItem('token');
+    const baseURL = api.defaults.baseURL;
+
+    fetch(`${baseURL}/planificacion/cargar-no-encadenados-erp`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ semana: appliedWeek, año: appliedYear }),
+    }).then(async resp => {
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const d = JSON.parse(line.slice(5).trim());
+            if (d.tipo === 'log') {
+              erpSyncDispatch({ type: 'LOG', payload: { tipo: 'info', msg: d.msg } });
+            } else if (d.tipo === 'sucursal_inicio') {
+              erpSyncDispatch({ type: 'LOG', payload: { tipo: 'inicio', msg: `▶ ${d.sucursal}…` } });
+            } else if (d.tipo === 'sucursal_ok') {
+              erpSyncDispatch({ type: 'LOG', payload: { tipo: 'ok', msg: `✓ ${d.sucursal}: ${d.total} registros ERP → ${d.insertados} procesados${d.errores ? ` (${d.errores} err)` : ''}` } });
+            } else if (d.tipo === 'sucursal_error') {
+              erpSyncDispatch({ type: 'LOG', payload: { tipo: 'error', msg: `✗ ${d.sucursal}: ${d.error}` } });
+              setErpFallidas(prev => [...prev, { id: d.sucursal, sucursal: d.sucursal, error: d.error }]);
+            } else if (d.tipo === 'fin') {
+              erpSyncDispatch({ type: 'DONE', payload: { success: d.success, message: d.message, insertados: d.insertados } });
+            } else if (d.tipo === 'error') {
+              erpSyncDispatch({ type: 'DONE', payload: { success: false, message: d.msg } });
+            }
+          } catch {}
+        }
+      }
+    }).catch(err => {
+      erpSyncDispatch({ type: 'DONE', payload: { success: false, message: err.message } });
+    }).finally(async () => {
+      setErpLoading(false);
+      await loadCompras();
+      try {
+        const [rE, rD] = await Promise.all([
+          api.get('/planificacion/compras-por-emision', { params: { año: appliedYear } }),
+          api.get('/planificacion/detalle-emision',     { params: { año: appliedYear } }),
+        ]);
+        setComprasPorEmision(rE.data?.semanas   || []);
+        setUltimasCargas(rE.data?.ultimasCargas || {});
+        setDetalleEmision(rD.data?.registros    || []);
+      } catch {}
+    });
+  }, [appliedWeek, appliedYear, loadCompras]);
+
+  const recargarSucursal = useCallback(async (suc) => {
+    setErpRecargando(prev => ({ ...prev, [suc.id]: true }));
     try {
-      await api.post('/planificacion/cargar-no-encadenados-erp', {
-        semana: week, año: year, reemplazar: true,
+      const r = await api.post('/planificacion/recargar-sucursal-erp', {
+        sucursalId: suc.id, semana: appliedWeek, año: appliedYear,
       });
-      loadCompras();
-    } catch {
-      // silencioso — si ERP no responde no bloqueamos la UI
-    } finally { setErpLoading(false); }
-  }, [week, year, loadCompras]);
+      if (r.data?.success) {
+        setErpFallidas(prev => prev.filter(f => f.id !== suc.id));
+        await loadCompras();
+      } else {
+        enqueueSnackbar(`Error recargando ${suc.sucursal}: ${r.data?.message}`, { variant: 'error' });
+      }
+    } catch (e) {
+      enqueueSnackbar(`Error recargando ${suc.sucursal}`, { variant: 'error' });
+    } finally {
+      setErpRecargando(prev => { const n = { ...prev }; delete n[suc.id]; return n; });
+    }
+  }, [appliedWeek, appliedYear, loadCompras]);
 
   useEffect(() => { api.get('/planificacion/sucursales').then(r=>setSucursales(r.data?.sucursales||r.data||[])).catch(()=>{}); }, []);
   // Estado de última sincronización PBI
@@ -2244,7 +2848,8 @@ const PlanificacionPage = () => {
     setLoadingEmision(true);
     try {
       const r = await api.get(`/planificacion/compras-por-emision`, { params: { año: year } });
-      setComprasPorEmision(r.data?.semanas || []);
+      setComprasPorEmision(r.data?.semanas       || []);
+      setUltimasCargas(r.data?.ultimasCargas     || {});
     } catch { setComprasPorEmision([]); }
     finally { setLoadingEmision(false); }
   }, [year]);
@@ -2262,11 +2867,35 @@ const PlanificacionPage = () => {
   }, [year]);
 
   useEffect(() => { loadWeeks(); loadProyeccion(); api.get(`/planificacion/resumen-anual?año=${year}`).then(r => setStatsAnuales(r.data)).catch(() => {}); }, [loadWeeks, loadProyeccion, year]);
-  useEffect(() => { loadCompras(); }, [loadCompras]);
+  // loadCompras se llama DENTRO de loadNoEncadenadosERP (finally) para evitar race condition
+  // (el ERP borra e inserta datos — loadCompras separado leería BD vacía entre medio)
   useEffect(() => { loadComprasOC(); }, [loadComprasOC]);
-  useEffect(() => { loadNoEncadenadosERP(); }, [loadNoEncadenadosERP]);
+  useEffect(() => { loadCompras(); }, [loadCompras]);
   useEffect(() => { loadComprasPorEmision(); }, [loadComprasPorEmision]);
   useEffect(() => { loadDetalleEmision(); }, [loadDetalleEmision]);
+
+  const handleConfirmarMadres = async () => {
+    const ids = Object.entries(madreSeleccionadas).filter(([,v]) => v).map(([k]) => k);
+    await Promise.all(ids.map(id => api.put(`/planificacion/compras/${id}/madre`, { es_madre: true }).catch(() => {})));
+    setDialogMadreOpen(false);
+    setComprasMadrePendientes([]);
+    loadCompras();
+  };
+
+  // Marcar como madre directo desde la vista de Emisión (sin dialog intermedio)
+  const handleMadreDesdeEmision = useCallback(async (r) => {
+    await api.put(`/planificacion/compras/${r.id}/madre`, { es_madre: true }).catch(() => {});
+    loadCompras();
+  }, [loadCompras]);
+
+  // IDs sospechosas (5× mediana) para destacar en la vista de Emisión
+  const sospechosasIdsEmision = useMemo(() => {
+    const importes = detalleEmision.map(r => parseFloat(r.monto_con_iva) || 0).filter(v => v > 0).sort((a,b) => a-b);
+    if (importes.length < 3) return new Set();
+    const mediana = importes[Math.floor(importes.length / 2)];
+    const umbral  = mediana * 5;
+    return new Set(detalleEmision.filter(r => (parseFloat(r.monto_con_iva) || 0) > umbral).map(r => r.id));
+  }, [detalleEmision]);
 
   // ─── Navegación ──────────────────────────────────────────────────────────
   const goToPrev = () => { setDirection(-1); setWeek(w=>Math.max(1,w-1)); };
@@ -2316,6 +2945,18 @@ const PlanificacionPage = () => {
     const next = new Date(now);
     next.setDate(now.getDate() + diff);
     return next.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
+
+  const handleRecargar = async () => {
+    setRecargarLoading(true);
+    try {
+      await api.post('/planificacion/deduplicar');
+      await loadCompras();
+    } catch (e) {
+      console.error('Error al recargar:', e);
+    } finally {
+      setRecargarLoading(false);
+    }
   };
 
   const handleDescargarPBIAuto = () => {
@@ -2437,14 +3078,9 @@ const PlanificacionPage = () => {
   };
 
   if (loadingWeeks) return (
-    <Box sx={{p:3,maxWidth:1600,mx:'auto'}}>
-      <Skeleton variant="rounded" height={60} sx={{mb:2,borderRadius:3}}/>
-      <Skeleton variant="rounded" height={140} sx={{mb:2,borderRadius:3}}/>
-      <Skeleton variant="rounded" height={100} sx={{mb:2,borderRadius:3}}/>
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}><Skeleton variant="rounded" height={300} sx={{borderRadius:3}}/></Grid>
-        <Grid item xs={12} md={6}><Skeleton variant="rounded" height={300} sx={{borderRadius:3}}/></Grid>
-      </Grid>
+    <Box sx={{ minHeight:'80vh', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:2 }}>
+      <CircularProgress size={36} sx={{ color: ENC_DARK }}/>
+      <Typography variant="body2" color="text.secondary">Cargando semanas…</Typography>
     </Box>
   );
 
@@ -2462,6 +3098,7 @@ const PlanificacionPage = () => {
           {[2023,2024,2025,2026].map(y=><MenuItem key={y} value={y}>{y}</MenuItem>)}
         </Select>
       </Box>
+
 
       {/* ── Panel de Alertas Críticas ── */}
       <AlertasCriticas
@@ -2532,28 +3169,83 @@ const PlanificacionPage = () => {
           </IconButton>
         </Box>
 
+
         {/* Mini mapa del año */}
         <Box sx={{mt:2}}>
-          <Box sx={{display:'flex',justifyContent:'space-between',mb:0.5}}>
-            <Typography variant="caption" color="text.secondary">Semana {week} de 52</Typography>
-            <Typography variant="caption" color="text.secondary">{Math.round(week/52*100)}% del año</Typography>
+          <Box sx={{display:'flex',justifyContent:'space-between',alignItems:'center',mb:0.5}}>
+            <Typography variant="caption" color="text.secondary">
+              Semana {week} de 52
+              </Typography>
+            <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+              <Typography variant="caption" color="text.secondary">{Math.round(week/52*100)}% del año</Typography>
+              <Tooltip title="Ver gráfico anual en pantalla completa" arrow>
+                <Button size="small" variant="contained" onClick={() => setOpenChartFull(true)}
+                  startIcon={<FullscreenIcon sx={{ fontSize:15 }}/>}
+                  sx={{ py:0.4, px:1.2, fontSize:'0.7rem', fontWeight:700, borderRadius:2,
+                    bgcolor: ENC_DARK, '&:hover':{ bgcolor: ENC_MID }, textTransform:'none', lineHeight:1.4 }}>
+                  Ver anual
+                </Button>
+              </Tooltip>
+            </Box>
           </Box>
           <Box sx={{position:'relative',height:5,borderRadius:3,bgcolor:'#e0e0e0',overflow:'hidden'}}>
             <Box sx={{position:'absolute',top:0,left:0,height:'100%',width:`${week/52*100}%`,bgcolor:'#90a4ae',borderRadius:3,transition:'width .4s ease'}}/>
           </Box>
           {/* Mini bar chart de 52 semanas */}
-          <Box sx={{ display:'flex', gap:'2px', mt:1, alignItems:'flex-end' }}>
-            {weeksData.map(w => (
-              <WeekMiniBar
-                key={w.semana}
-                w={w}
-                isCurrent={w.semana === week}
-                onClick={() => { setDirection(w.semana > week ? 1 : -1); setWeek(w.semana); }}
-              />
-            ))}
+          <Box sx={{ mt: 2.5, position: 'relative' }}>
+            {/* Línea de límite al 100% */}
+            <Box sx={{
+              position: 'absolute', top: 0, left: 0, right: 0,
+              height: '1px', bgcolor: alpha('#b71c1c', 0.25),
+              borderTop: '1px dashed', borderColor: alpha('#b71c1c', 0.35),
+              zIndex: 1,
+            }}/>
+            {/* Línea al 80% */}
+            <Box sx={{
+              position: 'absolute', top: `${BAR_H * 0.2}px`, left: 0, right: 0,
+              height: '1px', borderTop: '1px dashed', borderColor: alpha('#f57c00', 0.3),
+              zIndex: 1,
+            }}/>
+            {/* Barras */}
+            <Box sx={{ display: 'flex', gap: '1px', alignItems: 'flex-end', height: BAR_H + 4 }}>
+              {weeksData.map(w => (
+                <WeekMiniBar
+                  key={w.semana}
+                  w={w}
+                  isCurrent={w.semana === week}
+                  onClick={() => { setDirection(w.semana > week ? 1 : -1); setWeek(w.semana); }}
+                />
+              ))}
+            </Box>
+            {/* Etiquetas de mes */}
+            <Box sx={{ display: 'flex', mt: 0.5, position: 'relative', height: 14 }}>
+              {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => {
+                // Semana aproximada de inicio de cada mes (52/12 ≈ 4.33 semanas/mes)
+                const leftPct = (i * 52 / 12) / 52 * 100;
+                return (
+                  <Typography key={mes} variant="caption" sx={{
+                    position: 'absolute',
+                    left: `${leftPct}%`,
+                    fontSize: '0.68rem',
+                    color: 'text.secondary',
+                    userSelect: 'none',
+                  }}>{mes}</Typography>
+                );
+              })}
+            </Box>
           </Box>
         </Box>
       </Paper>
+
+      {/* ── Modal gráfico fullscreen ── */}
+      <GraficoAnualFullscreen
+        open={openChartFull}
+        onClose={() => setOpenChartFull(false)}
+        weeksData={weeksData}
+        currentWeek={week}
+        año={year}
+        onJump={(s) => { setDirection(s > week ? 1 : -1); setWeek(s); }}
+      />
 
       {/* ── Banner estado sincronización PBI ── */}
       {syncStatus && (() => {
@@ -2750,8 +3442,7 @@ const PlanificacionPage = () => {
                   <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
                     <NoEncadenadoIcon sx={{fontSize:14,color:tabDetalle===1?NENC_DARK:'text.disabled'}}/>
                     <span>No Encadenados</span>
-                    {erpLoading?<CircularProgress size={10} sx={{color:NENC_MID}}/>
-                      :<Chip label={nencAgrupados.length} size="small" sx={{height:16,fontSize:'0.6rem',bgcolor:NENC_BG,color:NENC_DARK}}/>}
+                    <Chip label={erpLoading || loadingCompras ? '…' : nencAgrupados.length} size="small" sx={{height:16,fontSize:'0.6rem',bgcolor:NENC_BG,color:NENC_DARK}}/>
                   </Box>} sx={{'&.Mui-selected':{color:NENC_DARK}}}/>
                 <Tab label={
                   <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
@@ -2777,9 +3468,12 @@ const PlanificacionPage = () => {
             {/* ─ TAB 0: Encadenados ─ */}
             {tabDetalle===0 && (
               <Box>
+                {(() => {
+                  const encProvCount = agruparPorProveedor(encAgrupados).length;
+                  return (
                 <Box sx={{px:2,py:1,display:'flex',gap:1,flexWrap:'wrap',alignItems:'center',borderBottom:'1px solid',borderColor:'divider',bgcolor:alpha(ENC_DARK,.02)}}>
                   <Typography variant="subtitle2" fontWeight={700} color={ENC_DARK} sx={{mr:'auto'}}>
-                    {fmtM(montoEnc)} · {agruparPorProveedor(encAgrupados).length} proveedor{agruparPorProveedor(encAgrupados).length !== 1 ? 'es' : ''} · {encAgrupados.length} OC{encAgrupados.length !== 1 ? 's' : ''}
+                    {fmtM(montoEnc)} · {encProvCount} proveedor{encProvCount !== 1 ? 'es' : ''} · {encAgrupados.length} OC{encAgrupados.length !== 1 ? 's' : ''}
                     {encAgrupados.length < encadenados.length && (
                       <Typography component="span" variant="caption" color="text.disabled" sx={{ml:0.8}}>
                         ({encadenados.length} cuotas)
@@ -2787,6 +3481,8 @@ const PlanificacionPage = () => {
                     )}
                   </Typography>
                 </Box>
+                  );
+                })()}
                 {/* Hidden file inputs (siempre presentes para que los refs funcionen) */}
                 <input ref={fileInputRef}       type="file" accept=".xlsx,.xls" hidden onChange={handleExcelUpload}/>
                 <input ref={facturaInputRef}    type="file" accept=".xlsx,.xls" hidden onChange={handleFacturasUpload}/>
@@ -2816,6 +3512,19 @@ const PlanificacionPage = () => {
                           InputLabelProps={{shrink:true}} inputProps={{style:{fontSize:'0.78rem'}}}
                           sx={{'& .MuiInputBase-root':{borderRadius:2}}}/>
                       </Grid>
+                      {(searchEnc || searchEncOC || filterEncDesde || filterEncHasta) && (
+                        <Grid item xs={12} sx={{ display:'flex', justifyContent:'flex-end', gap:1 }}>
+                          <Button size="small" variant="text"
+                            onClick={() => { setSearchEnc(''); setSearchEncOC(''); setFilterEncDesde(''); setFilterEncHasta(''); }}
+                            sx={{ textTransform:'none', color:'text.secondary', fontSize:'0.75rem' }}>
+                            Limpiar
+                          </Button>
+                          <Button size="small" variant="contained" startIcon={<SearchIcon sx={{fontSize:15}}/>}
+                            sx={{ textTransform:'none', fontWeight:700, borderRadius:2, bgcolor:ENC_DARK, '&:hover':{ bgcolor:ENC_MID } }}>
+                            Buscar
+                          </Button>
+                        </Grid>
+                      )}
                     </Grid>
                   </Box>
                 )}
@@ -2847,6 +3556,11 @@ const PlanificacionPage = () => {
                                 grupo={grupo}
                                 onDelete={handleDelete}
                                 onVerProductos={handleVerProductos}
+                                onMadre={item => {
+                                  setComprasMadrePendientes([item]);
+                                  setMadreSeleccionadas({ [item.id]: true });
+                                  setDialogMadreOpen(true);
+                                }}
                               />
                             ))}
                           </TableBody>
@@ -2856,81 +3570,108 @@ const PlanificacionPage = () => {
               </Box>
             )}
 
-            {/* ─ TAB 1: No Encadenados (Hoja 3) ─ */}
+            {/* ─ TAB 1: No Encadenados (ERP) ─ */}
             {tabDetalle===1 && (
               <Box>
-                <Box sx={{px:2,py:1,display:'flex',gap:1,flexWrap:'wrap',alignItems:'center',borderBottom:'1px solid',borderColor:'divider',bgcolor:alpha(NENC_DARK,.02)}}>
-                  <Typography variant="subtitle2" fontWeight={700} color={NENC_DARK} sx={{mr:'auto'}}>
-                    {fmtM(montoNenc)} · {agruparPorProveedor(nencAgrupados).length} proveedor{agruparPorProveedor(nencAgrupados).length !== 1 ? 'es' : ''} · {nencAgrupados.length} OC{nencAgrupados.length !== 1 ? 's' : ''}
-                    {nencAgrupados.length < noEncadenados.length && (
-                      <Typography component="span" variant="caption" color="text.disabled" sx={{ml:0.8}}>
-                        ({noEncadenados.length} cuotas)
-                      </Typography>
-                    )}
-                    {erpLoading&&<CircularProgress size={12} sx={{color:NENC_MID,ml:1}}/>}
-                  </Typography>
-                </Box>
-                {nencAgrupados.length>0 && (
-                  <Box sx={{px:2,py:1,borderBottom:'1px solid',borderColor:'divider'}}>
-                    <Grid container spacing={1} alignItems="center">
-                      <Grid item xs={12} sm={4}>
-                        <TextField size="small" fullWidth placeholder="Buscar proveedor…"
-                          value={searchNenc} onChange={e=>setSearchNenc(e.target.value)}
-                          InputProps={{startAdornment:<InputAdornment position="start"><SearchIcon sx={{fontSize:16,color:'text.disabled'}}/></InputAdornment>,sx:{borderRadius:2,fontSize:'0.8rem'}}}/>
-                      </Grid>
-                      <Grid item xs={12} sm={4}>
-                        <TextField size="small" fullWidth placeholder="N° Orden de compra…"
-                          value={searchNencOC} onChange={e=>setSearchNencOC(e.target.value)}
-                          InputProps={{startAdornment:<InputAdornment position="start"><OcIcon sx={{fontSize:16,color:NENC_MID}}/></InputAdornment>,sx:{borderRadius:2,fontSize:'0.8rem'}}}/>
-                      </Grid>
-                      <Grid item xs={6} sm={2}>
-                        <TextField size="small" fullWidth type="date" label="Desde"
-                          value={filterNencDesde} onChange={e=>setFilterNencDesde(e.target.value)}
-                          InputLabelProps={{shrink:true}} inputProps={{style:{fontSize:'0.78rem'}}}
-                          sx={{'& .MuiInputBase-root':{borderRadius:2}}}/>
-                      </Grid>
-                      <Grid item xs={6} sm={2}>
-                        <TextField size="small" fullWidth type="date" label="Hasta"
-                          value={filterNencHasta} onChange={e=>setFilterNencHasta(e.target.value)}
-                          InputLabelProps={{shrink:true}} inputProps={{style:{fontSize:'0.78rem'}}}
-                          sx={{'& .MuiInputBase-root':{borderRadius:2}}}/>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                )}
-                <Box sx={{maxHeight:420,overflowY:'auto'}}>
-                  {loadingCompras
-                    ?<Box sx={{p:4,textAlign:'center'}}><CircularProgress size={24} sx={{color:NENC_MID}}/></Box>
-                    :nencAgrupados.length===0
-                      ?<Box sx={{py:6,textAlign:'center'}}>
-                        <NoEncadenadoIcon sx={{fontSize:40,color:alpha(NENC_DARK,.15),mb:1}}/>
-                        <Typography variant="body2" color="text.disabled">Sin pagos directos en semana {week}</Typography>
-                        <Typography variant="caption" color="text.disabled" display="block">{erpLoading?'Consultando ERP…':'Sin registros en ERP para esta semana'}</Typography>
+                {(() => {
+                  const cargando = loadingCompras;
+                  const nencProvs = agruparPorProveedor(nencAgrupados);
+                  return (
+                    <>
+                      <Box sx={{px:2,py:1,display:'flex',gap:1,flexWrap:'wrap',alignItems:'center',borderBottom:'1px solid',borderColor:'divider',bgcolor:alpha(NENC_DARK,.02)}}>
+                        <Typography variant="subtitle2" fontWeight={700} color={NENC_DARK} sx={{mr:'auto'}}>
+                          {loadingCompras ? '…' : (
+                            <>
+                              {fmtM(montoNenc)} · {nencProvs.length} proveedor{nencProvs.length !== 1 ? 'es' : ''} · {nencAgrupados.length} OC{nencAgrupados.length !== 1 ? 's' : ''}
+                              {nencAgrupados.length < noEncadenados.length && (
+                                <Typography component="span" variant="caption" color="text.disabled" sx={{ml:0.8}}>
+                                  ({noEncadenados.length} cuotas)
+                                </Typography>
+                              )}
+                            </>
+                          )}
+                        </Typography>
                       </Box>
-                      :nencFiltrados.length===0
-                        ?<Box sx={{py:5,textAlign:'center'}}><Typography variant="body2" color="text.disabled">Sin resultados para "{searchNenc}"</Typography></Box>
-                        :<Table size="small" stickyHeader>
-                          <TableHead>
-                            <TableRow sx={{'& th':{bgcolor:NENC_BG,fontWeight:700,fontSize:'0.68rem',color:NENC_DARK,py:0.8}}}>
-                              <TableCell colSpan={2}>Proveedor / Orden</TableCell>
-                              <TableCell>Sucursal</TableCell><TableCell align="right">c/IVA</TableCell>
-                              <TableCell align="center">Plazo</TableCell><TableCell align="center">Vencimiento</TableCell>
-                              <TableCell align="right" sx={{width:32}}/>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {agruparPorProveedor(nencFiltrados).map((grupo, i) => (
-                              <NencProveedorGrupo
-                                key={grupo.proveedor || `nenc_grp_${i}`}
-                                grupo={grupo}
-                                onDelete={handleDelete}
-                                onVerProductos={handleVerProductos}
-                              />
-                            ))}
-                          </TableBody>
-                        </Table>
-                  }
-                </Box>
+                      {!cargando && nencAgrupados.length > 0 && (
+                        <Box sx={{px:2,py:1,borderBottom:'1px solid',borderColor:'divider'}}>
+                          <Grid container spacing={1} alignItems="center">
+                            <Grid item xs={12} sm={4}>
+                              <TextField size="small" fullWidth placeholder="Buscar proveedor…"
+                                value={searchNenc} onChange={e=>setSearchNenc(e.target.value)}
+                                InputProps={{startAdornment:<InputAdornment position="start"><SearchIcon sx={{fontSize:16,color:'text.disabled'}}/></InputAdornment>,sx:{borderRadius:2,fontSize:'0.8rem'}}}/>
+                            </Grid>
+                            <Grid item xs={12} sm={4}>
+                              <TextField size="small" fullWidth placeholder="N° Orden de compra…"
+                                value={searchNencOC} onChange={e=>setSearchNencOC(e.target.value)}
+                                InputProps={{startAdornment:<InputAdornment position="start"><OcIcon sx={{fontSize:16,color:NENC_MID}}/></InputAdornment>,sx:{borderRadius:2,fontSize:'0.8rem'}}}/>
+                            </Grid>
+                            <Grid item xs={6} sm={2}>
+                              <TextField size="small" fullWidth type="date" label="Desde"
+                                value={filterNencDesde} onChange={e=>setFilterNencDesde(e.target.value)}
+                                InputLabelProps={{shrink:true}} inputProps={{style:{fontSize:'0.78rem'}}}
+                                sx={{'& .MuiInputBase-root':{borderRadius:2}}}/>
+                            </Grid>
+                            <Grid item xs={6} sm={2}>
+                              <TextField size="small" fullWidth type="date" label="Hasta"
+                                value={filterNencHasta} onChange={e=>setFilterNencHasta(e.target.value)}
+                                InputLabelProps={{shrink:true}} inputProps={{style:{fontSize:'0.78rem'}}}
+                                sx={{'& .MuiInputBase-root':{borderRadius:2}}}/>
+                            </Grid>
+                            {(searchNenc || searchNencOC || filterNencDesde || filterNencHasta) && (
+                              <Grid item xs={12} sx={{ display:'flex', justifyContent:'flex-end', gap:1 }}>
+                                <Button size="small" variant="text"
+                                  onClick={() => { setSearchNenc(''); setSearchNencOC(''); setFilterNencDesde(''); setFilterNencHasta(''); }}
+                                  sx={{ textTransform:'none', color:'text.secondary', fontSize:'0.75rem' }}>
+                                  Limpiar
+                                </Button>
+                                <Button size="small" variant="contained" startIcon={<SearchIcon sx={{fontSize:15}}/>}
+                                  sx={{ textTransform:'none', fontWeight:700, borderRadius:2, bgcolor:NENC_DARK, '&:hover':{ bgcolor:NENC_MID } }}>
+                                  Buscar
+                                </Button>
+                              </Grid>
+                            )}
+                          </Grid>
+                        </Box>
+                      )}
+                      <Box sx={{maxHeight:420,overflowY:'auto'}}>
+                        {cargando
+                          ? <Box sx={{p:4,textAlign:'center'}}>
+                              <CircularProgress size={28} sx={{color:NENC_MID}}/>
+                              <Typography variant="caption" color="text.disabled" display="block" sx={{mt:1}}>Consultando ERP…</Typography>
+                            </Box>
+                          : nencAgrupados.length === 0
+                            ? <Box sx={{py:6,textAlign:'center'}}>
+                                <NoEncadenadoIcon sx={{fontSize:40,color:alpha(NENC_DARK,.15),mb:1}}/>
+                                <Typography variant="body2" color="text.disabled">Sin pagos directos en semana {week}</Typography>
+                                <Typography variant="caption" color="text.disabled" display="block">Sin registros en ERP para esta semana</Typography>
+                              </Box>
+                            : nencFiltrados.length === 0
+                              ? <Box sx={{py:5,textAlign:'center'}}><Typography variant="body2" color="text.disabled">Sin resultados para "{searchNenc}"</Typography></Box>
+                              : <Table size="small" stickyHeader>
+                                  <TableHead>
+                                    <TableRow sx={{'& th':{bgcolor:NENC_BG,fontWeight:700,fontSize:'0.68rem',color:NENC_DARK,py:0.8}}}>
+                                      <TableCell colSpan={2}>Proveedor / Orden</TableCell>
+                                      <TableCell>Sucursal</TableCell><TableCell align="right">c/IVA</TableCell>
+                                      <TableCell align="center">Plazo</TableCell><TableCell align="center">Vencimiento</TableCell>
+                                      <TableCell align="right" sx={{width:32}}/>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {nencProvs.map((grupo, i) => (
+                                      <NencProveedorGrupo
+                                        key={grupo.proveedor || `nenc_grp_${i}`}
+                                        grupo={grupo}
+                                        onDelete={handleDelete}
+                                        onVerProductos={handleVerProductos}
+                                      />
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                        }
+                      </Box>
+                    </>
+                  );
+                })()}
               </Box>
             )}
 
@@ -3146,6 +3887,11 @@ const PlanificacionPage = () => {
                   <br/><br/>
                   <strong>Formato:</strong> InformeOrdenesCompra.xlsx (N° Orden, Proveedor, Total, Plazo, Estado)
                 </Typography>
+                {ultimasCargas['EXCEL'] && (
+                  <Typography variant="caption" color="text.disabled" sx={{ mb:1, display:'block' }}>
+                    Última carga: <strong>{new Date(ultimasCargas['EXCEL']).toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>
+                  </Typography>
+                )}
                 <Button fullWidth variant="contained" size="large"
                   startIcon={uploadLoading ? <CircularProgress size={16} sx={{color:'white'}}/> : <UploadIcon/>}
                   disabled={uploadLoading} onClick={()=>fileInputRef.current?.click()}
@@ -3192,6 +3938,11 @@ const PlanificacionPage = () => {
                   <br/><br/>
                   <strong>Formato:</strong> data PBI — columnas MPR_RAZON_SOCIAL, FECHA_VENC, A_PAGAR, N° OC.
                 </Typography>
+                {ultimasCargas['FACTURA'] && (
+                  <Typography variant="caption" color="text.disabled" sx={{ mb:1, display:'block' }}>
+                    Última sync: <strong>{new Date(ultimasCargas['FACTURA']).toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>
+                  </Typography>
+                )}
                 {/* Botón sincronizar — descarga automática desde Power BI */}
                 <Button fullWidth variant="contained" size="large"
                   startIcon={pbiAutoLoading
@@ -3209,7 +3960,59 @@ const PlanificacionPage = () => {
                 </Button>
               </Paper>
             </Grid>
+            {/* ─ Sincronizar No Encadenados ERP ─ */}
+            <Grid item xs={12} md={4}>
+              <Paper elevation={0} sx={{border:`1.5px solid ${NENC_DARK}`,borderRadius:3,p:3,height:'100%',display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',bgcolor:NENC_BG}}>
+                <Avatar sx={{bgcolor:NENC_MID,width:52,height:52,mb:2}}>
+                  <SyncIcon sx={{fontSize:26}}/>
+                </Avatar>
+                <Typography variant="subtitle1" fontWeight={800} color={NENC_DARK} gutterBottom>
+                  No Encadenados ERP
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{mb:3,flex:1}}>
+                  Consulta el ERP de todas las sucursales y actualiza los pagos directos (No Encadenados) de la semana seleccionada en la tabla interna.
+                  <br/><br/>
+                  <strong>Semana activa:</strong> S{String(appliedWeek).padStart(2,'0')} · {appliedYear}
+                </Typography>
+                {ultimasCargas['ERP'] && (
+                  <Typography variant="caption" color="text.disabled" sx={{ mb:1, display:'block' }}>
+                    Última sync: <strong>{new Date(ultimasCargas['ERP']).toLocaleString('es-CL',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>
+                  </Typography>
+                )}
+                {erpFallidas.length > 0 && (
+                  <Chip
+                    icon={<WarningIcon sx={{fontSize:'13px !important'}}/>}
+                    label={`${erpFallidas.length} sucursal${erpFallidas.length > 1 ? 'es' : ''} con error`}
+                    size="small"
+                    sx={{ bgcolor:'#fff3e0', color:'#e65100', fontWeight:700, border:'1px solid #ff9800', mb:1.5 }}
+                  />
+                )}
+                <Button fullWidth variant="contained" size="large"
+                  startIcon={erpLoading ? <CircularProgress size={16} sx={{color:'white'}}/> : <SyncIcon/>}
+                  disabled={erpLoading}
+                  onClick={loadNoEncadenadosERP}
+                  sx={{borderRadius:2,bgcolor:NENC_DARK,'&:hover':{bgcolor:NENC_MID},fontWeight:700}}>
+                  {erpLoading ? 'Sincronizando…' : 'Sincronizar'}
+                </Button>
+              </Paper>
+            </Grid>
           </Grid>
+
+          {/* Recargar datos */}
+          <Box sx={{ display:'flex', justifyContent:'flex-end', mt:2 }}>
+            <Button
+              variant="text"
+              size="small"
+              startIcon={recargarLoading
+                ? <CircularProgress size={14}/>
+                : <RefreshIcon sx={{ fontSize:16 }}/>}
+              disabled={recargarLoading}
+              onClick={handleRecargar}
+              sx={{ color:'text.secondary', fontWeight:500, textTransform:'none', fontSize:'0.8rem' }}
+            >
+              {recargarLoading ? 'Recargando…' : 'Recargar datos'}
+            </Button>
+          </Box>
 
           {/* Hidden inputs — siempre presentes */}
           <input ref={fileInputRef}       type="file" accept=".xlsx,.xls" hidden onChange={handleExcelUpload}/>
@@ -3221,6 +4024,31 @@ const PlanificacionPage = () => {
       {/* ══ VISTA 3: COMPRAS POR EMISIÓN ══ */}
       {tabVista === 3 && (
         <Box>
+          {/* Fechas de última actualización */}
+          {Object.keys(ultimasCargas).length > 0 && (
+            <Box sx={{ display:'flex', gap:1.5, flexWrap:'wrap', mb:1.5, px:0.5 }}>
+              {[
+                { key:'EXCEL',   label:'OC cargada',      color:'#1565c0' },
+                { key:'ERP',     label:'ERP cargado',     color:'#2e7d32' },
+                { key:'FACTURA', label:'PBI sincronizado', color:'#6a1b9a' },
+              ].filter(s => ultimasCargas[s.key]).map(s => (
+                <Box key={s.key} sx={{
+                  display:'flex', alignItems:'center', gap:0.6, px:1.2, py:0.4,
+                  bgcolor: alpha(s.color, 0.07), border:`1px solid ${alpha(s.color,0.2)}`,
+                  borderRadius:2,
+                }}>
+                  <Box sx={{ width:7, height:7, borderRadius:'50%', bgcolor: s.color }} />
+                  <Typography variant="caption" color="text.secondary" fontSize="0.68rem">
+                    {s.label}:&nbsp;
+                    <Box component="span" fontWeight={700} sx={{ color: s.color }}>
+                      {new Date(ultimasCargas[s.key]).toLocaleDateString('es-CL', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                    </Box>
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+
           {/* Totales rápidos */}
           {!loadingEmision && comprasPorEmision.length > 0 && (() => {
             const semanasConDatos = comprasPorEmision.filter(w => (w.total || 0) > 0);
@@ -3251,7 +4079,12 @@ const PlanificacionPage = () => {
 
           {/* Árbol: Año → Semana → Día → OC */}
           <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, overflow:'hidden' }}>
-            <VistaArbolEmision registros={detalleEmision} loading={loadingDetalleEmision} />
+            <VistaArbolEmision
+              registros={detalleEmision}
+              loading={loadingDetalleEmision}
+              sospechosasIds={sospechosasIdsEmision}
+              onMadre={handleMadreDesdeEmision}
+            />
           </Paper>
         </Box>
       )}
@@ -3267,6 +4100,60 @@ const PlanificacionPage = () => {
           <Button onClick={()=>setEditLimOpen(false)} sx={{borderRadius:2}}>Cancelar</Button>
           <Button onClick={handleSaveLimite} variant="contained" sx={{borderRadius:2}}>Guardar</Button>
         </DialogActions>
+      </Dialog>
+
+      {/* ─ Diálogo: Sync ERP No Encadenados ─ */}
+      <Dialog open={erpSync.open} onClose={() => { if (!erpSync.loading) erpSyncDispatch({ type: 'CLOSE' }); }}
+        maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+        <DialogTitle sx={{ bgcolor: NENC_DARK, color: 'white', py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <SyncIcon sx={{ fontSize: 20, animation: erpSync.loading ? 'spin 1.2s linear infinite' : 'none',
+            '@keyframes spin': { from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } } }}/>
+          <Box flex={1}>
+            <Typography fontWeight={800} fontSize="0.95rem">Sincronizando No Encadenados ERP</Typography>
+            <Typography fontSize="0.72rem" sx={{ opacity: 0.8 }}>
+              S{String(appliedWeek).padStart(2,'0')} · {appliedYear}
+            </Typography>
+          </Box>
+          {!erpSync.loading && <IconButton size="small" onClick={() => erpSyncDispatch({ type: 'CLOSE' })} sx={{ color: 'white' }}><CloseIcon fontSize="small"/></IconButton>}
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {/* Log en tiempo real */}
+          <Box sx={{ maxHeight: 320, overflowY: 'auto', px: 2, py: 1.5, bgcolor: '#0d1117', fontFamily: 'monospace' }}>
+            {erpSync.logs.length === 0
+              ? <Typography variant="caption" color="#888">Esperando respuesta del servidor…</Typography>
+              : erpSync.logs.map((l, i) => (
+                <Box key={i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.3 }}>
+                  <Typography variant="caption" sx={{ color: l.tipo === 'error' ? '#f87171' : l.tipo === 'ok' ? '#4ade80' : l.tipo === 'inicio' ? '#facc15' : '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                    {l.msg}
+                  </Typography>
+                </Box>
+              ))
+            }
+            {erpSync.loading && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                <CircularProgress size={10} sx={{ color: NENC_MID }}/>
+                <Typography variant="caption" color="#888">Procesando…</Typography>
+              </Box>
+            )}
+          </Box>
+          {/* Resultado final */}
+          {erpSync.result && (
+            <Box sx={{ px: 2, py: 1.5, bgcolor: erpSync.result.success ? alpha(NENC_DARK, 0.06) : '#fff3e0',
+              borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="body2" fontWeight={700} color={erpSync.result.success ? NENC_DARK : '#e65100'}>
+                {erpSync.result.success ? '✓' : '⚠'} {erpSync.result.message}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        {!erpSync.loading && (
+          <DialogActions sx={{ px: 2, py: 1.2 }}>
+            <Button onClick={() => erpSyncDispatch({ type: 'CLOSE' })} size="small" variant="contained"
+              sx={{ bgcolor: NENC_DARK, '&:hover': { bgcolor: NENC_MID }, borderRadius: 2, fontWeight: 700 }}>
+              Cerrar
+            </Button>
+          </DialogActions>
+        )}
       </Dialog>
 
       {/* ─ Diálogo: Sincronizar Facturas PBI ─ */}
@@ -3397,6 +4284,53 @@ const PlanificacionPage = () => {
             sx={{borderRadius:2, ml:'auto',
               ...(pbiResult?.success && {bgcolor:'#4a148c','&:hover':{bgcolor:'#38006b'}})}}>
             {pbiAutoLoading ? 'Espera…' : 'Cerrar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ─ Diálogo: Compras Madre ─ */}
+      <Dialog open={dialogMadreOpen} onClose={() => setDialogMadreOpen(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#fff8e1' }}>
+          <span style={{ fontSize: 22 }}>🏠</span>
+          Posibles Compras Madre Detectadas
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Las siguientes compras son inusualmente grandes (más de 5× la mediana).
+            Marca las que sean <strong>compras madre</strong> para excluirlas de la planificación semanal.
+          </Typography>
+          {comprasMadrePendientes.map(c => (
+            <Box key={c.id} sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5, mb: 1,
+              p: 1.2, borderRadius: 2, bgcolor: madreSeleccionadas[c.id] ? '#fff3e0' : '#f5f5f5',
+              border: `1.5px solid ${madreSeleccionadas[c.id] ? '#f57c00' : '#e0e0e0'}`,
+            }}>
+              <Box component="input" type="checkbox"
+                checked={!!madreSeleccionadas[c.id]}
+                onChange={e => setMadreSeleccionadas(prev => ({ ...prev, [c.id]: e.target.checked }))}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="body2" fontWeight={700}>{c.proveedor}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  OC: {c.numero_orden || '–'} · Semana {c.semana_compra} · {c.sucursal || 'Sin sucursal'}
+                </Typography>
+              </Box>
+              <Typography variant="body2" fontWeight={800} color="#e65100">
+                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(parseFloat(c.monto_con_iva) || 0)}
+              </Typography>
+            </Box>
+          ))}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setDialogMadreOpen(false)} color="inherit" sx={{ borderRadius: 2 }}>
+            Ninguna es madre
+          </Button>
+          <Button onClick={handleConfirmarMadres} variant="contained"
+            disabled={!Object.values(madreSeleccionadas).some(Boolean)}
+            sx={{ borderRadius: 2, bgcolor: '#f57c00', '&:hover': { bgcolor: '#e65100' } }}>
+            Marcar seleccionadas como madre
           </Button>
         </DialogActions>
       </Dialog>
