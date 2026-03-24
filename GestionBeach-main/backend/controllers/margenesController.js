@@ -264,6 +264,65 @@ exports.getMargenes = async (req, res) => {
       ORDER BY Vendedor, [N Doc]
     `;
 
+    // Query 3: Detalle de productos por documento
+    const queryProductos = `
+      SELECT [N° Doc] AS numero_doc, Codigo AS codigo, [Descripción] AS descripcion, Cantidad AS cantidad,
+        SUM([Venta Neto S/Dcto]) AS venta_sin_dcto,
+        SUM([Venta Neto S/Dcto]) - SUM([Costo Neto Total]) AS utilidad_sin_dcto,
+        CASE WHEN SUM([Venta Neto S/Dcto]) <> 0
+          THEN ((SUM([Venta Neto S/Dcto]) - SUM([Costo Neto Total])) / SUM([Venta Neto S/Dcto])) * 100
+          ELSE 0 END AS margen_sin_dcto,
+        SUM([Costo Neto Total]) AS costo_neto,
+        SUM([Venta Neto C/Dcto]) AS venta_con_dcto,
+        SUM([Venta Neto C/Dcto]) - SUM([Costo Neto Total]) AS utilidad_con_dcto,
+        CASE WHEN SUM([Venta Neto C/Dcto]) <> 0
+          THEN ((SUM([Venta Neto C/Dcto]) - SUM([Costo Neto Total])) / SUM([Venta Neto C/Dcto])) * 100
+          ELSE 0 END AS margen_con_dcto
+      FROM (
+        SELECT rbo.RBO_NUMERO_BOLETA AS [N° Doc],
+          doc.MP_CODIGO_PRODUCTO AS Codigo,
+          doc.DOC_DESCRIPCION_PRODUCTO AS [Descripción],
+          doc.DOC_CANTIDAD AS Cantidad,
+          SUM(ISNULL((DOC.MP_COSTO_FINAL * (1 + DOC.MP_MARGEN_COMERCIALIZACION / 100)) * DOC.DOC_CANTIDAD, 0)) AS [Venta Neto S/Dcto],
+          SUM(ISNULL(DOC.MP_COSTO_FINAL * DOC.DOC_CANTIDAD, 0)) AS [Costo Neto Total],
+          SUM(ISNULL((DOC.DOC_PRECIO_LISTA * DOC.DOC_CANTIDAD), 0)) AS [Venta Neto C/Dcto]
+        FROM ERP_FACT_RES_BOLETAS RBO
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = RBO.ROC_NUMERO_ORDEN
+        JOIN ERP_OP_DET_ORDEN_COMPRA DOC ON DOC.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @fechaDesde AND @fechaHasta
+          AND MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1')
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0
+        GROUP BY RBO_NUMERO_BOLETA, MP_CODIGO_PRODUCTO, DOC_DESCRIPCION_PRODUCTO, DOC_CANTIDAD
+        UNION ALL
+        SELECT rfa.RFC_NUMERO_FACTURA_CLI,
+          doc.MP_CODIGO_PRODUCTO,
+          doc.DOC_DESCRIPCION_PRODUCTO,
+          doc.DOC_CANTIDAD,
+          ROUND(SUM(ISNULL((DOC.MP_COSTO_FINAL * (1 + DOC.MP_MARGEN_COMERCIALIZACION / 100)) * DOC.DOC_CANTIDAD, 0)), 0),
+          ROUND(SUM(ISNULL(DOC.MP_COSTO_FINAL * DOC.DOC_CANTIDAD, 0)), 0),
+          ROUND(SUM(ISNULL((DOC.DOC_PRECIO_LISTA * DOC.DOC_CANTIDAD), 0)), 0)
+        FROM ERP_FACT_RES_FACTURA_CLIENTES RFA
+        JOIN ERP_OP_RES_ORDEN_COMPRA ROC ON ROC.ROC_NUMERO_ORDEN = RFA.ROC_NUMERO_ORDEN
+        JOIN ERP_OP_DET_ORDEN_COMPRA DOC ON DOC.ROC_NUMERO_ORDEN = ROC.ROC_NUMERO_ORDEN
+        JOIN ERP_USUARIOS_SISTEMAS US ON US.US_ID_USUARIO_SISTEMA = ROC.US_ID_USUARIO_SISTEMA
+        JOIN ERP_MAESTRO_PERSONAS MPA ON MPA.MPE_RUT_PERSONA = US.MPE_RUT_PERSONA
+        WHERE RFA.RFC_FECHA_INGRESO BETWEEN @fechaDesde AND @fechaHasta
+          AND MPA.TPERS_ID_TIPO_PERSONA IN ('3', '1')
+          AND DOC.MP_MARGEN_COMERCIALIZACION <> 0
+          AND RFA.MC_RUT_CLIENTE NOT IN ('77204945','10429345','76236893','76955204','78061914','76446632','96726970')
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%APORTE%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%ARRIENDO%'
+          AND DOC.DOC_DESCRIPCION_PRODUCTO NOT LIKE '%EXPO%'
+        GROUP BY RFC_NUMERO_FACTURA_CLI, MP_CODIGO_PRODUCTO, DOC_DESCRIPCION_PRODUCTO, DOC_CANTIDAD
+      ) T
+      WHERE [Venta Neto C/Dcto] <> 0
+      GROUP BY [N° Doc], Codigo, [Descripción], Cantidad
+      ORDER BY [N° Doc], Codigo
+    `;
+
     const [resResumen, resNC, resDetalle] = await Promise.all([
       poolSucursal.request()
         .input('fechaDesde', sql.VarChar, fechaDesde + ' 01:00:00')
@@ -278,6 +337,22 @@ exports.getMargenes = async (req, res) => {
         .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:59:59')
         .query(queryDetalle)
     ]);
+
+    // Query de productos separada - si falla no cancela el resto
+    let productosData = [];
+    try {
+      const resProductos = await poolSucursal.request()
+        .input('fechaDesde', sql.VarChar, fechaDesde + ' 01:00:00')
+        .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:59:59')
+        .query(queryProductos);
+      productosData = resProductos.recordset;
+      console.log(`[Margenes] productos cargados: ${productosData.length} filas`);
+      if (productosData.length > 0) {
+        console.log('[Margenes] muestra primer producto:', JSON.stringify(productosData[0]));
+      }
+    } catch (errProd) {
+      console.error('[Margenes] Error en queryProductos (no crítico):', errProd.message);
+    }
 
     let vendedores = resResumen.recordset;
     const nc = resNC.recordset[0];
@@ -295,12 +370,16 @@ exports.getMargenes = async (req, res) => {
     const totUtilidadCD = vendedores.reduce((s, v) => s + (v.utilidad_con_dcto || 0), 0);
 
     const ms = Date.now() - t0;
-    console.log(`[Margenes] ${sucursal.nombre}: ${vendedores.length} vendedores, ${resDetalle.recordset.length} docs en ${ms}ms`);
+    console.log(`[Margenes] ${sucursal.nombre}: ${vendedores.length} vendedores, ${resDetalle.recordset.length} docs, ${productosData.length} productos en ${ms}ms`);
+    if (resDetalle.recordset.length > 0) {
+      console.log('[Margenes] muestra primer doc:', JSON.stringify(resDetalle.recordset[0]));
+    }
 
     res.json({
       sucursal: { id: sucursal.id, nombre: sucursal.nombre },
       vendedores,
       documentos: resDetalle.recordset,
+      productos: productosData,
       totales: {
         venta_sin_dcto: totVentaSD,
         costo_neto: totCosto,

@@ -329,6 +329,120 @@ const AdminCabanasPage = () => {
   });
 
   // ============================================
+  // AUTO-CÁLCULO PRECIO TOTAL AL CAMBIAR FECHAS O PRECIO/NOCHE
+  // ============================================
+  useEffect(() => {
+    if (formReserva.fecha_inicio && formReserva.fecha_fin && formReserva.precio_por_noche > 0) {
+      const inicio = new Date(formReserva.fecha_inicio);
+      const fin = new Date(formReserva.fecha_fin);
+      const noches = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
+      if (noches > 0) {
+        setFormReserva(prev => ({ ...prev, precio_total: prev.precio_por_noche * noches }));
+      }
+    }
+  }, [formReserva.fecha_inicio, formReserva.fecha_fin, formReserva.precio_por_noche]);
+
+  // ============================================
+  // RENDERIZADO PERSONALIZADO DE DÍAS EN CALENDARIO (RESERVA)
+  // Mismos colores que la página de clientes
+  // ============================================
+  const renderDayReserva = (day, selectedDays, pickersDayProps) => {
+    if (!day) return <PickersDay {...(pickersDayProps || {})} day={day} />;
+    const currentDay = day instanceof Date && !isNaN(day.getTime()) ? day : null;
+    if (!currentDay) return <PickersDay {...(pickersDayProps || {})} day={day} />;
+
+    const cabanaId = parseInt(formReserva.cabana_id);
+    if (!cabanaId) return <PickersDay {...(pickersDayProps || {})} day={day} />;
+
+    let dayColor = null;
+    let dayLabel = '';
+    let isDisabled = false;
+
+    try {
+      // 1. Mantenciones (máxima prioridad) — café
+      const mantencionEnDia = mantenciones.find(m => {
+        if (m.cabana_id !== cabanaId || m.estado === 'cancelada') return false;
+        const fi = parseServerDate(m.fecha_inicio);
+        const ff = parseServerDate(m.fecha_fin);
+        return fi && ff && isDateInRange(currentDay, fi, ff, true);
+      });
+      if (mantencionEnDia) {
+        dayColor = '#8D6E63';
+        dayLabel = '🔧 En Mantención';
+        isDisabled = true;
+      } else {
+        // 2. Días ocupados (entre check-in y check-out, exclusive)
+        const reservaOcupada = reservas.find(r => {
+          if (r.cabana_id !== cabanaId) return false;
+          if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
+          // Excluir la reserva que se está editando
+          if (reservaEdit && r.id === reservaEdit.id) return false;
+          const fi = parseServerDate(r.fecha_inicio);
+          const ff = parseServerDate(r.fecha_fin);
+          return fi && ff && isDateInRange(currentDay, fi, ff);
+        });
+        if (reservaOcupada) {
+          isDisabled = true;
+          if (reservaOcupada.estado_pago === 'pagado' || reservaOcupada.estado === 'confirmada' || reservaOcupada.check_in_realizado) {
+            dayColor = '#F44336'; // Rojo — ocupada confirmada
+            dayLabel = '🚫 Ocupada';
+          } else {
+            dayColor = '#FFC107'; // Amarillo — pendiente de pago
+            dayLabel = '⚠️ Pendiente de pago';
+          }
+        } else {
+          // 3. Días de checkout — morado o naranja
+          const reservaCheckout = reservas.find(r => {
+            if (r.cabana_id !== cabanaId) return false;
+            if (r.estado === 'cancelada' || r.estado === 'temporal') return false;
+            if (reservaEdit && r.id === reservaEdit.id) return false;
+            const ff = parseServerDate(r.fecha_fin);
+            return ff && isSameDay(currentDay, ff);
+          });
+          if (reservaCheckout) {
+            const diaSiguiente = new Date(currentDay);
+            diaSiguiente.setDate(diaSiguiente.getDate() + 1);
+            const hayReservaSiguiente = reservas.some(r => {
+              if (r.cabana_id !== cabanaId || r.estado === 'cancelada' || r.estado === 'temporal') return false;
+              if (reservaEdit && r.id === reservaEdit.id) return false;
+              const fi = parseServerDate(r.fecha_inicio);
+              return fi && isSameDay(diaSiguiente, fi);
+            });
+            if (hayReservaSiguiente) {
+              dayColor = '#FF9800'; // Naranja — checkout con reserva siguiente
+              dayLabel = '✅ Checkout 12hrs / Check-in desde 14hrs';
+            } else {
+              dayColor = '#9C27B0'; // Morado — checkout disponible
+              dayLabel = '✅ Disponible (Checkout)';
+            }
+          }
+        }
+      }
+    } catch { /* ignorar errores de fecha */ }
+
+    return (
+      <Tooltip title={dayLabel || 'Disponible'} arrow>
+        <span>
+          <PickersDay
+            {...(pickersDayProps || {})}
+            day={day}
+            disabled={isDisabled || (pickersDayProps && pickersDayProps.disabled)}
+            sx={{
+              ...(dayColor && {
+                backgroundColor: dayColor,
+                color: '#fff',
+                fontWeight: 'bold',
+                '&:hover': { backgroundColor: dayColor, filter: 'brightness(1.1)' },
+                '&.Mui-disabled': { backgroundColor: dayColor, color: '#fff', opacity: 0.85 },
+              }),
+            }}
+          />
+        </span>
+      </Tooltip>
+    );
+  };
+
+  // ============================================
   // RENDERIZADO PERSONALIZADO DE DÍAS EN CALENDARIO
   // ============================================
   const renderDayMantencion = (day, selectedDays, pickersDayProps) => {
@@ -2880,6 +2994,21 @@ const AdminCabanasPage = () => {
           {reservaEdit ? 'Editar Reserva' : 'Nueva Reserva'}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
+          {/* Leyenda de colores del calendario */}
+          <Paper elevation={0} sx={{ p: 1.5, mb: 2, bgcolor: '#F9F9F9', borderRadius: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            {[
+              { color: '#F44336', label: 'Ocupada' },
+              { color: '#FFC107', label: 'Pendiente pago' },
+              { color: '#9C27B0', label: 'Checkout disponible' },
+              { color: '#FF9800', label: 'Checkout horario especial' },
+              { color: '#8D6E63', label: 'Mantención' },
+            ].map(({ color, label }) => (
+              <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 14, height: 14, bgcolor: color, borderRadius: '50%', flexShrink: 0 }} />
+                <Typography variant="caption" color="text.secondary">{label}</Typography>
+              </Box>
+            ))}
+          </Paper>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
@@ -2969,37 +3098,56 @@ const AdminCabanasPage = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Fecha Inicio"
-                value={formReserva.fecha_inicio}
-                onChange={(e) => setFormReserva({ ...formReserva, fecha_inicio: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
+              <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+                <DatePicker
+                  label="Fecha Check-in *"
+                  value={formReserva.fecha_inicio ? new Date(formReserva.fecha_inicio + 'T12:00:00') : null}
+                  onChange={(newVal) => {
+                    if (newVal && !isNaN(newVal.getTime())) {
+                      const iso = `${newVal.getFullYear()}-${String(newVal.getMonth()+1).padStart(2,'0')}-${String(newVal.getDate()).padStart(2,'0')}`;
+                      setFormReserva(prev => ({ ...prev, fecha_inicio: iso }));
+                    }
+                  }}
+                  slots={{ day: (props) => renderDayReserva(props.day, [], props) }}
+                  slotProps={{ textField: { fullWidth: true } }}
+                />
+              </LocalizationProvider>
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Fecha Fin"
-                value={formReserva.fecha_fin}
-                onChange={(e) => setFormReserva({ ...formReserva, fecha_fin: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                required
-              />
+              <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+                <DatePicker
+                  label="Fecha Check-out *"
+                  value={formReserva.fecha_fin ? new Date(formReserva.fecha_fin + 'T12:00:00') : null}
+                  onChange={(newVal) => {
+                    if (newVal && !isNaN(newVal.getTime())) {
+                      const iso = `${newVal.getFullYear()}-${String(newVal.getMonth()+1).padStart(2,'0')}-${String(newVal.getDate()).padStart(2,'0')}`;
+                      setFormReserva(prev => ({ ...prev, fecha_fin: iso }));
+                    }
+                  }}
+                  minDate={formReserva.fecha_inicio ? new Date(formReserva.fecha_inicio + 'T12:00:00') : undefined}
+                  slots={{ day: (props) => renderDayReserva(props.day, [], props) }}
+                  slotProps={{ textField: { fullWidth: true } }}
+                />
+              </LocalizationProvider>
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 type="number"
                 label="Precio por Noche"
-                value={formReserva.precio_por_noche}
-                onChange={(e) => setFormReserva({ ...formReserva, precio_por_noche: parseFloat(e.target.value) })}
+                value={formReserva.precio_por_noche || ''}
+                onChange={(e) => setFormReserva(prev => ({ ...prev, precio_por_noche: parseFloat(e.target.value) || 0 }))}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
+                helperText={
+                  formReserva.fecha_inicio && formReserva.fecha_fin
+                    ? (() => {
+                        const noches = Math.round((new Date(formReserva.fecha_fin) - new Date(formReserva.fecha_inicio)) / 86400000);
+                        return noches > 0 ? `${noches} noche${noches !== 1 ? 's' : ''} → Total se calcula automáticamente` : '';
+                      })()
+                    : 'Selecciona fechas para calcular el total'
+                }
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -3007,11 +3155,20 @@ const AdminCabanasPage = () => {
                 fullWidth
                 type="number"
                 label="Precio Total"
-                value={formReserva.precio_total}
-                onChange={(e) => setFormReserva({ ...formReserva, precio_total: parseFloat(e.target.value) })}
+                value={formReserva.precio_total || ''}
+                onChange={(e) => setFormReserva(prev => ({ ...prev, precio_total: parseFloat(e.target.value) || 0 }))}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">$</InputAdornment>,
                 }}
+                helperText={
+                  formReserva.precio_por_noche > 0 && formReserva.fecha_inicio && formReserva.fecha_fin
+                    ? (() => {
+                        const noches = Math.round((new Date(formReserva.fecha_fin) - new Date(formReserva.fecha_inicio)) / 86400000);
+                        return noches > 0 ? `$${formReserva.precio_por_noche.toLocaleString('es-CL')} × ${noches} noches` : '';
+                      })()
+                    : 'O edita el total manualmente'
+                }
+                sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: '#4caf50' } } }}
               />
             </Grid>
             <Grid item xs={12} md={6}>

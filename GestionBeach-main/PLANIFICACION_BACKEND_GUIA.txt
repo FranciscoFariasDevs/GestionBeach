@@ -1,0 +1,711 @@
+================================================================================
+  GUÍA TÉCNICA — MÓDULO PLANIFICACIÓN COMPRAS Y PAGOS
+  Sistema GestionBeach · Backend (planificacionController.js)
+  Fecha de elaboración: 19/03/2026
+================================================================================
+
+ÍNDICE
+------
+1. Tablas en la base de datos
+2. Cómo se calculan las semanas (algoritmo ISO 8601)
+3. Flujo completo al cargar la página
+4. Endpoint: Control Semanal (GET /api/planificacion/control-semanal)
+5. Endpoint: Compras (GET /api/planificacion/compras)
+6. Endpoint: Carga ERP No Encadenados (POST /api/planificacion/cargar-no-encadenados-erp)
+7. Endpoint: Resumen Anual (GET /api/planificacion/resumen-anual)
+8. Endpoint: Proyección (GET /api/planificacion/proyeccion)
+9. Endpoint: Por Emisión (GET /api/planificacion/compras-por-emision)
+10. Carga de Excel (POST /api/planificacion/upload-excel)
+11. Cómo se deduplicam los registros (lógica anti-duplicados)
+12. Lógica de fechas — qué fecha se usa en cada contexto
+13. Estados de semana y cómo se calculan
+14. Errores comunes y cómo diagnosticarlos
+================================================================================
+
+
+1. TABLAS EN LA BASE DE DATOS
+──────────────────────────────
+Hay DOS tablas propias del módulo en la BD principal (la del sistema GestionBeach,
+no el ERP de las sucursales):
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  panificacion_compras                                                       │
+├─────────────────┬────────────────┬─────────────────────────────────────────┤
+│ id              │ INT IDENTITY   │ Clave primaria autoincremental           │
+│ proveedor       │ NVARCHAR(200)  │ Nombre del proveedor                    │
+│ fecha_compra    │ DATE           │ Fecha de la OC (o recepción en ERP)     │
+│ semana_compra   │ INT            │ N° de semana ISO de fecha_compra        │
+│ año             │ INT            │ Año de creación de la OC               │
+│ mes             │ NVARCHAR(20)   │ Nombre del mes en mayúsculas            │
+│ numero_orden    │ NVARCHAR(100)  │ N° de OC (puede ser NULL en algunos)    │
+│ monto_neto      │ DECIMAL(18,2)  │ Monto sin IVA                          │
+│ monto_con_iva   │ DECIMAL(18,2)  │ Monto con IVA (el que se usa para todo) │
+│ plazo_dias      │ INT            │ Días de plazo de pago (30/60/90/120)   │
+│ fecha_vencimiento│ DATE          │ Fecha calculada = fecha_compra + plazo  │
+│ semana_vencimiento│ INT          │ N° de semana ISO de fecha_vencimiento   │
+│ tipo_proveedor  │ NVARCHAR(50)   │ 'Encadenado' o 'No Encadenado'         │
+│ sucursal        │ NVARCHAR(200)  │ Nombre de la sucursal                  │
+│ fuente          │ NVARCHAR(20)   │ 'EXCEL', 'ERP', 'FACTURA' o 'MANUAL'   │
+│ fecha_carga     │ DATETIME       │ Cuándo se insertó el registro           │
+│ lote_carga      │ NVARCHAR(50)   │ ID de lote (ej: EXCEL_1710000000000)   │
+│ estado_pago     │ NVARCHAR(20)   │ 'Pendiente', 'Pagado', etc.            │
+│ vigente         │ BIT            │ 1=activo, 0=eliminado lógico           │
+│ es_madre        │ BIT            │ 1=compra madre (se excluye del cómputo) │
+└─────────────────┴────────────────┴─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  panificacion_config_semanal                                                │
+├─────────────────┬────────────────┬─────────────────────────────────────────┤
+│ id              │ INT IDENTITY   │ Clave primaria                          │
+│ numero_semana   │ INT            │ N° de semana (1-52)                     │
+│ año             │ INT            │ Año                                     │
+│ limite_semanal  │ DECIMAL(18,2)  │ Presupuesto tope de la semana           │
+│ fecha_inicio    │ DATE NULL      │ Fecha de inicio personalizada (opcional)│
+│ nota            │ NVARCHAR(500)  │ Nota libre del usuario                 │
+└─────────────────┴────────────────┴─────────────────────────────────────────┘
+
+ÍNDICES DE RENDIMIENTO (creados automáticamente):
+  - idx_planif_año_semana       → en (año, semana_vencimiento)
+  - idx_planif_numero_orden     → en (numero_orden) solo donde no es NULL
+  - idx_planif_fuente_tipo      → en (fuente, tipo_proveedor, año)
+  - idx_planif_proveedor        → en (proveedor)
+
+NOTA: Las tablas se crean automáticamente si no existen al primer uso.
+También se ejecutan migraciones automáticas para agregar columnas nuevas
+(es_madre, estado_pago, vigente, nota) sin romper instalaciones existentes.
+
+
+================================================================================
+2. CÓMO SE CALCULAN LAS SEMANAS (ISO 8601)
+──────────────────────────────────────────
+El sistema usa el estándar ISO 8601:
+  - La semana 1 del año es la que contiene el primer JUEVES del año.
+  - Las semanas van de LUNES a DOMINGO.
+  - El año puede tener 52 o 53 semanas.
+
+Función getWeekNumber(fecha):
+  1. Normalizar al inicio del día.
+  2. Ajustar la fecha al jueves de esa semana: fecha + (4 - diaSemana).
+  3. Calcular cuántos días desde el 1 de enero.
+  4. Dividir entre 7 y redondear hacia arriba.
+
+Función getWeekStart(semana, año):
+  Calcula el LUNES de la semana dada.
+  1. Calcular fecha simple = 1-ene + (semana-1)*7 días.
+  2. Si el día de la semana de esa fecha es ≤ 4 (lun-jue): retroceder al lunes anterior.
+  3. Si es > 4 (vie-sab-dom): avanzar al lunes siguiente.
+
+Función getWeekDateRange(semana, año):
+  Devuelve { fechaInicio: lunes, fechaFin: domingo (= lunes + 6 días) }
+  Esta es la función que alimenta las fechas de inicio/fin que se ven en la UI.
+
+LÍMITES PREDETERMINADOS POR SEMANA:
+  - Semanas 1–18:  $120.000.000 (primer trimestre, mayor actividad)
+  - Semanas 19–52: $100.000.000
+  Estos valores se sobreescriben con lo que esté en panificacion_config_semanal.
+
+
+================================================================================
+3. FLUJO COMPLETO AL CARGAR LA PÁGINA
+──────────────────────────────────────
+Cuando el usuario abre el módulo Planificación, el frontend lanza en paralelo:
+
+  A) GET /api/planificacion/control-semanal?año=2026
+     → Datos de las 52 semanas del año (montos, estados, fechas)
+
+  B) GET /api/planificacion/proyeccion?año=2026
+     → Encadenados por semana de vencimiento
+
+  C) GET /api/planificacion/resumen-anual?año=2026
+     → Totales anuales para las tarjetas de resumen
+
+  D) POST /api/planificacion/cargar-no-encadenados-erp   ← MÁS LENTO
+     { semana: X, año: 2026, reemplazar: true }
+     → Consulta ERP en todas las sucursales
+     → Borra registros ERP anteriores del rango
+     → Inserta los nuevos en panificacion_compras
+     → DESPUÉS lanza: GET /api/planificacion/compras?año=2026&semana=X
+       (loadCompras se llama SOLO después del ERP para evitar leer datos vacíos)
+
+  E) GET /api/planificacion/compras-por-emision?año=2026
+     → Tabla por semana de emisión (Tab "Cargar Datos")
+
+  F) GET /api/planificacion/detalle-emision?año=2026
+     → Árbol de registros individuales por fecha
+
+IMPORTANTE: D (ERP) es el más lento (puede tardar 5-15 segundos si hay muchas
+sucursales o la red es lenta). Por eso la UI muestra spinner bloqueante hasta
+que terminen D + loadCompras antes de mostrar el Resumen.
+
+
+================================================================================
+4. ENDPOINT: CONTROL SEMANAL
+─────────────────────────────
+GET /api/planificacion/control-semanal?año=YYYY
+
+¿Para qué sirve?
+  Genera el resumen de las 52 semanas del año: montos, estado, límite, fechas.
+  Es lo que alimenta la tabla anual y las barras del gráfico.
+
+¿Cómo funciona?
+
+  PASO 1 — Leer configuraciones personalizadas:
+    SELECT numero_semana, limite_semanal, fecha_inicio, nota
+    FROM panificacion_config_semanal
+    WHERE año = @año
+
+  PASO 2 — Consultar montos reales de panificacion_compras:
+
+    WITH dedup AS (
+      SELECT *,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE
+              -- Encadenado con OC: agrupa por (OC + plazo + sucursal)
+              WHEN LEN(ISNULL(numero_orden,'')) > 0 AND tipo_proveedor='Encadenado'
+                THEN numero_orden + '_PL' + plazo_dias + '_' + sucursal
+              ELSE
+                CAST(id AS NVARCHAR)  -- cada fila en su propio grupo
+            END
+          ORDER BY id DESC          -- el registro más reciente del grupo es el válido
+        ) AS _rn
+      FROM panificacion_compras
+      WHERE (
+        -- ENCADENADOS: filtrar por AÑO DEL VENCIMIENTO
+        -- (una OC del 2025 puede vencer en 2026, y debe aparecer en 2026)
+        (tipo_proveedor = 'Encadenado'    AND YEAR(fecha_vencimiento) = @año)
+        OR
+        -- NO ENCADENADOS: filtrar por AÑO DE CREACIÓN de la OC
+        -- (su fecha_vencimiento puede ser de un año distinto)
+        (tipo_proveedor = 'No Encadenado' AND año = @año)
+      )
+      AND ISNULL(es_madre, 0) = 0   -- excluir compras marcadas como "madre"
+    )
+    SELECT semana_vencimiento,
+      SUM(CASE WHEN tipo='Encadenado'    AND fuente='EXCEL'   THEN monto_con_iva END) AS pagos_comprometidos_enc,
+      SUM(CASE WHEN tipo='Encadenado'    AND fuente='FACTURA' THEN monto_con_iva END) AS deuda_facturada_enc,
+      SUM(CASE WHEN tipo='No Encadenado'                      THEN monto_con_iva END) AS deuda_facturada_nenc
+    FROM dedup WHERE _rn = 1
+    GROUP BY semana_vencimiento
+
+  PASO 3 — Para cada una de las 52 semanas, construir el objeto:
+    - encadenados          = pagos_comprometidos_enc (OC proyectadas desde Excel)
+    - deuda_facturada_enc  = facturas reales de PBI
+    - deuda_facturada_nenc = No Encadenados del ERP
+    - total_general        = enc + fact_enc + fact_nenc
+    - capacidad_disponible = limite - enc
+    - porcentaje_uso       = enc / limite * 100
+    - estado               = (ver sección 13)
+    - fecha_inicio         = del config personalizado o lunes calculado
+    - fecha_fin            = domingo calculado con getWeekDateRange
+
+FECHAS IMPORTANTES AQUÍ:
+  • La columna AÑO de la tabla se usa para No Encadenados.
+  • Para Encadenados se usa YEAR(fecha_vencimiento), NO la columna AÑO.
+  • Esto permite que OCs del 2025 con vencimiento en 2026 aparezcan en 2026.
+
+
+================================================================================
+5. ENDPOINT: COMPRAS (DETALLE)
+────────────────────────────────
+GET /api/planificacion/compras?año=YYYY&semana=N[&campo=compra|vencimiento][&tipo=...][&proveedor=...][&sucursal=...][&mes=...]
+
+¿Para qué sirve?
+  Devuelve los registros individuales que se muestran en los tabs
+  Encadenados y No Encadenados del "Detalle" de semana.
+
+Parámetro clave "campo":
+  - campo=vencimiento (DEFAULT): filtra por semana_vencimiento
+    → "¿qué pago vence ESTA semana?"
+  - campo=compra: filtra por semana_compra
+    → "¿qué OC fue GENERADA esta semana?"
+
+CTE de deduplicación (igual estructura que Control Semanal, más granular):
+  Para Encadenados con número de orden:
+    Clave = año + '_ENC_' + numero_orden + '_PL' + plazo_dias + '_' + sucursal
+    → Conserva CADA PLAZO de la misma OC como fila separada (crítico para plazos múltiples)
+
+  Para Encadenados sin número de orden:
+    Clave = CAST(id AS NVARCHAR)  → sin deduplicación, cada fila es única
+
+  Para No Encadenados con número de orden:
+    Clave = año + '_NENC_' + numero_orden + '_PL' + plazo_dias + '_' + sucursal
+    → También conserva cada plazo por separado (corregido para evitar fluctuación)
+
+  Para No Encadenados sin número de orden:
+    Clave = CAST(id AS NVARCHAR)  → sin deduplicación
+
+Filtro de año aplicado FUERA del CTE:
+  Para Encadenados:    YEAR(fecha_vencimiento) = @año
+  Para No Encadenados: año = @año (columna año de la tabla)
+
+Orden final: fecha_compra DESC, numero_orden ASC, id DESC
+
+FECHAS IMPORTANTES AQUÍ:
+  • Si campo=vencimiento: la semana que ves corresponde a CUÁNDO SE PAGA.
+  • Si campo=compra:      la semana que ves corresponde a CUÁNDO SE COMPRÓ.
+  • fecha_vencimiento = fecha_compra + plazo_dias (calculada al insertar).
+  • Para No Encadenados del ERP: fecha_compra = FechaCreacion de la OC en ERP,
+    fecha_vencimiento = FechaRecepcion + plazo_dias de la condición de pago.
+
+
+================================================================================
+6. ENDPOINT: CARGA ERP NO ENCADENADOS
+────────────────────────────────────────
+POST /api/planificacion/cargar-no-encadenados-erp
+Body: { semana: N, año: YYYY, reemplazar: true }
+
+¿Para qué sirve?
+  Consulta TODAS las sucursales que tienen ERP configurado, trae sus
+  No Encadenados (tipo proveedor = '2' en el ERP), y los guarda localmente
+  en panificacion_compras con fuente='ERP'.
+
+¿Cómo calcula el rango de fechas a consultar en el ERP?
+  Para capturar OCs que VENCEN en la semana solicitada, calcula:
+    - Fin del rango  = último día de la semana de pago (domingo de semana N)
+    - Inicio del rango = inicio de semana N  MENOS  150 días
+
+  Ejemplo: si quiero No Encadenados que vencen en semana 12 de 2026 (16-22 mar):
+    - fechaFin    = 2026-03-22 (domingo semana 12)
+    - fechaInicio = 2026-03-16 − 150 días = 2025-10-17
+
+  Esto asegura que OCs con plazo 120 días recibidas en octubre queden incluidas.
+  La consulta al ERP filtra por BIGP_FECHA_HORA_RECEPCION_BODEGA BETWEEN estos rangos.
+
+SQL que se lanza al ERP de cada sucursal:
+  SELECT OC, Proveedor,
+         SUM(Neto), SUM(Iva), SUM(Total),
+         FechaCreacion, FechaRecepcion, Plazo, FechaPago
+  FROM (
+    SELECT
+      roc.ROC_NUMERO_ORDEN         AS OC,
+      MPR.MPR_RAZON_SOCIAL         AS Proveedor,
+      rig.BIGP_AFECTO               AS Neto,
+      rig.BIGP_IVA                  AS Iva,
+      rig.BIGP_TOTAL                AS Total,
+      roc.ROC_FECHA_INGRESO         AS FechaCreacion,
+      rig.BIGP_FECHA_HORA_RECEPCION_BODEGA AS FechaRecepcion,
+      pcod.PCOD_PLAZO               AS Plazo,
+      DATEADD(DAY, pcod.PCOD_PLAZO, rig.BIGP_FECHA_HORA_RECEPCION_BODEGA) AS FechaPago
+    FROM ERP_BOD_RES_INGRESO_GUIAS rig
+    JOIN ERP_OP_RES_ORDEN_COMPRA roc   ON rig.ROC_NUMERO_ORDEN = roc.ROC_NUMERO_ORDEN
+    JOIN ERP_CONDICIONES_PAGO CON      ON CON.CP_ID_CONDICION_PAGO = ROC.CP_ID_CONDICION_PAGO
+    JOIN ERP_MAESTRO_PROVEEDORES MPR   ON MPR.MPR_RUT_PROVEEDOR = ROC.MPR_RUT_PROVEEDOR
+    CROSS APPLY (
+      SELECT TOP 1 PCOD_PLAZO
+      FROM ERP_PLAZOS_CONDICIONES
+      WHERE CP_ID_CONDICION_PAGO = CON.CP_ID_CONDICION_PAGO
+      ORDER BY PCOD_PLAZO   -- toma el plazo MÁS CORTO de la condición
+    ) pcod
+    WHERE
+      ROC.TPROV_ID_TIPO_PROVEEDOR = '2'          -- tipo proveedor No Encadenado
+      AND MPR.TPROV_ID_TIPO_PROVEEDOR = '2'
+      AND rig.BEINGE_ID_ESTADO_INGRESO_EGRESO = '1'  -- estado 1 = confirmado/recibido
+      AND rig.BIGP_FECHA_HORA_RECEPCION_BODEGA BETWEEN @fechaInicio AND @fechaFin
+  ) t
+  GROUP BY OC, Proveedor, FechaCreacion, FechaRecepcion, Plazo, FechaPago
+
+TABLAS ERP INVOLUCRADAS:
+  ERP_BOD_RES_INGRESO_GUIAS     → Recepciones de bodega (guías de despacho)
+  ERP_OP_RES_ORDEN_COMPRA       → Órdenes de compra
+  ERP_CONDICIONES_PAGO          → Condiciones de pago del proveedor
+  ERP_MAESTRO_PROVEEDORES       → Maestro de proveedores
+  ERP_PLAZOS_CONDICIONES        → Plazos de cada condición de pago
+
+FECHA CLAVE en ERP: BIGP_FECHA_HORA_RECEPCION_BODEGA
+  → Es la fecha en que el producto fue recibido en bodega.
+  → FechaPago = FechaRecepcion + Plazo (días del contrato del proveedor).
+  → El semana_vencimiento se calcula desde FechaPago.
+
+LIMPIEZA ANTES DE INSERTAR (cuando reemplazar=true):
+  DELETE FROM panificacion_compras
+  WHERE fuente='ERP' AND tipo_proveedor='No Encadenado'
+    AND fecha_compra BETWEEN @fechaInicio AND @fechaFin
+
+  ATENCIÓN: Este DELETE usa el rango de fechaInicio/fechaFin (rango de RECEPCIÓN),
+  no el año/semana. Si hay registros ERP fuera de ese rango, no se tocan.
+
+AGRUPACIÓN PREVIA ANTES DE INSERTAR:
+  El ERP puede devolver múltiples filas para la misma OC (si tiene varias guías).
+  Antes de insertar, se agrupa por OC y se suman los montos. Se toma la
+  fecha de creación y pago más TEMPRANA del grupo.
+
+
+================================================================================
+7. ENDPOINT: RESUMEN ANUAL
+────────────────────────────
+GET /api/planificacion/resumen-anual?año=YYYY
+
+¿Para qué sirve?
+  Estadísticas globales del año para las tarjetas de resumen en la UI:
+  total anual, total encadenados, total no encadenados,
+  semanas OK / ALERTA / EXCEDIDO.
+
+¿Cómo filtra?
+  Misma lógica de año que Control Semanal:
+    - Encadenados:    YEAR(fecha_vencimiento) = @año
+    - No Encadenados: año = @año (columna de la tabla)
+
+NOTA: Este endpoint NO usa la CTE deduplicadora. Suma directamente todos
+los registros del año. Puede sobrecontar si hay duplicados no eliminados.
+Se recomienda ejecutar una deduplicación manual si los totales no cuadran.
+
+
+================================================================================
+8. ENDPOINT: PROYECCIÓN
+──────────────────────────
+GET /api/planificacion/proyeccion?año=YYYY
+
+¿Para qué sirve?
+  Muestra los encadenados agrupados por semana de vencimiento para el tab
+  de "Proyección": cuánto vence en cada semana futura.
+
+¿Cómo filtra?
+  Solo Encadenados: tipo_proveedor = 'Encadenado'
+  Año: YEAR(fecha_vencimiento) = @año
+
+Deduplicación aquí:
+  PARTITION BY numero_orden (sin plazo, sin sucursal)
+  → Más agresiva: si hay misma OC desde dos fuentes (Excel + Sucursal),
+    solo cuenta una vez. Prioriza el registro de mayor id.
+
+Orden final: fecha_vencimiento ASC, proveedor ASC
+
+
+================================================================================
+9. ENDPOINT: POR EMISIÓN
+─────────────────────────
+GET /api/planificacion/compras-por-emision?año=YYYY
+
+¿Para qué sirve?
+  Muestra cuánto se compró (emitió) por semana de EMISIÓN (no de pago).
+  Alimenta el tab "Cargar Datos" y sus gráficos de barras.
+
+¿Cómo filtra?
+  WHERE año = @año  (usa columna año directamente, no fecha_vencimiento)
+  Esto muestra OCs cuya FECHA DE CREACIÓN pertenece al año consultado.
+
+Devuelve también las fechas de última carga por fuente:
+  SELECT fuente, MAX(fecha_carga) FROM panificacion_compras
+  GROUP BY fuente
+  → Permite ver cuándo fue la última vez que se subió un Excel, un ERP, etc.
+
+
+================================================================================
+10. CARGA DE EXCEL
+────────────────────
+POST /api/planificacion/upload-excel
+
+El backend detecta automáticamente el tipo de hoja por las columnas que tiene:
+
+  HOJA 1 — Límites semanales (si tiene columna "límite" pero NO "proveedor"):
+    Importa los presupuestos semana a semana al config.
+    Fecha que usa: ninguna (solo semana y límite).
+
+  HOJA 2 — Compras Encadenadas (si tiene "plazo" + "vencimiento" pero NO "sucursal"):
+    Registra la OC con fuente='EXCEL', tipo_proveedor='Encadenado'.
+    Fechas:
+      - fecha_compra    = columna "Fecha Compra" del Excel
+      - fecha_vencimiento = columna "Fecha Vencimiento" o = fecha_compra + plazo
+      - semana_compra   = columna "Semana" o calculada con getWeekNumber(fecha_compra)
+      - semana_vencimiento = columna "Semana Vencimiento" o calculada
+
+  HOJA 3 — InformeOrdenesCompra (si tiene "N° Orden" + "Estado" + "Generado"):
+    Registra la OC con fuente='EXCEL', tipo_proveedor='Encadenado'.
+    Fechas:
+      - fecha_compra    = columna "Fecha" del informe
+      - fecha_vencimiento = fecha_compra + plazo (calculada, no viene en el Excel)
+      - Las OCs con fuente='FACTURA' existente no se sobreescriben
+
+  HOJA 4 — No Encadenados (si tiene "sucursal" + "fecha vencimiento"):
+    Registra con fuente='EXCEL', tipo_proveedor='No Encadenado'.
+    Fechas:
+      - fecha_compra    = columna "Fecha Compra"
+      - fecha_vencimiento = columna "Fecha Vencimiento"
+
+PARSEO DE FECHAS — FORMATOS ACEPTADOS:
+  - Número serial Excel (p.ej. 45678 → convierte los días desde 1900-01-01)
+  - DD/MM/YYYY
+  - DD.MM.YYYY
+  - DD-MM-YYYY
+  - Cualquier formato que JavaScript new Date(str) pueda parsear
+
+Si la fecha de vencimiento no viene en el Excel, se calcula:
+  fecha_vencimiento = fecha_compra + plazo_dias
+
+Si el plazo no viene, se asume 30 días por defecto.
+
+
+================================================================================
+11. CÓMO SE DEDUPLICAM LOS REGISTROS
+──────────────────────────────────────
+El mismo registro puede aparecer múltiples veces en panificacion_compras si:
+  - Se sube el mismo Excel dos veces (con o sin "reemplazar").
+  - El ERP tiene guías múltiples para la misma OC.
+  - Se carga desde el informe de sucursal Y desde el Excel general.
+
+Para resolver esto sin borrar datos, se usa una CTE con ROW_NUMBER:
+
+  PARTITION BY [clave_del_grupo] ORDER BY id DESC → _rn=1 es el más reciente
+
+Las claves de agrupación son:
+
+  Caso 1 — ENCADENADO CON ORDEN (fuente cualquiera):
+    Clave = año + '_ENC_' + numero_orden + '_PL' + plazo_dias + '_' + sucursal
+    → Cada (OC + plazo + sucursal) es una fila única.
+    → Si la misma OC tiene 3 plazos (30/60/90 días), genera 3 filas distintas.
+    → Si la misma OC fue subida 5 veces, solo queda la de mayor id.
+
+  Caso 2 — ENCADENADO SIN ORDEN:
+    Clave = CAST(id AS NVARCHAR) → sin deduplicación, cada fila es única
+
+  Caso 3 — NO ENCADENADO CON ORDEN:
+    Clave = año + '_NENC_' + numero_orden + '_PL' + plazo_dias + '_' + sucursal
+    → Igual que Caso 1, conserva cada plazo separado.
+    → IMPORTANTE: antes era sin plazo → colapsaba todos los plazos en 1,
+      causando que la OC desapareciera si el plazo de mayor id no era el buscado.
+
+  Caso 4 — NO ENCADENADO SIN ORDEN:
+    Clave = CAST(id AS NVARCHAR) → sin deduplicación
+
+REGLA CLAVE: ORDER BY id DESC significa que si hay duplicados, SIEMPRE
+gana el registro insertado más recientemente (mayor id). Esto asegura
+que la última versión subida sea la que se muestra.
+
+FUNCIÓN _deduplicar (se llama post-carga de Excel):
+  Elimina físicamente duplicados exactos con el mismo lote y mismos campos clave.
+  Es complementaria a la CTE (que solo filtra en la consulta, no borra).
+
+
+================================================================================
+12. LÓGICA DE FECHAS — RESUMEN POR CONTEXTO
+─────────────────────────────────────────────
+
+  FECHA_COMPRA (o FechaCreacion en ERP):
+    → Cuándo se emitió la orden de compra.
+    → Determina: columna AÑO, semana_compra, mes.
+    → Se usa para filtrar en "campo=compra" y en "compras-por-emision".
+
+  FECHA_VENCIMIENTO (o FechaPago en ERP):
+    → Cuándo hay que pagar.
+    → Determina: semana_vencimiento.
+    → Se usa para filtrar en "campo=vencimiento" (el DEFAULT).
+    → Para Encadenados: se usa YEAR(fecha_vencimiento) para asignar al año.
+    → Para No Encadenados: NO se usa el año de vencimiento, sino la columna AÑO.
+
+  COLUMNA AÑO:
+    → Año de creación de la OC (= fecha_compra.getFullYear()).
+    → Para No Encadenados: es el año que determina en qué período anual aparece.
+    → Para Encadenados: puede diferir de YEAR(fecha_vencimiento) si la OC fue
+      emitida en dic 2025 pero vence en ene/feb 2026.
+
+  FECHA_INICIO / FECHA_FIN DE SEMANA:
+    → Se calculan con getWeekDateRange(semana, año).
+    → Son LUNES a DOMINGO de esa semana ISO.
+    → En el config semanal puede haber una fecha_inicio personalizada, pero
+      la fecha_fin SIEMPRE se calcula automáticamente.
+
+  FECHA DE RECEPCIÓN (solo ERP, columna FechaRecepcion):
+    → No se guarda en panificacion_compras (se usa solo para calcular FechaPago).
+    → FechaPago = FechaRecepcion + PCOD_PLAZO (plazo contractual en días).
+    → El filtro del ERP busca recepciones en los 150 días previos a la semana de pago.
+
+TABLA RESUMEN: ¿qué fecha define dónde aparece un registro?
+
+  ┌──────────────────┬──────────────────────┬───────────────────────────────┐
+  │ Contexto         │ Fecha que manda       │ Explicación                   │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Vista semana     │ semana_vencimiento   │ "¿cuándo pago?"               │
+  │ (Tab Encadenados)│                      │                               │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Vista semana     │ semana_vencimiento   │ "¿cuándo pago?"               │
+  │ (Tab No Enc.)    │                      │                               │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Tab OC generadas │ semana_compra        │ "¿cuándo se emitió?"          │
+  │ (campo=compra)   │                      │                               │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Control anual    │ YEAR(fecha_venc)     │ Enc. se asignan por año de    │
+  │ (Encadenados)    │                      │ pago, no de emisión           │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Control anual    │ columna año          │ No Enc. se asignan por año    │
+  │ (No Encadenados) │                      │ de creación de la OC          │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Por Emisión      │ semana_compra + año  │ "¿qué se compró ese año?"     │
+  ├──────────────────┼──────────────────────┼───────────────────────────────┤
+  │ Proyección       │ fecha_vencimiento    │ Para ver picos de pago futuros│
+  └──────────────────┴──────────────────────┴───────────────────────────────┘
+
+
+================================================================================
+13. ESTADOS DE SEMANA Y CÓMO SE CALCULAN
+──────────────────────────────────────────
+Cada semana recibe un estado automático basado en comparar montos vs límite:
+
+  SIN_DATOS:
+    Condición: totalGeneral = 0 Y la semana ya pasó (semana < semana actual)
+    Significado: No hay registros de esa semana, posiblemente no se cargó.
+
+  EXCEDIDO:
+    Condición: totalGeneral > limite  O  encadenados > limite
+    Significado: Se superó el presupuesto semanal.
+
+  ALERTA:
+    Condición: totalGeneral >= limite * 80%  O  encadenados >= limite * 80%
+    Significado: Se usó el 80% o más del presupuesto.
+
+  REVISAR:
+    Condición: deuda_facturada_enc > 0  AND  encadenados = 0  AND  fact > $2.000.000
+    Significado: Hay facturas reales (PBI) sin OC registrada → inconsistencia.
+
+  OK:
+    Todas las demás condiciones.
+
+NOTA: El porcentaje_uso = encadenados (OC proyectadas) / limite × 100.
+Solo considera OC proyectadas, NO las facturas reales ni los No Encadenados,
+para ser consistente con cómo se controla el presupuesto en el negocio.
+
+
+================================================================================
+14. ERRORES COMUNES Y CÓMO DIAGNOSTICARLOS
+────────────────────────────────────────────
+
+ERROR: "Los No Encadenados cambian de valor entre recargas"
+  Causa probable A: Race condition — loadCompras se ejecutaba antes del ERP.
+    Diagnóstico: Ver en la consola del navegador si hay dos llamadas a /compras
+                 muy seguidas, una antes y una después de la llamada al ERP.
+    Solución: Ya corregido. loadCompras solo se llama DESPUÉS del ERP (en finally).
+
+  Causa probable B: CTE colapsaba plazos múltiples del mismo No Encadenado.
+    Diagnóstico: En la BD, ejecutar:
+      SELECT numero_orden, COUNT(*) FROM panificacion_compras
+      WHERE tipo_proveedor='No Encadenado' AND numero_orden IS NOT NULL
+        AND año = 2026
+      GROUP BY numero_orden HAVING COUNT(*) > 1
+    Si hay resultados, hay OCs con múltiples registros.
+    Solución: Ya corregido. La CTE ahora incluye plazo_dias en la clave para
+              No Encadenados, igual que para Encadenados.
+
+ERROR: "No aparecen No Encadenados en la semana X"
+  Causa probable: El ERP no tiene sucursales configuradas o no está accesible.
+    Diagnóstico: Ver consola del servidor — busca líneas como:
+      "[Planificacion] SUCURSAL sin ERP: Timeout" o "Connection refused"
+    Solución: Verificar que en la tabla "sucursales" de la BD, los campos
+              ip, base_datos, usuario, contrasena estén completos y correctos.
+
+  Causa probable: La fecha de recepción en el ERP no cae en el rango calculado.
+    Diagnóstico: El sistema busca recepciones entre (inicio_semana - 150 días)
+                 y fin_semana. Si hay OCs con plazos > 150 días, quedan afuera.
+    Solución: Aumentar el lookback en el código (actualmente 150 días):
+              inicio.setDate(inicio.getDate() - 150);  ← cambiar a 180 o 200
+
+ERROR: "Los encadenados suben y bajan entre recargas"
+  Causa probable: Orden no determinístico si hay OCs con la misma fecha_compra.
+    Diagnóstico: Ver si en el tab de Encadenados los mismos proveedores aparecen
+                 en posiciones diferentes. Si es solo orden y no monto, es visual.
+    Solución: Ya corregido. Backend usa ORDER BY fecha_compra DESC, numero_orden ASC, id DESC.
+              Frontend aplica _sortAgrupados() después de agrupar.
+
+ERROR: "La fecha fin de semana no aparece (solo dice el inicio)"
+  Causa probable: El endpoint /control-semanal no devolvía fecha_fin.
+    Solución: Ya corregido. Ahora se calcula con getWeekDateRange y se incluye
+              en cada objeto de semana como "fecha_fin".
+
+ERROR: "Se ve información incorrecta mientras carga"
+  Causa probable: El Resumen mostraba datos antes de que el ERP terminara.
+    Solución: Ya corregido. El tab Resumen muestra spinner bloqueante mientras
+              erpLoading || loadingWeeks || loadingCompras sea verdadero.
+
+ERROR: "Se duplican registros al subir Excel"
+  Diagnóstico: Verificar el parámetro "reemplazar":
+    - reemplazar=true  → BORRA todos los registros fuente='EXCEL' antes de insertar.
+    - reemplazar=false → Intenta deduplicar comparando proveedor+semana+monto.
+  Si hay duplicados: ejecutar en BD la consulta de diagnóstico:
+    SELECT proveedor, semana_compra, monto_con_iva, COUNT(*) AS cnt
+    FROM panificacion_compras
+    WHERE tipo_proveedor='Encadenado' AND fuente='EXCEL' AND año=2026
+    GROUP BY proveedor, semana_compra, monto_con_iva
+    HAVING COUNT(*) > 1
+    ORDER BY cnt DESC
+
+ERROR: "El total del resumen no coincide con la suma del detalle"
+  Causa probable: /resumen-anual no usa CTE deduplicadora (suma todo directamente).
+    Diagnóstico: Si hay duplicados en la BD, el resumen sobrecontará.
+    Solución: Ejecutar manualmente la deduplicación física de la BD,
+              o comparar los resultados del detalle (que sí usa CTE) con el resumen.
+
+ERROR: "Timeout al cargar No Encadenados del ERP"
+  Diagnóstico: Cada sucursal tiene timeout de 8 segundos para conectar y
+               120 segundos para ejecutar la query. Si hay muchas sucursales
+               lentas, la carga total puede demorar mucho.
+  Solución A: Reducir el lookback de 150 a menos días para acotar la query.
+  Solución B: En la tabla sucursales, dejar ip=NULL en las sucursales que
+              no tienen ERP, así no se intenta conectar a ellas.
+  Solución C: Los pools de conexión se cachean 5 minutos. En la segunda
+              carga dentro de esos 5 minutos, debería ir más rápido.
+
+CONSULTAS SQL ÚTILES PARA DIAGNÓSTICO
+--------------------------------------
+-- Ver todos los registros de una semana de vencimiento:
+SELECT id, proveedor, numero_orden, tipo_proveedor, fuente, sucursal,
+       monto_con_iva, plazo_dias, fecha_vencimiento, semana_vencimiento,
+       fecha_compra, año
+FROM panificacion_compras
+WHERE semana_vencimiento = 12 AND YEAR(fecha_vencimiento) = 2026
+ORDER BY tipo_proveedor, proveedor;
+
+-- Ver cuántos registros hay por fuente:
+SELECT fuente, tipo_proveedor, COUNT(*) AS total,
+       SUM(monto_con_iva) AS total_monto,
+       MAX(fecha_carga) AS ultima_carga
+FROM panificacion_compras
+WHERE año = 2026
+GROUP BY fuente, tipo_proveedor
+ORDER BY fuente, tipo_proveedor;
+
+-- Buscar duplicados en Encadenados:
+SELECT numero_orden, plazo_dias, sucursal, COUNT(*) AS filas
+FROM panificacion_compras
+WHERE tipo_proveedor = 'Encadenado' AND año = 2026
+  AND numero_orden IS NOT NULL AND numero_orden <> ''
+GROUP BY numero_orden, plazo_dias, sucursal
+HAVING COUNT(*) > 1
+ORDER BY filas DESC;
+
+-- Ver el resultado de la CTE de deduplicación directamente:
+WITH dedup AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY
+        CASE
+          WHEN LEN(ISNULL(numero_orden,'')) > 0 AND tipo_proveedor='Encadenado'
+            THEN CAST(año AS NVARCHAR) + '_ENC_' + numero_orden
+                 + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR),'X')
+                 + '_' + ISNULL(sucursal,'')
+          WHEN LEN(ISNULL(numero_orden,'')) > 0 AND tipo_proveedor='No Encadenado'
+            THEN CAST(año AS NVARCHAR) + '_NENC_' + numero_orden
+                 + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR),'X')
+                 + '_' + ISNULL(sucursal,'')
+          ELSE CAST(id AS NVARCHAR)
+        END
+      ORDER BY id DESC
+    ) AS _rn
+  FROM panificacion_compras
+  WHERE año = 2026 AND ISNULL(es_madre, 0) = 0
+)
+SELECT tipo_proveedor, fuente, semana_vencimiento,
+       COUNT(*) AS registros_unicos,
+       SUM(monto_con_iva) AS total
+FROM dedup
+WHERE _rn = 1
+GROUP BY tipo_proveedor, fuente, semana_vencimiento
+ORDER BY semana_vencimiento, tipo_proveedor;
+
+-- Verificar configuración de sucursales ERP:
+SELECT id, nombre, ip, base_datos, usuario,
+       CASE WHEN ip IS NULL OR ip='' THEN 'SIN ERP' ELSE 'CON ERP' END AS estado_erp
+FROM sucursales
+ORDER BY nombre;
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================

@@ -459,43 +459,65 @@ const TabGuiasEmitidas = memo(({ sucursales }) => {
   );
 });
 
-// ============ TAB 3: VER GUIAS INTEREMPRESA ============
-const TabGuiasInterempresa = memo(({ sucursales }) => {
-  const [sucursalId, setSucursalId] = useState('');
-  const [fechaDesde, setFechaDesde] = useState(dayjs());
-  const [fechaHasta, setFechaHasta] = useState(dayjs());
-  const [guias, setGuias] = useState([]);
-  const [totales, setTotales] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [filtro, setFiltro] = useState('');
+// ============ TAB 3: CENTRO DE COSTOS (productos_direccion.vb) ============
+const TabCentroCostos = memo(({ sucursales }) => {
+  const [sucursalId, setSucursalId]     = useState('');
+  const [fechaDesde, setFechaDesde]     = useState(dayjs());
+  const [fechaHasta, setFechaHasta]     = useState(dayjs());
+  const [clientes, setClientes]         = useState([]);
+  const [loading, setLoading]           = useState(false);
+  const [filtro, setFiltro]             = useState('');
+  const [expandedDir, setExpandedDir]   = useState(null);
+  const [detalle, setDetalle]           = useState({});
+  const [loadingDetalle, setLoadingDetalle] = useState(null);
 
   const buscar = useCallback(async () => {
     if (!sucursalId) return;
     setLoading(true);
+    setExpandedDir(null);
+    setDetalle({});
     try {
-      const { data } = await api.get('/guias/interempresa', {
+      const { data } = await api.get('/guias/centro-costos', {
         params: { sucursalId, fechaDesde: fechaDesde.format('YYYY-MM-DD'), fechaHasta: fechaHasta.format('YYYY-MM-DD') },
         timeout: 120000
       });
-      setGuias(data.guias);
-      setTotales(data.totales);
+      setClientes(data.clientes || []);
     } catch (err) {
       console.error(err);
-      setGuias([]);
+      setClientes([]);
     }
     setLoading(false);
   }, [sucursalId, fechaDesde, fechaHasta]);
 
-  const guiasFiltradas = useMemo(() => {
-    if (!filtro) return guias;
+  const toggleDetalle = useCallback(async (direccion) => {
+    if (expandedDir === direccion) { setExpandedDir(null); return; }
+    setExpandedDir(direccion);
+    if (detalle[direccion]) return; // ya cargado
+    setLoadingDetalle(direccion);
+    try {
+      const { data } = await api.get('/guias/centro-costos-detalle', {
+        params: { sucursalId, direccion, fechaDesde: fechaDesde.format('YYYY-MM-DD'), fechaHasta: fechaHasta.format('YYYY-MM-DD') },
+        timeout: 120000
+      });
+      setDetalle(prev => ({ ...prev, [direccion]: data.productos || [] }));
+    } catch (err) {
+      console.error(err);
+      setDetalle(prev => ({ ...prev, [direccion]: [] }));
+    }
+    setLoadingDetalle(null);
+  }, [expandedDir, detalle, sucursalId, fechaDesde, fechaHasta]);
+
+  const clientesFiltrados = useMemo(() => {
+    if (!filtro) return clientes;
     const f = filtro.toLowerCase();
-    return guias.filter(g =>
-      String(g.folio).includes(f) ||
-      (g.cliente || '').toLowerCase().includes(f) ||
-      (g.rut_cliente || '').includes(f) ||
-      (g.tipo_guia || '').toLowerCase().includes(f)
+    return clientes.filter(c =>
+      (c.razon_social || '').toLowerCase().includes(f) ||
+      (c.rut || '').includes(f) ||
+      (c.direccion || '').toLowerCase().includes(f)
     );
-  }, [guias, filtro]);
+  }, [clientes, filtro]);
+
+  const CC_COLOR = '#2e7d32';
 
   return (
     <Box>
@@ -511,50 +533,96 @@ const TabGuiasInterempresa = memo(({ sucursales }) => {
             slotProps={{ textField: { size: 'small', sx: { width: 160 } } }} />
         </LocalizationProvider>
         <Button variant="contained" onClick={buscar} disabled={loading || !sucursalId}
-          startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}>
+          startIcon={loading ? <CircularProgress size={18} /> : <SearchIcon />}
+          sx={{ bgcolor: CC_COLOR, '&:hover': { bgcolor: '#1b5e20' } }}>
           Buscar
         </Button>
       </Box>
 
-      {totales && (
-        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-          <Chip label={`${totales.cantidad} guias`} color="primary" />
-          <Chip label={`Total: ${formatPeso(totales.total)}`} color="success" />
+      {clientes.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Chip label={`${clientes.length} centros de costos`} sx={{ bgcolor: CC_COLOR, color: '#fff', fontWeight: 700 }} />
         </Box>
       )}
 
-      <TextField size="small" placeholder="Filtrar por folio, cliente, RUT, tipo..."
+      <TextField size="small" placeholder="Filtrar por razón social, RUT, dirección..."
         value={filtro} onChange={e => setFiltro(e.target.value)} sx={{ mb: 2, width: 400 }}
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
 
-      <TableContainer component={Paper} sx={{ maxHeight: 600 }}>
+      <TableContainer component={Paper} sx={{ maxHeight: 700 }}>
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }}>Folio</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }}>RUT Cliente</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }}>Cliente</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }} align="right">Total</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }}>Fecha</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e65100', color: '#fff' }}>Tipo Guia</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: CC_COLOR, color: '#fff', width: 40 }} />
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: CC_COLOR, color: '#fff' }}>RUT</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: CC_COLOR, color: '#fff' }}>Razón Social</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', bgcolor: CC_COLOR, color: '#fff' }}>Dirección</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {guiasFiltradas.map((g, i) => (
-              <TableRow key={g.folio + '-' + i} hover>
-                <TableCell sx={{ fontWeight: 'bold' }}>{g.folio}</TableCell>
-                <TableCell>{g.rut_cliente}</TableCell>
-                <TableCell>{g.cliente}</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold' }}>{formatPeso(g.total)}</TableCell>
-                <TableCell>{formatFecha(g.fecha)}</TableCell>
-                <TableCell>
-                  <Chip size="small" label={g.tipo_guia}
-                    color={g.tipo_guia === 'GV' ? 'primary' : g.tipo_guia === 'GT' ? 'warning' : 'default'} />
-                </TableCell>
-              </TableRow>
+            {clientesFiltrados.map((c, i) => (
+              <React.Fragment key={`${c.rut}-${i}`}>
+                <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => toggleDetalle(c.direccion)}>
+                  <TableCell padding="checkbox">
+                    <IconButton size="small">
+                      {expandedDir === c.direccion ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', fontSize: '0.78rem' }}>{c.rut}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{c.razon_social}</TableCell>
+                  <TableCell sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>{c.direccion}</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={4} sx={{ py: 0, border: 0 }}>
+                    <Collapse in={expandedDir === c.direccion} timeout="auto" unmountOnExit>
+                      <Box sx={{ p: 1.5, bgcolor: '#f1f8e9', borderRadius: 1, m: 0.5 }}>
+                        {loadingDetalle === c.direccion ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                            <CircularProgress size={16} />
+                            <Typography variant="caption" color="text.secondary">Cargando productos...</Typography>
+                          </Box>
+                        ) : detalle[c.direccion]?.length > 0 ? (
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: '#c8e6c9' }}>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }}>Folio</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }}>Código</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }}>Descripción</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }} align="right">Cantidad</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }} align="right">Valor</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }}>Familia</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', fontSize: '0.72rem' }}>Fecha Emisión</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {detalle[c.direccion].map((p, j) => (
+                                <TableRow key={j} hover>
+                                  <TableCell sx={{ fontSize: '0.72rem', fontWeight: 700, color: CC_COLOR }}>{p.folio}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem' }}>{p.codigo}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem' }}>{p.descripcion}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem' }} align="right">{p.cantidad}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem', fontWeight: 700 }} align="right">{formatPeso(p.valor)}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>{p.familia}</TableCell>
+                                  <TableCell sx={{ fontSize: '0.72rem', color: 'text.secondary' }}>{p.fecha_emision}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>
+                            Sin productos registrados para esta dirección en el período
+                          </Typography>
+                        )}
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </React.Fragment>
             ))}
-            {guiasFiltradas.length === 0 && !loading && (
-              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4 }}>Sin datos</TableCell></TableRow>
+            {clientesFiltrados.length === 0 && !loading && (
+              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.disabled' }}>
+                {clientes.length === 0 ? 'Selecciona una sucursal y rango de fechas para buscar' : 'Sin resultados'}
+              </TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -579,14 +647,14 @@ const GuiasPage = () => {
           sx={{ '& .MuiTab-root': { fontWeight: 'bold', fontSize: '0.9rem' } }}>
           <Tab icon={<LocalShippingIcon />} iconPosition="start" label="Envio de Guias" />
           <Tab icon={<DescriptionIcon />} iconPosition="start" label="Guias Emitidas" />
-          <Tab icon={<CompareArrowsIcon />} iconPosition="start" label="Guias Inter-empresa" />
+          <Tab icon={<CompareArrowsIcon />} iconPosition="start" label="Centro de Costos" />
         </Tabs>
       </Paper>
 
       <Paper sx={{ p: 2, borderRadius: 2 }}>
         {tab === 0 && <TabEnvioGuias sucursales={sucursales} />}
         {tab === 1 && <TabGuiasEmitidas sucursales={sucursales} />}
-        {tab === 2 && <TabGuiasInterempresa sucursales={sucursales} />}
+        {tab === 2 && <TabCentroCostos sucursales={sucursales} />}
       </Paper>
     </Box>
   );

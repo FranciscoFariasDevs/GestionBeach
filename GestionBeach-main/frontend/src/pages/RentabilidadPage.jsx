@@ -21,8 +21,6 @@ import {
   ExpandLess as ExpandLessIcon,
   ArrowUpward as ArrowUpIcon,
   ArrowDownward as ArrowDownIcon,
-  TableChart as TableIcon,
-  AccountTree as TreeIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { format, subDays } from 'date-fns';
@@ -245,10 +243,53 @@ const TablaRentabilidad = memo(({ registros, busqueda, loading, sortField, sortD
   );
 });
 
-// ─── Vista Árbol: Año → Mes → Semana ─────────────────────────────────────────
-function VistaArbol({ registros, busqueda, sortField, sortDir }) {
-  const sortFn = useMemo(() => makeSortFn(sortField, sortDir), [sortField, sortDir]);
+// ─── Vista Árbol: tabla de semana (memo — solo monta cuando se abre) ──────────
+const H_LABELS = ['Fecha','Hora','Código','Descripción','Cant.','Venta','Costo','Utilidad','Rent.'];
+const H_ALIGN  = ['left','left','left','left','right','right','right','right','right'];
 
+const SemanaTable = memo(({ registros, sortField, sortDir }) => {
+  const rows = useMemo(
+    () => [...registros].sort(makeSortFn(sortField, sortDir)),
+    [registros, sortField, sortDir]
+  );
+  return (
+    <Box sx={{ overflowX:'auto', pl:1, pt:0.3 }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {H_LABELS.map((h, i) => (
+              <TableCell key={h} align={H_ALIGN[i]}
+                sx={{ fontWeight:700, bgcolor:'#f5f5f5', fontSize:'0.68rem', py:0.5, whiteSpace:'nowrap' }}>
+                {h}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((r, i) => {
+            const rc = r.rentabilidad > 0.3 ? '#2e7d32' : r.rentabilidad > 0.15 ? '#ed6c02' : '#d32f2f';
+            return (
+              <TableRow key={i} hover sx={{ '&:nth-of-type(odd)':{ bgcolor:'rgba(0,0,0,0.02)' } }}>
+                <TableCell sx={{ fontSize:'0.73rem', py:0.35 }}>{formatFecha(r.fecha)}</TableCell>
+                <TableCell sx={{ fontSize:'0.73rem', py:0.35 }}>{String(r.hora).padStart(2,'0')}:00</TableCell>
+                <TableCell sx={{ fontFamily:'monospace', fontSize:'0.73rem', py:0.35 }}>{r.codigo}</TableCell>
+                <TableCell sx={{ fontSize:'0.73rem', py:0.35, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.descripcion}</TableCell>
+                <TableCell align="right" sx={{ py:0.35 }}>{r.cantidad}</TableCell>
+                <TableCell align="right" sx={{ fontWeight:600, py:0.35 }}>{formatPeso(r.venta)}</TableCell>
+                <TableCell align="right" sx={{ py:0.35 }}>{formatPeso(r.costo)}</TableCell>
+                <TableCell align="right" sx={{ fontWeight:600, color: r.utilidad >= 0 ? '#2e7d32' : '#d32f2f', py:0.35 }}>{formatPeso(r.utilidad)}</TableCell>
+                <TableCell align="right" sx={{ fontWeight:700, color:rc, py:0.35 }}>{formatPct(r.rentabilidad)}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+});
+
+// ─── Vista Árbol: Año → Semana → Día ─────────────────────────────────────────
+function VistaArbol({ registros, busqueda, sortField, sortDir }) {
   const filtrados = useMemo(() => {
     if (!busqueda) return registros;
     const b = busqueda.toLowerCase();
@@ -258,51 +299,51 @@ function VistaArbol({ registros, busqueda, sortField, sortDir }) {
     );
   }, [registros, busqueda]);
 
-  // Agrupa: año → mes → semana
+  // Agrupa: año → semana → día (una sola pasada)
   const tree = useMemo(() => {
     const años = {};
     filtrados.forEach(r => {
       if (!r.fecha) return;
       const d   = new Date(r.fecha);
       const año = d.getFullYear();
-      const mes = d.getMonth();
       const sem = getISOWeek(d);
+      const diaKey = format(d, 'yyyy-MM-dd');
+      const diaLabel = format(d, 'EEEE dd/MM/yyyy', { locale: es });
 
-      if (!años[año]) años[año] = { año, venta:0, costo:0, utilidad:0, items:0, meses:{} };
-      años[año].venta     += r.venta    || 0;
-      años[año].costo     += r.costo    || 0;
-      años[año].utilidad  += r.utilidad || 0;
+      if (!años[año]) años[año] = { año, venta:0, costo:0, utilidad:0, items:0, semanas:{} };
+      años[año].venta    += r.venta    || 0;
+      años[año].costo    += r.costo    || 0;
+      años[año].utilidad += r.utilidad || 0;
       años[año].items++;
 
-      const mKey = `${año}-${mes}`;
+      const sKey = `${año}-${sem}`;
       const aObj = años[año];
-      if (!aObj.meses[mKey]) aObj.meses[mKey] = { mes, mesLabel: MESES_ES[mes], venta:0, costo:0, utilidad:0, items:0, semanas:{} };
-      aObj.meses[mKey].venta    += r.venta    || 0;
-      aObj.meses[mKey].costo    += r.costo    || 0;
-      aObj.meses[mKey].utilidad += r.utilidad || 0;
-      aObj.meses[mKey].items++;
+      if (!aObj.semanas[sKey]) aObj.semanas[sKey] = { semana:sem, venta:0, costo:0, utilidad:0, items:0, dias:{} };
+      aObj.semanas[sKey].venta    += r.venta    || 0;
+      aObj.semanas[sKey].costo    += r.costo    || 0;
+      aObj.semanas[sKey].utilidad += r.utilidad || 0;
+      aObj.semanas[sKey].items++;
 
-      const sKey = `${mKey}-${sem}`;
-      const mObj = aObj.meses[mKey];
-      if (!mObj.semanas[sKey]) mObj.semanas[sKey] = { semana:sem, venta:0, costo:0, utilidad:0, registros:[] };
-      mObj.semanas[sKey].venta    += r.venta    || 0;
-      mObj.semanas[sKey].costo    += r.costo    || 0;
-      mObj.semanas[sKey].utilidad += r.utilidad || 0;
-      mObj.semanas[sKey].registros.push(r);
+      const sObj = aObj.semanas[sKey];
+      if (!sObj.dias[diaKey]) sObj.dias[diaKey] = { diaKey, diaLabel, venta:0, costo:0, utilidad:0, registros:[] };
+      sObj.dias[diaKey].venta    += r.venta    || 0;
+      sObj.dias[diaKey].costo    += r.costo    || 0;
+      sObj.dias[diaKey].utilidad += r.utilidad || 0;
+      sObj.dias[diaKey].registros.push(r);
     });
     return años;
   }, [filtrados]);
 
   const [open, setOpen] = useState({});
 
-  // Al cargar datos: abrir años, cerrar meses y semanas
+  // Al cargar nuevos datos: abrir años, cerrar el resto
   useEffect(() => {
     const init = {};
     Object.keys(tree).forEach(a => { init[`año-${a}`] = true; });
     setOpen(init);
   }, [registros.length]); // eslint-disable-line
 
-  const toggle = k => setOpen(p => ({ ...p, [k]: !p[k] }));
+  const toggle = useCallback(k => setOpen(p => ({ ...p, [k]: !p[k] })), []);
 
   if (!filtrados.length) return (
     <Box sx={{ textAlign:'center', py:5 }}>
@@ -313,32 +354,29 @@ function VistaArbol({ registros, busqueda, sortField, sortDir }) {
     </Box>
   );
 
-  const H_LABELS = ['Fecha','Hora','Código','Descripción','Cant.','Venta','Costo','Utilidad','Rent.'];
-  const H_ALIGN  = ['left','left','left','left','right','right','right','right','right'];
-
   return (
-    <Box sx={{ p: 1.5 }}>
+    <Box sx={{ p:1.5 }}>
       {Object.values(tree).sort((a, b) => b.año - a.año).map(añoData => {
         const aKey  = `año-${añoData.año}`;
         const aOpen = !!open[aKey];
         const aRent = añoData.venta > 0 ? añoData.utilidad / añoData.venta : 0;
 
         return (
-          <Box key={añoData.año} sx={{ mb: 2 }}>
+          <Box key={añoData.año} sx={{ mb:2 }}>
 
             {/* ══ AÑO ══ */}
             <Box onClick={() => toggle(aKey)} sx={{
               display:'flex', alignItems:'center', justifyContent:'space-between',
-              p: 1.5, borderRadius: 2, cursor:'pointer', userSelect:'none',
-              background: 'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)',
-              color: 'white', '&:hover': { opacity: 0.91 },
+              p:1.5, borderRadius:2, cursor:'pointer', userSelect:'none',
+              background:'linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%)',
+              color:'white', '&:hover':{ opacity:0.91 },
             }}>
               <Box sx={{ display:'flex', alignItems:'center', gap:1.5 }}>
                 {aOpen ? <ExpandLessIcon/> : <ExpandMoreIcon/>}
                 <CalendarIcon sx={{ fontSize:20 }}/>
                 <Typography variant="subtitle1" fontWeight={800}>{añoData.año}</Typography>
                 <Chip label={`${añoData.items} reg.`} size="small"
-                  sx={{ bgcolor: alpha('#fff', 0.15), color:'white', fontSize:'0.65rem', height:20 }}/>
+                  sx={{ bgcolor:alpha('#fff',0.15), color:'white', fontSize:'0.65rem', height:20 }}/>
               </Box>
               <Box sx={{ display:'flex', gap:2, alignItems:'center' }}>
                 <Box sx={{ textAlign:'right' }}>
@@ -354,108 +392,81 @@ function VistaArbol({ registros, busqueda, sortField, sortDir }) {
               </Box>
             </Box>
 
-            <Collapse in={aOpen}>
+            <Collapse in={aOpen} unmountOnExit>
               <Box sx={{ pl:2, pt:0.6 }}>
-                {Object.values(añoData.meses).sort((a, b) => a.mes - b.mes).map(mesData => {
-                  const mKey  = `mes-${añoData.año}-${mesData.mes}`;
-                  const mOpen = !!open[mKey];
-                  const mRent = mesData.venta > 0 ? mesData.utilidad / mesData.venta : 0;
+                {Object.values(añoData.semanas).sort((a, b) => a.semana - b.semana).map(semData => {
+                  const sKey  = `sem-${añoData.año}-${semData.semana}`;
+                  const sOpen = !!open[sKey];
+                  const sRent = semData.venta > 0 ? semData.utilidad / semData.venta : 0;
 
                   return (
-                    <Box key={mKey} sx={{ mb:0.8 }}>
+                    <Box key={sKey} sx={{ mb:0.8 }}>
 
-                      {/* ── MES ── */}
-                      <Box onClick={() => toggle(mKey)} sx={{
+                      {/* ── SEMANA ── */}
+                      <Box onClick={() => toggle(sKey)} sx={{
                         display:'flex', alignItems:'center', justifyContent:'space-between',
-                        p: 1.2, borderRadius:2, cursor:'pointer', userSelect:'none',
-                        bgcolor: alpha('#1a1a2e', 0.05), border:'1px solid', borderColor: alpha('#1a1a2e', 0.12),
-                        '&:hover': { bgcolor: alpha('#1a1a2e', 0.09) },
+                        p:1.2, borderRadius:2, cursor:'pointer', userSelect:'none',
+                        bgcolor:alpha('#1a1a2e',0.05), border:'1px solid', borderColor:alpha('#1a1a2e',0.12),
+                        '&:hover':{ bgcolor:alpha('#1a1a2e',0.09) },
                       }}>
                         <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
-                          {mOpen ? <ExpandLessIcon sx={{ fontSize:18 }}/> : <ExpandMoreIcon sx={{ fontSize:18 }}/>}
-                          <Typography variant="body2" fontWeight={700}>{mesData.mesLabel}</Typography>
-                          <Chip label={mesData.items} size="small" sx={{ fontSize:'0.62rem', height:18 }}/>
+                          {sOpen ? <ExpandLessIcon sx={{ fontSize:18 }}/> : <ExpandMoreIcon sx={{ fontSize:18 }}/>}
+                          <Typography variant="body2" fontWeight={700}>Semana {semData.semana}</Typography>
+                          <Chip label={`${semData.items} reg.`} size="small" sx={{ fontSize:'0.62rem', height:18 }}/>
                         </Box>
                         <Box sx={{ display:'flex', gap:2, alignItems:'center' }}>
-                          <Typography variant="caption" color="text.secondary">{formatPeso(mesData.venta)}</Typography>
-                          <Typography variant="caption" fontWeight={700} color="#2e7d32">{formatPeso(mesData.utilidad)}</Typography>
-                          <Chip label={formatPct(mRent)} size="small" sx={{
-                            bgcolor: mRent > 0.3 ? alpha('#2e7d32', 0.12) : alpha('#e65100', 0.12),
-                            color:   mRent > 0.3 ? '#2e7d32'              : '#e65100',
+                          <Typography variant="caption" color="text.secondary">{formatPeso(semData.venta)}</Typography>
+                          <Typography variant="caption" fontWeight={700} color="#2e7d32">{formatPeso(semData.utilidad)}</Typography>
+                          <Chip label={formatPct(sRent)} size="small" sx={{
+                            bgcolor: sRent > 0.3 ? alpha('#2e7d32',0.12) : alpha('#e65100',0.12),
+                            color:   sRent > 0.3 ? '#2e7d32'             : '#e65100',
                             fontWeight:700, fontSize:'0.65rem', height:20,
                           }}/>
                         </Box>
                       </Box>
 
-                      <Collapse in={mOpen}>
+                      <Collapse in={sOpen} unmountOnExit>
                         <Box sx={{ pl:2, pt:0.5 }}>
-                          {Object.values(mesData.semanas).sort((a, b) => a.semana - b.semana).map(semData => {
-                            const sKey  = `sem-${añoData.año}-${mesData.mes}-${semData.semana}`;
-                            const sOpen = !!open[sKey];
-                            const sRent = semData.venta > 0 ? semData.utilidad / semData.venta : 0;
-                            const sortedRows = [...semData.registros].sort(sortFn);
+                          {Object.values(semData.dias).sort((a, b) => a.diaKey.localeCompare(b.diaKey)).map(diaData => {
+                            const dKey  = `dia-${diaData.diaKey}`;
+                            const dOpen = !!open[dKey];
+                            const dRent = diaData.venta > 0 ? diaData.utilidad / diaData.venta : 0;
 
                             return (
-                              <Box key={sKey} sx={{ mb:0.6 }}>
+                              <Box key={dKey} sx={{ mb:0.6 }}>
 
-                                {/* ─ SEMANA ─ */}
-                                <Box onClick={() => toggle(sKey)} sx={{
+                                {/* ─ DÍA ─ */}
+                                <Box onClick={() => toggle(dKey)} sx={{
                                   display:'flex', alignItems:'center', justifyContent:'space-between',
-                                  p: 1, borderRadius:2, cursor:'pointer', userSelect:'none',
+                                  p:1, borderRadius:2, cursor:'pointer', userSelect:'none',
                                   bgcolor:'background.paper', border:'1px solid', borderColor:'divider',
-                                  '&:hover': { bgcolor:'action.hover' },
+                                  '&:hover':{ bgcolor:'action.hover' },
                                 }}>
                                   <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
-                                    {sOpen ? <ExpandLessIcon sx={{ fontSize:15 }}/> : <ExpandMoreIcon sx={{ fontSize:15 }}/>}
-                                    <Typography variant="body2" fontWeight={600} color="text.secondary">
-                                      Semana {semData.semana}
+                                    {dOpen ? <ExpandLessIcon sx={{ fontSize:15 }}/> : <ExpandMoreIcon sx={{ fontSize:15 }}/>}
+                                    <Typography variant="body2" fontWeight={600} color="text.secondary"
+                                      sx={{ textTransform:'capitalize' }}>
+                                      {diaData.diaLabel}
                                     </Typography>
-                                    <Chip label={semData.registros.length} size="small" sx={{ fontSize:'0.6rem', height:16 }}/>
+                                    <Chip label={diaData.registros.length} size="small" sx={{ fontSize:'0.6rem', height:16 }}/>
                                   </Box>
                                   <Box sx={{ display:'flex', gap:1.5, alignItems:'center' }}>
-                                    <Typography variant="caption" color="text.secondary">{formatPeso(semData.venta)}</Typography>
-                                    <Typography variant="caption" fontWeight={700} color="#2e7d32">{formatPeso(semData.utilidad)}</Typography>
-                                    <Chip label={formatPct(sRent)} size="small" sx={{
+                                    <Typography variant="caption" color="text.secondary">{formatPeso(diaData.venta)}</Typography>
+                                    <Typography variant="caption" fontWeight={700} color="#2e7d32">{formatPeso(diaData.utilidad)}</Typography>
+                                    <Chip label={formatPct(dRent)} size="small" sx={{
                                       fontSize:'0.6rem', height:18,
-                                      bgcolor: sRent > 0.3 ? alpha('#2e7d32', 0.1) : alpha('#e65100', 0.1),
-                                      color:   sRent > 0.3 ? '#2e7d32'             : '#e65100',
+                                      bgcolor: dRent > 0.3 ? alpha('#2e7d32',0.1) : alpha('#e65100',0.1),
+                                      color:   dRent > 0.3 ? '#2e7d32'            : '#e65100',
                                     }}/>
                                   </Box>
                                 </Box>
 
-                                <Collapse in={sOpen}>
-                                  <Box sx={{ pl:1, pt:0.3, overflowX:'auto' }}>
-                                    <Table size="small">
-                                      <TableHead>
-                                        <TableRow>
-                                          {H_LABELS.map((h, i) => (
-                                            <TableCell key={h} align={H_ALIGN[i]}
-                                              sx={{ fontWeight:700, bgcolor:'#f5f5f5', fontSize:'0.68rem', py:0.6, whiteSpace:'nowrap' }}>
-                                              {h}
-                                            </TableCell>
-                                          ))}
-                                        </TableRow>
-                                      </TableHead>
-                                      <TableBody>
-                                        {sortedRows.map((r, i) => {
-                                          const rc = r.rentabilidad > 0.3 ? '#2e7d32' : r.rentabilidad > 0.15 ? '#ed6c02' : '#d32f2f';
-                                          return (
-                                            <TableRow key={i} hover>
-                                              <TableCell sx={{ fontSize:'0.73rem', py:0.4 }}>{formatFecha(r.fecha)}</TableCell>
-                                              <TableCell sx={{ fontSize:'0.73rem', py:0.4 }}>{String(r.hora).padStart(2,'0')}:00</TableCell>
-                                              <TableCell sx={{ fontFamily:'monospace', fontSize:'0.73rem', py:0.4 }}>{r.codigo}</TableCell>
-                                              <TableCell sx={{ fontSize:'0.73rem', py:0.4, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.descripcion}</TableCell>
-                                              <TableCell align="right" sx={{ py:0.4 }}>{r.cantidad}</TableCell>
-                                              <TableCell align="right" sx={{ fontWeight:600, py:0.4 }}>{formatPeso(r.venta)}</TableCell>
-                                              <TableCell align="right" sx={{ py:0.4 }}>{formatPeso(r.costo)}</TableCell>
-                                              <TableCell align="right" sx={{ fontWeight:600, color: r.utilidad >= 0 ? '#2e7d32' : '#d32f2f', py:0.4 }}>{formatPeso(r.utilidad)}</TableCell>
-                                              <TableCell align="right" sx={{ fontWeight:700, color:rc, py:0.4 }}>{formatPct(r.rentabilidad)}</TableCell>
-                                            </TableRow>
-                                          );
-                                        })}
-                                      </TableBody>
-                                    </Table>
-                                  </Box>
+                                <Collapse in={dOpen} unmountOnExit>
+                                  <SemanaTable
+                                    registros={diaData.registros}
+                                    sortField={sortField}
+                                    sortDir={sortDir}
+                                  />
                                 </Collapse>
 
                               </Box>
@@ -493,10 +504,8 @@ export default function RentabilidadPage() {
   const [resumenHoras, setResumenHoras] = useState([]);
   const [showResumen,  setShowResumen]  = useState(false);
 
-  // Nuevo: ordenamiento + vista
   const [sortField, setSortField] = useState('fecha');
   const [sortDir,   setSortDir]   = useState('asc');
-  const [viewMode,  setViewMode]  = useState('tabla'); // 'tabla' | 'arbol'
 
   const handleSort = useCallback((field, dir) => { setSortField(field); setSortDir(dir); }, []);
 
@@ -517,7 +526,6 @@ export default function RentabilidadPage() {
       setRegistros(res.data.registros);
       setTotales(res.data.totales);
       setResumenHoras(res.data.resumen_horas);
-      if (res.data.resumen_horas.length > 0) setShowResumen(true);
     } catch (err) {
       setError(err.response?.data?.message || 'Error al consultar rentabilidad');
     } finally {
@@ -637,46 +645,12 @@ export default function RentabilidadPage() {
           {/* Ordenamiento */}
           {registros.length > 0 && <SortControl sortField={sortField} sortDir={sortDir} onSort={handleSort}/>}
 
-          {/* Toggle de vista */}
-          {registros.length > 0 && (
-            <Box sx={{ display:'flex', border:'1px solid', borderColor:'divider', borderRadius:2, overflow:'hidden' }}>
-              <Tooltip title="Vista tabla plana">
-                <Box onClick={() => setViewMode('tabla')} sx={{
-                  px:1.5, py:0.7, cursor:'pointer', display:'flex', alignItems:'center', gap:0.5,
-                  bgcolor: viewMode === 'tabla' ? '#1a1a2e' : 'transparent',
-                  color:   viewMode === 'tabla' ? 'white'   : 'text.secondary',
-                  transition:'all .15s',
-                  '&:hover': { bgcolor: viewMode === 'tabla' ? '#1a1a2e' : alpha('#1a1a2e', 0.06) },
-                }}>
-                  <TableIcon sx={{ fontSize:16 }}/>
-                  <Typography variant="caption" fontWeight={600}>Tabla</Typography>
-                </Box>
-              </Tooltip>
-              <Tooltip title="Vista árbol: Año › Mes › Semana">
-                <Box onClick={() => setViewMode('arbol')} sx={{
-                  px:1.5, py:0.7, cursor:'pointer', display:'flex', alignItems:'center', gap:0.5,
-                  bgcolor: viewMode === 'arbol' ? '#1a1a2e' : 'transparent',
-                  color:   viewMode === 'arbol' ? 'white'   : 'text.secondary',
-                  borderLeft: '1px solid', borderColor: 'divider',
-                  transition:'all .15s',
-                  '&:hover': { bgcolor: viewMode === 'arbol' ? '#1a1a2e' : alpha('#1a1a2e', 0.06) },
-                }}>
-                  <TreeIcon sx={{ fontSize:16 }}/>
-                  <Typography variant="caption" fontWeight={600}>Árbol</Typography>
-                </Box>
-              </Tooltip>
-            </Box>
-          )}
-        </Box>
+          </Box>
 
-        {/* Contenido */}
-        {viewMode === 'tabla'
-          ? <TablaRentabilidad
-              registros={registros} busqueda={busqueda} loading={loading}
-              sortField={sortField} sortDir={sortDir} onSort={handleSort}/>
-          : <VistaArbol
-              registros={registros} busqueda={busqueda}
-              sortField={sortField} sortDir={sortDir}/>
+        {/* Contenido — árbol integrado Año › Semana › Día › Productos */}
+        {loading
+          ? <Box sx={{ p:3 }}>{[...Array(10)].map((_, i) => <Skeleton key={i} height={42} sx={{ mb:0.5 }}/>)}</Box>
+          : <VistaArbol registros={registros} busqueda={busqueda} sortField={sortField} sortDir={sortDir}/>
         }
       </Paper>
 

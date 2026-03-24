@@ -37,7 +37,11 @@ export const MODULES = {
   ANULACIONES: 'productos/anulaciones',
   CARGAR_INVENTARIO: 'productos/cargar-inventario',
   GRUPOS_CHAT: 'grupos-chat',
-  PANIFICACION_COMPRAS: 'compras/panificacion',
+  PLANIFICACION_COMPRAS: 'compras/planificacion',
+  MONITOR_ORDENES: 'compras/monitor-ordenes',
+  AJUSTES: 'productos/ajustes',
+  PROVEEDORES_PRODUCTO: 'productos/proveedores',
+  ORGANIGRAMA: 'organigrama',
 };
 
 // Definir acciones
@@ -184,8 +188,19 @@ export function canAccessRoute(ability, route) {
     '/dashboard/grupos-chat': MODULES.GRUPOS_CHAT,
     '/grupos-chat': MODULES.GRUPOS_CHAT,
 
-    '/dashboard/compras/panificacion': MODULES.PANIFICACION_COMPRAS,
-    '/compras/panificacion': MODULES.PANIFICACION_COMPRAS,
+    '/dashboard/compras/planificacion': MODULES.PLANIFICACION_COMPRAS,
+    '/compras/planificacion': MODULES.PLANIFICACION_COMPRAS,
+
+    '/dashboard/compras/monitor-ordenes': MODULES.MONITOR_ORDENES,
+    '/compras/monitor-ordenes': MODULES.MONITOR_ORDENES,
+
+    '/productos/ajustes': MODULES.AJUSTES,
+    '/dashboard/productos/ajustes': MODULES.AJUSTES,
+
+    '/productos/proveedores': MODULES.PROVEEDORES_PRODUCTO,
+    '/dashboard/productos/proveedores': MODULES.PROVEEDORES_PRODUCTO,
+    '/organigrama': MODULES.ORGANIGRAMA,
+    '/dashboard/organigrama': MODULES.ORGANIGRAMA,
   };
 
   const module = routeToModule[route];

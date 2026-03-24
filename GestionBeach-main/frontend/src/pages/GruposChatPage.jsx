@@ -18,6 +18,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const colorFromId = (id) => {
   const colores = ['#1565c0', '#2e7d32', '#c62828', '#6a1b9a', '#ef6c00', '#00838f', '#4527a0', '#d84315'];
@@ -31,6 +32,8 @@ const getInitials = (nombre) => {
 
 export default function GruposChatPage() {
   const { enqueueSnackbar } = useSnackbar();
+  const { user } = useAuth();
+  const esSuperAdmin = user?.superadmin === true || user?.superadmin === 1;
   const [grupos, setGrupos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -185,12 +188,14 @@ export default function GruposChatPage() {
             </Typography>
           </Box>
         </Box>
-        <Button
-          variant="contained" startIcon={<AddIcon />} onClick={abrirCrear}
-          sx={{ bgcolor: '#1a237e', '&:hover': { bgcolor: '#283593' }, borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-        >
-          Crear Grupo
-        </Button>
+        {esSuperAdmin && (
+          <Button
+            variant="contained" startIcon={<AddIcon />} onClick={abrirCrear}
+            sx={{ bgcolor: '#1a237e', '&:hover': { bgcolor: '#283593' }, borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+          >
+            Crear Grupo
+          </Button>
+        )}
       </Box>
 
       {grupos.length === 0 ? (
@@ -202,10 +207,12 @@ export default function GruposChatPage() {
           <Typography variant="body2" color="text.secondary" mb={3}>
             Crea tu primer grupo para que los usuarios puedan comunicarse
           </Typography>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={abrirCrear}
-            sx={{ bgcolor: '#1a237e', '&:hover': { bgcolor: '#283593' } }}>
-            Crear Primer Grupo
-          </Button>
+          {esSuperAdmin && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={abrirCrear}
+              sx={{ bgcolor: '#1a237e', '&:hover': { bgcolor: '#283593' } }}>
+              Crear Primer Grupo
+            </Button>
+          )}
         </Paper>
       ) : (
         <Grid container spacing={3}>
@@ -256,15 +263,19 @@ export default function GruposChatPage() {
                 </CardContent>
 
                 <CardActions sx={{ px: 2, pb: 2, pt: 0 }}>
-                  <Button size="small" startIcon={<EditIcon />} onClick={() => abrirEditar(grupo)}
-                    sx={{ textTransform: 'none', fontWeight: 600 }}>
-                    Editar
-                  </Button>
-                  <Button size="small" startIcon={<DeleteIcon />} color="error"
-                    onClick={() => setEliminarId(grupo._id)}
-                    sx={{ textTransform: 'none', fontWeight: 600, ml: 'auto' }}>
-                    Eliminar
-                  </Button>
+                  {esSuperAdmin && (
+                    <>
+                      <Button size="small" startIcon={<EditIcon />} onClick={() => abrirEditar(grupo)}
+                        sx={{ textTransform: 'none', fontWeight: 600 }}>
+                        Editar
+                      </Button>
+                      <Button size="small" startIcon={<DeleteIcon />} color="error"
+                        onClick={() => setEliminarId(grupo._id)}
+                        sx={{ textTransform: 'none', fontWeight: 600, ml: 'auto' }}>
+                        Eliminar
+                      </Button>
+                    </>
+                  )}
                 </CardActions>
               </Card>
             </Grid>

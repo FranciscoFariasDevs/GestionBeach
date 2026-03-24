@@ -1,5 +1,6 @@
 // frontend/src/pages/PerfilPage.jsx - VERSIÓN SIMPLIFICADA SIN PERMISOS GRANULARES
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Box,
   Button,
@@ -41,24 +42,18 @@ import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
 export default function PerfilPage() {
+  const emptyPerfil = { id: null, nombre: '', descripcion: '' };
   const [perfiles, setPerfiles] = useState([]);
   const [modulos, setModulos] = useState([]);
   const [sucursales, setSucursales] = useState([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-
-  const [currentPerfil, setCurrentPerfil] = useState({
-    id: null,
-    nombre: '',
-    descripcion: ''
-  });
+  const formDialog   = useDialog({ data: emptyPerfil }); // diálogo crear/editar (loading = fetchingPerfil)
+  const deleteDialog = useDialog();                       // diálogo confirmar eliminar
 
   // Estado para módulos con sus sucursales
   const [modulosAsignados, setModulosAsignados] = useState([]);
   const [moduloExpandido, setModuloExpandido] = useState(null);
 
   const [loading, setLoading] = useState(false);
-  const [fetchingPerfil, setFetchingPerfil] = useState(false);
   const [backendError, setBackendError] = useState(null);
   const { enqueueSnackbar } = useSnackbar();
 
@@ -94,59 +89,40 @@ export default function PerfilPage() {
 
   const handleOpenDialog = async (perfil = null) => {
     if (perfil) {
-      // Editar perfil existente
-      setFetchingPerfil(true);
-      setCurrentPerfil({
-        id: perfil.id,
-        nombre: perfil.nombre,
-        descripcion: perfil.descripcion || ''
-      });
-
+      formDialog.openDialog({ id: perfil.id, nombre: perfil.nombre, descripcion: perfil.descripcion || '' });
+      formDialog.setLoading(true);
+      setModulosAsignados([]);
       try {
-        // Cargar configuración de módulos y sucursales
         const response = await api.get(`/perfiles-resumen/${perfil.id}`);
-
         if (response.data.modulos && response.data.modulos.length > 0) {
-          const modulosConfig = response.data.modulos.map(mod => ({
+          setModulosAsignados(response.data.modulos.map(mod => ({
             modulo_id: mod.modulo_id,
             modulo_nombre: mod.modulo_nombre,
             sucursales: mod.sucursales || []
-          }));
-          setModulosAsignados(modulosConfig);
-        } else {
-          setModulosAsignados([]);
+          })));
         }
       } catch (error) {
         console.error('Error cargando configuración:', error);
-        setModulosAsignados([]);
       } finally {
-        setFetchingPerfil(false);
+        formDialog.setLoading(false);
       }
     } else {
-      // Nuevo perfil
-      setCurrentPerfil({
-        id: null,
-        nombre: '',
-        descripcion: ''
-      });
+      formDialog.openDialog(emptyPerfil);
       setModulosAsignados([]);
     }
-    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setCurrentPerfil({ id: null, nombre: '', descripcion: '' });
+    formDialog.closeDialog();
     setModulosAsignados([]);
   };
 
   const handleOpenDeleteDialog = (perfil) => {
-    setCurrentPerfil(perfil);
-    setOpenDeleteDialog(true);
+    deleteDialog.openDialog(perfil);
   };
 
   const handleCloseDeleteDialog = () => {
-    setOpenDeleteDialog(false);
+    deleteDialog.closeDialog();
   };
 
   // Toggle módulo
@@ -201,37 +177,26 @@ export default function PerfilPage() {
   };
 
   const handleSavePerfil = async () => {
-    if (!currentPerfil.nombre.trim()) {
+    const perfil = formDialog.data;
+    if (!perfil.nombre.trim()) {
       enqueueSnackbar('El nombre del perfil es requerido', { variant: 'warning' });
       return;
     }
 
     try {
       setLoading(true);
-
       let perfilId;
 
-      if (currentPerfil.id) {
-        // Actualizar perfil
-        await api.put(`/perfiles/${currentPerfil.id}`, {
-          nombre: currentPerfil.nombre,
-          descripcion: currentPerfil.descripcion
-        });
-        perfilId = currentPerfil.id;
+      if (perfil.id) {
+        await api.put(`/perfiles/${perfil.id}`, { nombre: perfil.nombre, descripcion: perfil.descripcion });
+        perfilId = perfil.id;
         enqueueSnackbar('Perfil actualizado', { variant: 'success' });
       } else {
-        // Crear perfil
-        const response = await api.post('/perfiles', {
-          nombre: currentPerfil.nombre,
-          descripcion: currentPerfil.descripcion,
-          modulos: [],
-          sucursales: []
-        });
+        const response = await api.post('/perfiles', { nombre: perfil.nombre, descripcion: perfil.descripcion, modulos: [], sucursales: [] });
         perfilId = response.data.id;
         enqueueSnackbar('Perfil creado', { variant: 'success' });
       }
 
-      // Guardar permisos modulares (módulo + sucursales en perfil_modulo_sucursal)
       for (const moduloConfig of modulosAsignados) {
         await api.post('/permisos-modulares/sucursales', {
           perfil_id: perfilId,
@@ -251,10 +216,11 @@ export default function PerfilPage() {
   };
 
   const handleDeletePerfil = async () => {
+    const perfil = deleteDialog.data;
     try {
       setLoading(true);
-      await api.delete(`/perfiles/${currentPerfil.id}`);
-      setPerfiles(prev => prev.filter(p => p.id !== currentPerfil.id));
+      await api.delete(`/perfiles/${perfil.id}`);
+      setPerfiles(prev => prev.filter(p => p.id !== perfil.id));
       handleCloseDeleteDialog();
       enqueueSnackbar('Perfil eliminado', { variant: 'success' });
     } catch (error) {
@@ -352,17 +318,17 @@ export default function PerfilPage() {
 
       {/* Dialog para crear/editar con permisos modulares */}
       <Dialog
-        open={openDialog}
+        open={formDialog.open}
         onClose={handleCloseDialog}
         maxWidth="lg"
         fullWidth
         PaperProps={{ sx: { minHeight: '80vh' } }}
       >
         <DialogTitle>
-          {currentPerfil.id ? 'Editar Perfil' : 'Nuevo Perfil'}
+          {formDialog.data?.id ? 'Editar Perfil' : 'Nuevo Perfil'}
         </DialogTitle>
         <DialogContent dividers>
-          {fetchingPerfil ? (
+          {formDialog.loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', my: 3 }}>
               <CircularProgress />
               <Typography sx={{ ml: 2 }}>Cargando configuración...</Typography>
@@ -378,8 +344,8 @@ export default function PerfilPage() {
                       <TextField
                         fullWidth
                         label="Nombre del Perfil"
-                        value={currentPerfil.nombre}
-                        onChange={(e) => setCurrentPerfil(prev => ({ ...prev, nombre: e.target.value }))}
+                        value={formDialog.data?.nombre || ''}
+                        onChange={(e) => formDialog.setData(prev => ({ ...prev, nombre: e.target.value }))}
                         required
                         placeholder="Ej: Jefe de Local Quirihue"
                       />
@@ -388,8 +354,8 @@ export default function PerfilPage() {
                       <TextField
                         fullWidth
                         label="Descripción"
-                        value={currentPerfil.descripcion}
-                        onChange={(e) => setCurrentPerfil(prev => ({ ...prev, descripcion: e.target.value }))}
+                        value={formDialog.data?.descripcion || ''}
+                        onChange={(e) => formDialog.setData(prev => ({ ...prev, descripcion: e.target.value }))}
                         placeholder="Descripción opcional"
                       />
                     </Grid>
@@ -522,14 +488,14 @@ export default function PerfilPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleCloseDialog} disabled={loading || fetchingPerfil}>
+          <Button onClick={handleCloseDialog} disabled={loading || formDialog.loading}>
             Cancelar
           </Button>
           <Button
             onClick={handleSavePerfil}
             variant="contained"
             color="primary"
-            disabled={loading || fetchingPerfil || !currentPerfil.nombre.trim()}
+            disabled={loading || formDialog.loading || !formDialog.data?.nombre?.trim()}
           >
             {loading ? 'Guardando...' : 'Guardar Perfil'}
           </Button>
@@ -537,11 +503,11 @@ export default function PerfilPage() {
       </Dialog>
 
       {/* Dialog de eliminar */}
-      <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
+      <Dialog open={deleteDialog.open} onClose={handleCloseDeleteDialog}>
         <DialogTitle>Confirmar Eliminación</DialogTitle>
         <DialogContent>
           <Typography>
-            ¿Está seguro que desea eliminar el perfil <strong>{currentPerfil.nombre}</strong>?
+            ¿Está seguro que desea eliminar el perfil <strong>{deleteDialog.data?.nombre}</strong>?
           </Typography>
         </DialogContent>
         <DialogActions>

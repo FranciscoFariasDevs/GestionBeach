@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Container, Typography, Box, TextField, MenuItem, Button,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -26,10 +27,8 @@ const AnulacionesPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Detalle modal
-  const [detalleOpen, setDetalleOpen] = useState(false);
-  const [detalleData, setDetalleData] = useState(null);
-  const [detalleLoading, setDetalleLoading] = useState(false);
+  // Detalle modal — open/loading/data unificados en useDialog
+  const detalle = useDialog();
   const [ventaSeleccionada, setVentaSeleccionada] = useState(null);
 
   useEffect(() => {
@@ -60,16 +59,16 @@ const AnulacionesPage = () => {
 
   const verDetalle = async (anulacion) => {
     setVentaSeleccionada(anulacion);
-    setDetalleOpen(true);
-    setDetalleLoading(true);
-    setDetalleData(null);
+    detalle.openDialog();
+    detalle.setLoading(true);
+    detalle.setData(null);
     try {
       const res = await api.get('/anulaciones/detalle', {
         params: { sucursalId, numVenta: anulacion.NumVenta }, timeout: 30000
       });
-      setDetalleData(res.data);
-    } catch { setDetalleData({ productos: [] }); }
-    finally { setDetalleLoading(false); }
+      detalle.setData(res.data);
+    } catch { detalle.setData({ productos: [] }); }
+    finally { detalle.setLoading(false); }
   };
 
   const exportToExcel = () => {
@@ -247,11 +246,11 @@ const AnulacionesPage = () => {
       )}
 
       {/* Modal detalle */}
-      <Dialog open={detalleOpen} onClose={() => setDetalleOpen(false)} maxWidth="md" fullWidth
+      <Dialog open={detalle.open} onClose={detalle.closeDialog} maxWidth="md" fullWidth
         PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
         <Box sx={{ background: 'linear-gradient(135deg, #b71c1c 0%, #c62828 50%, #d32f2f 100%)', color: 'white', px: 3, py: 2, position: 'relative' }}>
-          {detalleLoading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, '& .MuiLinearProgress-bar': { bgcolor: '#FF9800' }, bgcolor: 'rgba(255,255,255,0.15)' }} />}
-          <IconButton onClick={() => setDetalleOpen(false)} sx={{ position: 'absolute', top: 8, right: 8, color: 'rgba(255,255,255,0.7)' }} size="small">
+          {detalle.loading && <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, '& .MuiLinearProgress-bar': { bgcolor: '#FF9800' }, bgcolor: 'rgba(255,255,255,0.15)' }} />}
+          <IconButton onClick={detalle.closeDialog} sx={{ position: 'absolute', top: 8, right: 8, color: 'rgba(255,255,255,0.7)' }} size="small">
             <CloseIcon />
           </IconButton>
           <Typography variant="overline" sx={{ color: 'rgba(255,255,255,0.6)', letterSpacing: 1.5, fontSize: '0.7rem' }}>Detalle Anulacion</Typography>
@@ -273,10 +272,10 @@ const AnulacionesPage = () => {
           )}
         </Box>
         <DialogContent sx={{ p: 2 }}>
-          {detalleLoading && (
+          {detalle.loading && (
             <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress sx={{ color: '#f44336' }} /></Box>
           )}
-          {detalleData && (
+          {detalle.data && (
             <TableContainer>
               <Table size="small">
                 <TableHead>
@@ -288,9 +287,9 @@ const AnulacionesPage = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {detalleData.productos.length === 0 ? (
+                  {detalle.data.productos.length === 0 ? (
                     <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>Sin productos</TableCell></TableRow>
-                  ) : detalleData.productos.map((p, i) => (
+                  ) : detalle.data.productos.map((p, i) => (
                     <TableRow key={i} hover>
                       <TableCell sx={{ fontSize: '0.82rem', fontFamily: 'monospace' }}>{p.Codigo}</TableCell>
                       <TableCell sx={{ fontSize: '0.82rem', maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.Descripcion}</TableCell>

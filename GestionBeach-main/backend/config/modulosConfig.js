@@ -37,7 +37,8 @@ module.exports = [
   { nombre: 'Compras',               claves: ['compras', 'compras/centros-costos', 'compras/facturas-xml'] },
   { nombre: 'Centros de Costos',     claves: ['compras/centros-costos'] },
   { nombre: 'Facturas XML',          claves: ['compras/facturas-xml'] },
-  { nombre: 'Panificacion Compras',  claves: ['compras/panificacion'] },
+  { nombre: 'Planificacion Compras', claves: ['compras/planificacion'] },
+  { nombre: 'MonitorOrdenes',        claves: ['compras/monitor-ordenes'] },
 
   { nombre: 'Tarjeta Empleado',      claves: ['tarjeta-empleado'] },
   { nombre: 'Empleados',             claves: ['empleados'] },
@@ -59,4 +60,7 @@ module.exports = [
   { nombre: 'Grupos de Chat',        claves: ['grupos-chat'] },
   { nombre: 'Anulaciones',           claves: ['productos/anulaciones'] },
   { nombre: 'Cargar Inventario',    claves: ['productos/cargar-inventario'] },
+  { nombre: 'Ajustes',              claves: ['productos/ajustes'] },
+  { nombre: 'Proveedores Producto', claves: ['productos/proveedores'] },
+  { nombre: 'Organigrama',          claves: ['organigrama'] },
 ];

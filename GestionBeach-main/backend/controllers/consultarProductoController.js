@@ -79,19 +79,56 @@ const esMultibodega = (sucursal) => {
 
 // Construir query de productos segun tipo de sucursal
 const buildQuery = (multibodega, filtro) => {
-  const tablaStock = multibodega
-    ? 'ERP_BOD_MERCADERIA_STOCK_MULTIBODEGA BMS'
-    : 'ERP_BOD_MERCADERIA_STOCK BMS';
-
-  const campoStock = multibodega ? 'BMS.MBS_EXISTENCIAS' : 'BMS.BMS_EXISTENCIAS';
-
-  // EP_ID_ESTADO: 2 = vigente, 3 = no vigente
   const estado = filtro === 'no_vigente' ? 3 : 2;
 
+  if (multibodega) {
+    // Coelemu / Quirihue: FULL JOIN con GROUP BY + SUM para evitar duplicados por bodega
+    let whereExtra = '';
+    if (filtro === 'limpiar') {
+      whereExtra = `
+        AND CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(SUM(BMS.MBS_EXISTENCIAS), 0)) > 0
+        AND MP.MP_CODIGO_PRODUCTO NOT LIKE '%FLETE%'
+        AND MP.MP_CODIGO_PRODUCTO NOT LIKE '%APORTE%'
+        AND MP.MP_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
+        AND MP.MP_DESCRIPCION_PRODUCTO NOT LIKE '%SALDO%'
+      `;
+    }
+
+    return `
+      SELECT
+        MP.MP_CODIGO_PRODUCTO AS codigo,
+        MP.MP_DESCRIPCION_PRODUCTO AS descripcion,
+        CAST(ROUND(ISNULL(SUM(BMS.MBS_EXISTENCIAS), 0), 1) AS NUMERIC(36,1)) AS stock,
+        MP.MP_MEDIDA AS familia,
+        CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) AS precio_compra,
+        ISNULL(MP.MP_MARGEN_COMERCIALIZACION, 0) AS margen,
+        CONVERT(NUMERIC, ISNULL(MP.MP_PRECIO_VENTA_NETO, 0)) AS neto,
+        CONVERT(NUMERIC, ISNULL(MP.MP_PRECIO_VENTA_FINAL, 0)) AS precio_final,
+        CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(SUM(BMS.MBS_EXISTENCIAS), 0)) AS valorizado
+      FROM ERP_MAESTRO_PRODUCTOS MP
+      FULL JOIN ERP_BOD_MERCADERIA_STOCK_MULTIBODEGA BMS
+        ON BMS.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+      WHERE MP.TPROV_ID_TIPO_PROVEEDOR = 3
+        AND EP_ID_ESTADO = ${estado}
+        AND MP.MP_CODIGO_PRODUCTO <> 'CODIGO_GENERICO'
+        ${whereExtra}
+      GROUP BY
+        MP.MP_CODIGO_PRODUCTO,
+        MP.MP_DESCRIPCION_PRODUCTO,
+        MP.MP_MEDIDA,
+        MP.MP_COSTO_FINAL,
+        MP.MP_MARGEN_COMERCIALIZACION,
+        MP.MP_PRECIO_VENTA_NETO,
+        MP.MP_PRECIO_VENTA_FINAL
+      ORDER BY MP.MP_DESCRIPCION_PRODUCTO ASC
+    `;
+  }
+
+  // Sucursales normales: tabla de stock única, sin duplicados
   let whereExtra = '';
   if (filtro === 'limpiar') {
     whereExtra = `
-      AND CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(${campoStock}, 0)) > 0
+      AND CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(BMS.BMS_EXISTENCIAS, 0)) > 0
       AND MP.MP_CODIGO_PRODUCTO NOT LIKE '%FLETE%'
       AND MP.MP_CODIGO_PRODUCTO NOT LIKE '%APORTE%'
       AND MP.MP_DESCRIPCION_PRODUCTO NOT LIKE '%PUBLICIDAD%'
@@ -103,15 +140,15 @@ const buildQuery = (multibodega, filtro) => {
     SELECT
       MP.MP_CODIGO_PRODUCTO AS codigo,
       MP.MP_DESCRIPCION_PRODUCTO AS descripcion,
-      CAST(ROUND(ISNULL(${campoStock}, 0), 1) AS NUMERIC(36,1)) AS stock,
+      CAST(ROUND(ISNULL(BMS.BMS_EXISTENCIAS, 0), 1) AS NUMERIC(36,1)) AS stock,
       MP.MP_MEDIDA AS familia,
       CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) AS precio_compra,
       ISNULL(MP.MP_MARGEN_COMERCIALIZACION, 0) AS margen,
       CONVERT(NUMERIC, ISNULL(MP.MP_PRECIO_VENTA_NETO, 0)) AS neto,
       CONVERT(NUMERIC, ISNULL(MP.MP_PRECIO_VENTA_FINAL, 0)) AS precio_final,
-      CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(${campoStock}, 0)) AS valorizado
+      CONVERT(NUMERIC, ISNULL(MP.MP_COSTO_FINAL, 0)) * CONVERT(NUMERIC, ISNULL(BMS.BMS_EXISTENCIAS, 0)) AS valorizado
     FROM ERP_MAESTRO_PRODUCTOS MP
-    FULL JOIN ${tablaStock}
+    FULL JOIN ERP_BOD_MERCADERIA_STOCK BMS
       ON BMS.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
     WHERE MP.TPROV_ID_TIPO_PROVEEDOR = 3
       AND EP_ID_ESTADO = ${estado}
@@ -375,120 +412,102 @@ exports.getTarjetaExistencia = async (req, res) => {
     const t0 = Date.now();
 
     const query = `
-      SELECT * FROM (
+      WITH base AS (
         SELECT
-          ISNULL(TE.BIGP_FOLIO_INGRESO_PROVEEDOR, 0) AS folio,
-          BTEXIST_FECHA_HORA_INGRESO AS fecha,
+          ISNULL(COALESCE(rig.ROC_NUMERO_ORDEN, BTE.ROC_NUMERO_ORDEN), 0) AS num_oc,
+          ISNULL(COALESCE(
+            G.BEGC_NUMERO_GUIA_CLI,
+            BTE.BIGP_FOLIO_INGRESO_PROVEEDOR,
+            BTE.AJU_ID_AJUSTE,
+            (SELECT TOP 1 B.RBO_NUMERO_BOLETA FROM ERP_FACT_RES_BOLETAS B WHERE B.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN),
+            (SELECT TOP 1 F.RFC_NUMERO_FACTURA_CLI FROM ERP_FACT_RES_FACTURA_CLIENTES F WHERE F.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN)
+          ), 0) AS folio,
+          CASE
+            WHEN COALESCE(TID.BTIG_DESCRIPCION_INGRESO, TED.BTEG_DESCRIPCION_EGRESO) IS NOT NULL
+              THEN COALESCE(TID.BTIG_DESCRIPCION_INGRESO, TED.BTEG_DESCRIPCION_EGRESO)
+            WHEN EXISTS (SELECT 1 FROM ERP_FACT_RES_BOLETAS B WHERE B.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN)
+              THEN 'BO'
+            WHEN EXISTS (SELECT 1 FROM ERP_FACT_RES_FACTURA_CLIENTES F WHERE F.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN)
+              THEN 'FA'
+            WHEN EXISTS (SELECT 1 FROM ERP_FACT_RES_NC_CLIENTE N WHERE N.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN)
+              THEN 'NC'
+            WHEN G.BEGC_NUMERO_GUIA_CLI IS NULL THEN 'GV'
+            ELSE NULL
+          END AS detalle,
           BTEXIST_ENTRADA AS entrada,
           ISNULL(BTEXIST_SALIDA, 0) AS salida,
           BTEXIST_STOCK_ACTUAL AS stock,
-          MC.MC_RAZON_SOCIAL AS cliente,
-          MP.MPR_RAZON_SOCIAL AS proveedor,
+          MPR.MPR_RAZON_SOCIAL AS proveedor,
+          ISNULL(MC.MC_RAZON_SOCIAL, 'BEACHMARKET LTDA') AS cliente,
           BTEXIST_PRECIO_ENTRADA AS precio_entrada,
           BTEXIST_PRECIO_SALIDA AS precio_salida,
-          OC.ROC_NUMERO_ORDEN AS num_orden,
-          CASE
-            WHEN RB.RBO_NUMERO_BOLETA IS NOT NULL THEN RB.RBO_NUMERO_BOLETA
-            ELSE FA.RFC_NUMERO_FACTURA_CLI
-          END AS doc,
-          TE.BTIPMOV_ID_TIPO_MOVIMIENTO AS movimiento,
-          BETE_ID_ESTADO_TARJETA AS estado
-        FROM ERP_BOD_TARJETA_EXISTENCIAS TE
-        FULL OUTER JOIN ERP_MAESTRO_PROVEEDORES MP ON MP.MPR_RUT_PROVEEDOR = TE.MPR_RUT_PROVEEDOR
-        FULL OUTER JOIN ERP_OP_RES_ORDEN_COMPRA OC ON OC.ROC_NUMERO_ORDEN = TE.ROC_NUMERO_ORDEN
-        FULL OUTER JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = OC.MC_RUT_CLIENTE
-        FULL OUTER JOIN ERP_FACT_RES_BOLETAS RB ON RB.ROC_NUMERO_ORDEN = OC.ROC_NUMERO_ORDEN
-        FULL OUTER JOIN ERP_FACT_RES_FACTURA_CLIENTES FA ON FA.ROC_NUMERO_ORDEN = OC.ROC_NUMERO_ORDEN
+          BTEXIST_FECHA_INGRESO_MOV AS fecha,
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              BTE.BTEXIST_FECHA_HORA_INGRESO,
+              BTE.BTEXIST_ENTRADA,
+              ISNULL(BTE.BTEXIST_SALIDA, 0),
+              BTE.BTEXIST_STOCK_ACTUAL,
+              ISNULL(BTE.ROC_NUMERO_ORDEN, 0),
+              ISNULL(BTE.BIGP_FOLIO_INGRESO_PROVEEDOR, 0),
+              ISNULL(BTE.BEGC_FOLIO_EGRESO_CLI, 0),
+              ISNULL(BTE.AJU_ID_AJUSTE, 0)
+            ORDER BY (SELECT NULL)
+          ) AS _rn
+        FROM ERP_BOD_TARJETA_EXISTENCIAS BTE
+        LEFT JOIN ERP_BOD_TIPO_EMISION_DOCUMENTO TED
+          ON TED.BTEG_TIPO_EGRESO = BTE.BTEG_TIPO_EGRESO
+        LEFT JOIN ERP_BOD_TIPO_INGRESO_DOCUMENTO TID
+          ON TID.BTIG_TIPO_INGRESO = BTE.BTIG_TIPO_INGRESO
+        LEFT JOIN ERP_OP_RES_ORDEN_COMPRA ROC
+          ON ROC.ROC_NUMERO_ORDEN = BTE.ROC_NUMERO_ORDEN
+        LEFT JOIN ERP_BOD_RES_INGRESO_GUIAS RIG
+          ON RIG.BIGP_FOLIO_INGRESO_PROVEEDOR = BTE.BIGP_FOLIO_INGRESO_PROVEEDOR
+        LEFT JOIN ERP_BOD_RES_EMISION_GUIAS G
+          ON G.BEGC_FOLIO_EGRESO_CLI = BTE.BEGC_FOLIO_EGRESO_CLI
+        LEFT JOIN ERP_MAESTRO_CLIENTES MC
+          ON MC.MC_RUT_CLIENTE = COALESCE(ROC.MC_RUT_CLIENTE, RIG.MC_RUT_CLIENTE)
+        LEFT JOIN (
+          SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER(PARTITION BY MPR_RUT_PROVEEDOR ORDER BY MPR_RUT_PROVEEDOR) AS rn
+            FROM ERP_MAESTRO_PROVEEDORES
+          ) t WHERE rn = 1
+        ) MPR ON MPR.MPR_RUT_PROVEEDOR = COALESCE(rig.MPR_RUT_PROVEEDOR, roc.MPR_RUT_PROVEEDOR, BTE.MPR_RUT_PROVEEDOR)
         WHERE MP_CODIGO_PRODUCTO = @codigo
+          AND (MC.ERS_ID_ESTADO = '1' OR MC.MC_RUT_CLIENTE IS NULL)
           AND BTEXIST_FECHA_HORA_INGRESO BETWEEN @fechaDesde AND @fechaHasta
-          AND MC.MC_RAZON_SOCIAL NOT LIKE '%CLIENTE FERRETERIA%'
-        UNION
-        SELECT
-          ISNULL(TE.BIGP_FOLIO_INGRESO_PROVEEDOR, 0) AS folio,
-          BTEXIST_FECHA_HORA_INGRESO AS fecha,
-          BTEXIST_ENTRADA AS entrada,
-          ISNULL(BTEXIST_SALIDA, 0) AS salida,
-          BTEXIST_STOCK_ACTUAL AS stock,
-          MC.MC_RAZON_SOCIAL AS cliente,
-          MP.MPR_RAZON_SOCIAL AS proveedor,
-          BTEXIST_PRECIO_ENTRADA AS precio_entrada,
-          BTEXIST_PRECIO_SALIDA AS precio_salida,
-          OC.ROC_NUMERO_ORDEN AS num_orden,
-          CASE
-            WHEN RB.RBO_NUMERO_BOLETA IS NOT NULL THEN RB.RBO_NUMERO_BOLETA
-            WHEN FA.RFC_NUMERO_FACTURA_CLI IS NOT NULL THEN FA.RFC_NUMERO_FACTURA_CLI
-            ELSE 0
-          END AS doc,
-          TE.BTIPMOV_ID_TIPO_MOVIMIENTO AS movimiento,
-          BETE_ID_ESTADO_TARJETA AS estado
-        FROM ERP_BOD_TARJETA_EXISTENCIAS TE
-        FULL JOIN ERP_BOD_RES_INGRESO_GUIAS IG ON IG.BIGP_FOLIO_INGRESO_PROVEEDOR = TE.BIGP_FOLIO_INGRESO_PROVEEDOR
-        FULL OUTER JOIN ERP_MAESTRO_PROVEEDORES MP ON MP.MPR_RUT_PROVEEDOR = IG.MPR_RUT_PROVEEDOR
-        FULL OUTER JOIN ERP_OP_RES_ORDEN_COMPRA OC ON OC.ROC_NUMERO_ORDEN = TE.ROC_NUMERO_ORDEN
-        FULL OUTER JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = OC.MC_RUT_CLIENTE
-        FULL OUTER JOIN ERP_FACT_RES_BOLETAS RB ON RB.ROC_NUMERO_ORDEN = OC.ROC_NUMERO_ORDEN
-        FULL OUTER JOIN ERP_FACT_RES_FACTURA_CLIENTES FA ON FA.ROC_NUMERO_ORDEN = OC.ROC_NUMERO_ORDEN
-        WHERE MP_CODIGO_PRODUCTO = @codigo
-          AND BTEXIST_FECHA_HORA_INGRESO BETWEEN @fechaDesde AND @fechaHasta
-          AND MC.MC_RAZON_SOCIAL IS NULL
-      ) T ORDER BY fecha ASC
+      )
+      SELECT num_oc, folio, detalle, entrada, salida, stock, proveedor, cliente, precio_entrada, precio_salida, fecha
+      FROM base
+      WHERE _rn = 1
+      ORDER BY fecha DESC
     `;
 
     const result = await poolSuc.request()
       .input('codigo', sql.VarChar, codigo)
-      .input('fechaDesde', sql.VarChar, fechaDesde + ' 01:00:00')
-      .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:00:00')
+      .input('fechaDesde', sql.VarChar, fechaDesde + ' 00:00:00')
+      .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:59:59')
       .query(query);
 
     const registros = result.recordset;
 
-    // Mapeo de tipos de movimiento a códigos legibles
-    const tipoMovimiento = {
-      1: 'OC',   // Orden de Compra
-      2: 'BO',   // Boleta
-      3: 'FA',   // Factura
-      4: 'GU',   // Guía
-      5: 'AJ',   // Ajuste
-      6: 'TR',   // Traspaso
-      7: 'DE',   // Devolución
-    };
-
-    // Transformar datos para el frontend y calcular saldo acumulativo
-    let saldoAcumulado = 0;
-    const movimientos = registros.map((r, index) => {
-      // Calcular saldo acumulativo (entrada suma, salida resta)
-      saldoAcumulado = saldoAcumulado + (r.entrada || 0) - (r.salida || 0);
-
-      // Construir detalle descriptivo
-      let detalle = '';
-      if (r.proveedor) {
-        detalle = `Proveedor: ${r.proveedor}`;
-      } else if (r.cliente) {
-        detalle = `Cliente: ${r.cliente}`;
-      } else if (r.num_orden) {
-        detalle = `Orden: ${r.num_orden}`;
-      } else {
-        detalle = r.entrada > 0 ? 'Entrada de mercadería' : 'Salida de mercadería';
-      }
-
-      return {
-        Fecha: r.fecha,
-        Tipo: tipoMovimiento[r.movimiento] || 'OT',  // OT = Otro
-        Folio: r.folio || r.doc || '-',
-        Detalle: detalle,
-        Entrada: r.entrada || 0,
-        Salida: r.salida || 0,
-        Saldo: saldoAcumulado,
-        // Datos adicionales por si se necesitan
-        _precioEntrada: r.precio_entrada,
-        _precioSalida: r.precio_salida,
-        _stockActual: r.stock
-      };
-    });
+    const movimientos = registros.map((r) => ({
+      Fecha:        r.fecha,
+      NumOC:        r.num_oc || 0,
+      Folio:        r.folio || '-',
+      Detalle:      r.detalle || '-',
+      Ingreso:      r.entrada || 0,
+      Egreso:       r.salida  || 0,
+      Stock:        r.stock   ?? '-',
+      Proveedor:    r.proveedor || '-',
+      Cliente:      r.cliente   || '-',
+      PrecioIngreso: r.precio_entrada || 0,
+      PrecioEgreso:  r.precio_salida  || 0,
+    }));
 
     const totalEntradas = registros.reduce((s, r) => s + (r.entrada || 0), 0);
-    const totalSalidas = registros.reduce((s, r) => s + (r.salida || 0), 0);
-    const stockActual = movimientos.length > 0 ? movimientos[movimientos.length - 1].Saldo : 0;
+    const totalSalidas  = registros.reduce((s, r) => s + (r.salida  || 0), 0);
+    const stockActual   = movimientos.length > 0 ? (movimientos[0].Stock ?? 0) : 0;
 
     const ms = Date.now() - t0;
     console.log(`[Tarjeta Existencia] ${sucursal.nombre} - ${codigo}: ${registros.length} movimientos en ${ms}ms`);

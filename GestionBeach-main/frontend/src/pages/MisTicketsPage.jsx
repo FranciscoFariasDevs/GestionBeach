@@ -56,6 +56,8 @@ import {
   Edit as EditIcon,
   PersonAdd as PersonAddIcon,
   Schedule as ScheduleIcon,
+  Search as SearchIcon,
+  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import Timeline from '@mui/lab/Timeline';
 import TimelineItem from '@mui/lab/TimelineItem';
@@ -103,6 +105,8 @@ const MisTicketsPage = () => {
   const [tabDialogo, setTabDialogo] = useState(0); // 0 = Conversación, 1 = Timeline
   const [imagenAdjunta, setImagenAdjunta] = useState(null);
   const [previewImagen, setPreviewImagen] = useState(null);
+  const [busquedaTickets, setBusquedaTickets] = useState('');
+  const [filtroPrioridad, setFiltroPrioridad] = useState('');
 
   useEffect(() => {
     cargarDatos();
@@ -208,12 +212,15 @@ const MisTicketsPage = () => {
         enqueueSnackbar('La imagen no puede superar 5MB', { variant: 'error' });
         return;
       }
+      // Liberar URL anterior antes de crear la nueva
+      if (previewImagen) URL.revokeObjectURL(previewImagen);
       setImagenAdjunta(file);
       setPreviewImagen(URL.createObjectURL(file));
     }
   };
 
   const eliminarImagen = () => {
+    if (previewImagen) URL.revokeObjectURL(previewImagen);
     setImagenAdjunta(null);
     setPreviewImagen(null);
   };
@@ -292,6 +299,17 @@ const MisTicketsPage = () => {
     if (diff < 1440) return `Hace ${Math.floor(diff / 60)} hrs`;
     return `Hace ${Math.floor(diff / 1440)} días`;
   };
+
+  const ticketsFiltrados = tickets.filter(t => {
+    const term = busquedaTickets.toLowerCase();
+    const matchText = !term ||
+      t.titulo?.toLowerCase().includes(term) ||
+      t.descripcion?.toLowerCase().includes(term) ||
+      t.creador_nombre?.toLowerCase().includes(term) ||
+      t.asignado_nombre?.toLowerCase().includes(term);
+    const matchPrio = !filtroPrioridad || t.prioridad === filtroPrioridad;
+    return matchText && matchPrio;
+  });
 
   return (
     <Box
@@ -491,6 +509,33 @@ const MisTicketsPage = () => {
             />
           </Tabs>
 
+          {/* Barra de búsqueda y filtros */}
+          <Box sx={{ px: { xs: 2, md: 3 }, pt: 2, pb: 0, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TextField
+              size="small"
+              placeholder="Buscar por título, descripción, creador..."
+              value={busquedaTickets}
+              onChange={(e) => setBusquedaTickets(e.target.value)}
+              InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 16, color: 'text.disabled', mr: 0.5 }}/> }}
+              sx={{ flexGrow: 1, minWidth: 200 }}
+            />
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Prioridad</InputLabel>
+              <Select value={filtroPrioridad} onChange={(e) => setFiltroPrioridad(e.target.value)} label="Prioridad">
+                <MenuItem value="">Todas</MenuItem>
+                <MenuItem value="baja">Baja</MenuItem>
+                <MenuItem value="media">Media</MenuItem>
+                <MenuItem value="alta">Alta</MenuItem>
+                <MenuItem value="critica">Crítica</MenuItem>
+              </Select>
+            </FormControl>
+            {(busquedaTickets || filtroPrioridad) && (
+              <Button size="small" startIcon={<FilterListIcon/>} onClick={() => { setBusquedaTickets(''); setFiltroPrioridad(''); }} variant="outlined" color="inherit">
+                Limpiar
+              </Button>
+            )}
+          </Box>
+
           <CardContent sx={{ p: { xs: 2, md: 3 } }}>
             {loading ? (
               <Box sx={{ py: 4 }}>
@@ -499,7 +544,7 @@ const MisTicketsPage = () => {
                   Cargando tickets...
                 </Typography>
               </Box>
-            ) : tickets.length === 0 ? (
+            ) : ticketsFiltrados.length === 0 ? (
               <Box sx={{ py: 8, textAlign: 'center' }}>
                 <Avatar
                   sx={{
@@ -513,12 +558,12 @@ const MisTicketsPage = () => {
                   <TicketIcon sx={{ fontSize: 50, color: '#bbb' }} />
                 </Avatar>
                 <Typography variant="h6" color="text.secondary">
-                  No hay tickets en esta categoría
+                  {busquedaTickets || filtroPrioridad ? 'Sin resultados con estos filtros' : 'No hay tickets en esta categoría'}
                 </Typography>
               </Box>
             ) : (
               <List>
-                {tickets.map((ticket, index) => (
+                {ticketsFiltrados.map((ticket, index) => (
                   <Fade in key={ticket.id} timeout={300 + index * 100}>
                     <Paper
                       elevation={2}
@@ -658,7 +703,7 @@ const MisTicketsPage = () => {
       {/* Diálogo de Detalle */}
       <Dialog
         open={dialogoAbierto}
-        onClose={() => setDialogoAbierto(false)}
+        onClose={() => { setDialogoAbierto(false); eliminarImagen(); }}
         maxWidth="md"
         fullWidth
         PaperProps={{

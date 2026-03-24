@@ -376,9 +376,9 @@ exports.getDetalleGuiaEmitida = async (req, res) => {
   }
 };
 
-// GET /api/guias/interempresa?sucursalId=1&fechaDesde=2025-01-01&fechaHasta=2025-01-31
-// Guias entre empresas BEACH/ERIZ (verGuias.vb)
-exports.getGuiasInterempresa = async (req, res) => {
+// GET /api/guias/centro-costos?sucursalId=1&fechaDesde=2025-01-01&fechaHasta=2025-01-31
+// Lista de clientes/direcciones con guías emitidas (Producto Direccion.vb → mostrar_dtg_empresa)
+exports.getCentroCostos = async (req, res) => {
   try {
     const { sucursalId, fechaDesde, fechaHasta } = req.query;
     if (!sucursalId || !fechaDesde || !fechaHasta) {
@@ -394,43 +394,86 @@ exports.getGuiasInterempresa = async (req, res) => {
 
     const t0 = Date.now();
 
-    const query = `
-      SELECT REG.BEGC_NUMERO_GUIA_CLI AS folio,
-             CAST(REG.MC_RUT_CLIENTE AS NVARCHAR) + '-' + CAST(MPC.MC_DIGITO AS NVARCHAR) AS rut_cliente,
-             MPC.MC_RAZON_SOCIAL AS cliente,
-             REG.BEGC_TOTAL AS total,
-             REG.BEGC_FECHA_HORA_EMISION AS fecha,
-             CASE
-               WHEN REG.BTEG_TIPO_EGRESO = '1' THEN 'GV'
-               WHEN REG.BTEG_TIPO_EGRESO = '3' THEN 'GT'
-               ELSE 'Otro'
-             END AS tipo_guia
-      FROM ERP_BOD_RES_EMISION_GUIAS REG
-      JOIN ERP_MAESTRO_CLIENTES MPC ON MPC.MC_RUT_CLIENTE = REG.MC_RUT_CLIENTE
-      WHERE REG.MC_RUT_CLIENTE <> 1
-        AND REG.BEGC_FECHA_HORA_EMISION BETWEEN @fechaDesde AND @fechaHasta
-        AND (MPC.MC_RAZON_SOCIAL LIKE '%BEACH%' OR MPC.MC_RAZON_SOCIAL LIKE '%ERIZ%')
-      ORDER BY REG.BEGC_FECHA_HORA_EMISION DESC
-    `;
-
     const result = await poolSuc.request()
       .input('fechaDesde', sql.VarChar, fechaDesde + ' 00:00:01')
       .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:59:00')
-      .query(query);
+      .query(`
+        SELECT DISTINCT
+          CAST(MC.MC_RUT_CLIENTE AS NVARCHAR) + '-' + CAST(MC.MC_DIGITO AS NVARCHAR) AS rut,
+          MC.MC_RAZON_SOCIAL AS razon_social,
+          BREG.BEGC_DIRECCION_DESTINO AS direccion
+        FROM ERP_BOD_RES_EMISION_GUIAS BREG
+        FULL JOIN ERP_MAESTRO_CLIENTES MC ON MC.MC_RUT_CLIENTE = BREG.MC_RUT_CLIENTE
+        WHERE MC.MC_RUT_CLIENTE <> '1'
+          AND MC.MC_RUT_CLIENTE IS NOT NULL
+          AND BREG.BEGC_DIRECCION_DESTINO IS NOT NULL
+          AND BREG.BEGC_FECHA_HORA_EMISION BETWEEN @fechaDesde AND @fechaHasta
+        ORDER BY MC.MC_RAZON_SOCIAL
+      `);
 
     const ms = Date.now() - t0;
-    console.log(`[Guias Interempresa] ${sucursal.nombre}: ${result.recordset.length} guias en ${ms}ms`);
-
-    res.json({
-      guias: result.recordset,
-      totales: {
-        cantidad: result.recordset.length,
-        total: result.recordset.reduce((s, g) => s + (g.total || 0), 0)
-      },
-      tiempo_ms: ms
-    });
+    console.log(`[Centro Costos] ${sucursal.nombre}: ${result.recordset.length} clientes en ${ms}ms`);
+    res.json({ clientes: result.recordset, tiempo_ms: ms });
   } catch (error) {
-    console.error('Error en getGuiasInterempresa:', error);
-    res.status(500).json({ message: 'Error al consultar guias interempresa', error: error.message });
+    console.error('Error en getCentroCostos:', error);
+    res.status(500).json({ message: 'Error al consultar centro de costos', error: error.message });
+  }
+};
+
+// GET /api/guias/centro-costos-detalle?sucursalId=1&direccion=...&fechaDesde=...&fechaHasta=...
+// Productos por dirección/centro de costos (Producto Direccion.vb → gridView1_DoubleClick)
+exports.getCentroCostosDetalle = async (req, res) => {
+  try {
+    const { sucursalId, direccion, fechaDesde, fechaHasta } = req.query;
+    if (!sucursalId || !direccion || !fechaDesde || !fechaHasta) {
+      return res.status(400).json({ message: 'Se requiere sucursalId, direccion, fechaDesde y fechaHasta' });
+    }
+
+    const sucursal = await obtenerSucursal(parseInt(sucursalId));
+    if (!sucursal) return res.status(404).json({ message: 'Sucursal no encontrada' });
+
+    let poolSuc;
+    try { poolSuc = await getPoolSucursal(sucursal); }
+    catch (err) { return res.status(503).json({ message: `No se pudo conectar a ${sucursal.nombre}`, error: err.message }); }
+
+    const t0 = Date.now();
+
+    const result = await poolSuc.request()
+      .input('direccion', sql.NVarChar, direccion)
+      .input('fechaDesde', sql.VarChar, fechaDesde + ' 00:00:01')
+      .input('fechaHasta', sql.VarChar, fechaHasta + ' 23:59:00')
+      .query(`
+        SELECT
+          BREG.BEGC_NUMERO_GUIA_CLI AS folio,
+          MP.MP_CODIGO_PRODUCTO      AS codigo,
+          MP.MP_DESCRIPCION_PRODUCTO AS descripcion,
+          SUM(BDEG.BDEGC_CANTIDAD)   AS cantidad,
+          SUM(BDEG.BDEGC_TOTAL)      AS valor,
+          BREG.BEGC_DIRECCION_DESTINO AS direccion,
+          MP.MP_MEDIDA               AS familia,
+          CONVERT(VARCHAR(10), BREG.BEGC_FECHA_HORA_EMISION, 103) AS fecha_emision
+        FROM ERP_BOD_DET_EMISION_GUIAS BDEG
+        JOIN ERP_BOD_RES_EMISION_GUIAS BREG
+          ON BDEG.BEGC_FOLIO_EGRESO_CLI = BREG.BEGC_FOLIO_EGRESO_CLI
+        JOIN ERP_MAESTRO_PRODUCTOS MP
+          ON MP.MP_CODIGO_PRODUCTO = BDEG.MP_CODIGO_PRODUCTO
+        WHERE BREG.BEGC_DIRECCION_DESTINO = @direccion
+          AND MP.TPROV_ID_TIPO_PROVEEDOR = 3
+          AND EP_ID_ESTADO = 2
+          AND BREG.BEGC_FECHA_HORA_EMISION BETWEEN @fechaDesde AND @fechaHasta
+        GROUP BY
+          MP.MP_CODIGO_PRODUCTO, MP.MP_DESCRIPCION_PRODUCTO,
+          BREG.BEGC_DIRECCION_DESTINO,
+          CONVERT(VARCHAR(10), BREG.BEGC_FECHA_HORA_EMISION, 103),
+          MP.MP_MEDIDA, BREG.BEGC_NUMERO_GUIA_CLI
+        ORDER BY MP.MP_DESCRIPCION_PRODUCTO ASC
+      `);
+
+    const ms = Date.now() - t0;
+    console.log(`[Centro Costos Detalle] ${sucursal.nombre} / ${direccion}: ${result.recordset.length} productos en ${ms}ms`);
+    res.json({ productos: result.recordset, tiempo_ms: ms });
+  } catch (error) {
+    console.error('Error en getCentroCostosDetalle:', error);
+    res.status(500).json({ message: 'Error al consultar detalle centro costos', error: error.message });
   }
 };

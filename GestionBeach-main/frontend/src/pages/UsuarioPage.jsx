@@ -1,5 +1,6 @@
 // frontend/src/pages/UsuarioPage.jsx
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Box,
   Button,
@@ -34,17 +35,11 @@ import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
 export default function UsuarioPage() {
+  const emptyUsuario = { id: null, username: '', nombre_completo: '', password: '', perfil_id: '' };
   const [usuarios, setUsuarios] = useState([]);
   const [perfiles, setPerfiles] = useState([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  const [currentUsuario, setCurrentUsuario] = useState({ 
-    id: null, 
-    username: '', 
-    nombre_completo: '', 
-    password: '',
-    perfil_id: ''
-  });
+  const formDialog   = useDialog({ data: emptyUsuario });  // diálogo crear/editar
+  const deleteDialog = useDialog();                         // diálogo confirmar eliminar
   const [loading, setLoading] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
@@ -88,99 +83,67 @@ const fetchPerfiles = async () => {
 };
 
   const handleOpenDialog = (usuario = null) => {
-    if (usuario) {
-      setCurrentUsuario({
-        ...usuario,
-        password: '' // No mostramos la contraseña actual por seguridad
-      });
-    } else {
-      setCurrentUsuario({ 
-        id: null, 
-        username: '', 
-        nombre_completo: '', 
-        password: '',
-        perfil_id: ''
-      });
-    }
-    setOpenDialog(true);
+    formDialog.openDialog(usuario ? { ...usuario, password: '' } : emptyUsuario);
   };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false);
+    formDialog.closeDialog();
   };
 
   const handleOpenDeleteDialog = (usuario) => {
-    setCurrentUsuario(usuario);
-    setOpenDeleteDialog(true);
+    deleteDialog.openDialog(usuario);
   };
 
   const handleCloseDeleteDialog = () => {
-    setOpenDeleteDialog(false);
+    deleteDialog.closeDialog();
   };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setCurrentUsuario({ ...currentUsuario, [name]: value });
+    formDialog.setData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSaveUsuario = async () => {
-    // Validación básica
-    if (!currentUsuario.username || !currentUsuario.nombre_completo || !currentUsuario.perfil_id) {
+    const usuario = formDialog.data;
+    if (!usuario.username || !usuario.nombre_completo || !usuario.perfil_id) {
       enqueueSnackbar('Por favor complete todos los campos requeridos', { variant: 'error' });
       return;
     }
-
-    // Validar contraseña para nuevos usuarios
-    if (!currentUsuario.id && !currentUsuario.password) {
+    if (!usuario.id && !usuario.password) {
       enqueueSnackbar('La contraseña es requerida para nuevos usuarios', { variant: 'error' });
       return;
     }
 
     try {
       setLoading(true);
-      
-      if (currentUsuario.id) {
-        // Preparar los datos para actualizar (quitar la contraseña si está vacía)
-        const datosActualizados = { ...currentUsuario };
-        if (!datosActualizados.password) {
-          delete datosActualizados.password;
-        }
-        
-        // Actualizar usuario existente
-        await api.put(`/usuarios/${currentUsuario.id}`, datosActualizados);
+      if (usuario.id) {
+        const datosActualizados = { ...usuario };
+        if (!datosActualizados.password) delete datosActualizados.password;
+        await api.put(`/usuarios/${usuario.id}`, datosActualizados);
         enqueueSnackbar('Usuario actualizado correctamente', { variant: 'success' });
       } else {
-        // Crear nuevo usuario
-        await api.post('/usuarios', currentUsuario);
+        await api.post('/usuarios', usuario);
         enqueueSnackbar('Usuario creado correctamente', { variant: 'success' });
       }
-      
-      // Recargar la lista de usuarios
       fetchUsuarios();
       handleCloseDialog();
     } catch (error) {
-      enqueueSnackbar('Error al guardar usuario: ' + (error.response?.data?.message || 'Error del servidor'), { 
-        variant: 'error' 
-      });
+      enqueueSnackbar('Error al guardar usuario: ' + (error.response?.data?.message || 'Error del servidor'), { variant: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteUsuario = async () => {
+    const usuario = deleteDialog.data;
     try {
       setLoading(true);
-      await api.delete(`/usuarios/${currentUsuario.id}`);
-      
-      // Actualizar la lista de usuarios
-      setUsuarios(usuarios.filter(u => u.id !== currentUsuario.id));
-      
+      await api.delete(`/usuarios/${usuario.id}`);
+      setUsuarios(usuarios.filter(u => u.id !== usuario.id));
       handleCloseDeleteDialog();
       enqueueSnackbar('Usuario eliminado correctamente', { variant: 'success' });
     } catch (error) {
-      enqueueSnackbar('Error al eliminar usuario: ' + (error.response?.data?.message || 'Error del servidor'), { 
-        variant: 'error' 
-      });
+      enqueueSnackbar('Error al eliminar usuario: ' + (error.response?.data?.message || 'Error del servidor'), { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -251,9 +214,9 @@ const fetchPerfiles = async () => {
       </TableContainer>
 
       {/* Dialog para crear/editar usuarios */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      <Dialog open={formDialog.open} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {currentUsuario.id ? 'Editar Usuario' : 'Nuevo Usuario'}
+          {formDialog.data?.id ? 'Editar Usuario' : 'Nuevo Usuario'}
         </DialogTitle>
         <DialogContent>
           <Box component="form" sx={{ mt: 2 }}>
@@ -262,7 +225,7 @@ const fetchPerfiles = async () => {
               name="username"
               label="Username"
               fullWidth
-              value={currentUsuario.username}
+              value={formDialog.data?.username || ''}
               onChange={handleInputChange}
               required
             />
@@ -271,26 +234,26 @@ const fetchPerfiles = async () => {
               name="nombre_completo"
               label="Nombre Completo"
               fullWidth
-              value={currentUsuario.nombre_completo}
+              value={formDialog.data?.nombre_completo || ''}
               onChange={handleInputChange}
               required
             />
             <TextField
               margin="dense"
               name="password"
-              label={currentUsuario.id ? "Nueva Contraseña (dejar en blanco para no cambiar)" : "Contraseña"}
+              label={formDialog.data?.id ? "Nueva Contraseña (dejar en blanco para no cambiar)" : "Contraseña"}
               type="password"
               fullWidth
-              value={currentUsuario.password}
+              value={formDialog.data?.password || ''}
               onChange={handleInputChange}
-              required={!currentUsuario.id}
+              required={!formDialog.data?.id}
             />
             <FormControl fullWidth margin="dense" required>
               <InputLabel id="perfil-label">Perfil</InputLabel>
               <Select
                 labelId="perfil-label"
                 name="perfil_id"
-                value={currentUsuario.perfil_id}
+                value={formDialog.data?.perfil_id || ''}
                 onChange={handleInputChange}
                 label="Perfil"
               >
@@ -305,9 +268,9 @@ const fetchPerfiles = async () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancelar</Button>
-          <Button 
-            onClick={handleSaveUsuario} 
-            variant="contained" 
+          <Button
+            onClick={handleSaveUsuario}
+            variant="contained"
             color="primary"
             disabled={loading}
           >
@@ -317,18 +280,18 @@ const fetchPerfiles = async () => {
       </Dialog>
 
       {/* Dialog para confirmar eliminación */}
-      <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
+      <Dialog open={deleteDialog.open} onClose={handleCloseDeleteDialog}>
         <DialogTitle>Eliminar Usuario</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            ¿Está seguro que desea eliminar al usuario "{currentUsuario.nombre_completo}"? Esta acción no se puede deshacer.
+            ¿Está seguro que desea eliminar al usuario "{deleteDialog.data?.nombre_completo}"? Esta acción no se puede deshacer.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDeleteDialog}>Cancelar</Button>
-          <Button 
-            onClick={handleDeleteUsuario} 
-            color="error" 
+          <Button
+            onClick={handleDeleteUsuario}
+            color="error"
             variant="contained"
             disabled={loading}
           >

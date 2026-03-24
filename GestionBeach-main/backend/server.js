@@ -5,7 +5,7 @@ const path = require('path');
 const http = require('http');
 
 // Cargar variables de entorno
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Crear aplicación Express
 const app = express();
@@ -173,7 +173,15 @@ const optionalRoutes = [
   // 👥 GRUPOS DE CHAT (CRUD desde módulo admin)
   { path: './routes/gruposChatRoutes', route: '/api/grupos-chat' },
   // 🏭 PANIFICACIÓN COMPRAS - PAGOS
-  { path: './routes/panificacionRoutes', route: '/api/panificacion' },
+  { path: './routes/planificacionRoutes', route: '/api/planificacion' },
+  // 📦 MONITOR ÓRDENES DE COMPRA (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/monitorOrdenesRoutes', route: '/api/monitor-ordenes' },
+  // 📦 AJUSTES DE BODEGA (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/ajustesRoutes', route: '/api/ajustes' },
+  // 🏭 PROVEEDORES — DIRECCIÓN DE PRODUCTO (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/proveedoresRoutes', route: '/api/proveedores-producto' },
+  // 🏢 ORGANIGRAMA INTERACTIVO
+  { path: './routes/organigramaRoutes', route: '/api/organigrama' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -478,7 +486,8 @@ const startServer = async () => {
           'Inventario', 'Ventas', 'Productos', 'Supermercados', 'Ferreterías',
           'Multitiendas', 'Compras', 'Centros de Costos', 'Facturas XML',
           'Tarjeta Empleado', 'Empleados', 'Cabañas', 'Usuarios', 'Perfiles',
-          'Módulos', 'Configuración', 'Correo Electrónico'
+          'Módulos', 'Configuración', 'Correo Electrónico', 'MonitorOrdenes', 'Ajustes',
+          'Organigrama'
         ];
 
         // Verificar si modulos tiene IDENTITY
@@ -570,6 +579,15 @@ const startServer = async () => {
       console.log('✅ Job de limpieza de reservas pendientes iniciado');
     } catch (jobError) {
       console.error('⚠️ Error al iniciar job de limpieza:', jobError.message);
+    }
+
+    // INICIAR JOB PBI AUTO-DESCARGA
+    // ============================================
+    try {
+      const { iniciarJobPBI } = require('./jobs/pbiAutoDescarga');
+      iniciarJobPBI();
+    } catch (jobError) {
+      console.error('⚠️ Error al iniciar job PBI:', jobError.message);
     }
 
     // Crear servidor HTTP para Socket.IO

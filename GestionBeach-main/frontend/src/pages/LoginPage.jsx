@@ -17,15 +17,16 @@ import {
   Zoom,
   ClickAwayListener,
 } from '@mui/material';
-import { 
-  Visibility, 
-  VisibilityOff, 
-  LockOutlined, 
+import {
+  Visibility,
+  VisibilityOff,
+  LockOutlined,
   PersonOutline,
   Search,
-  HeadsetMic, 
+  HeadsetMic,
   AppsOutlined,
   Close,
+  Radio as RadioIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { styled } from '@mui/material/styles';
@@ -389,6 +390,22 @@ const LoginPage = () => {
         {/* Sistema de botones flotantes - Posicionado más arriba */}
         <ClickAwayListener onClickAway={handleClickAway}>
           <FloatingButtonsContainer>
+            {/* Botón de Radio (aparece cuando el menú está abierto) */}
+            <Zoom in={menuOpen}>
+              <Tooltip title="Beach Radio" placement="left">
+                <SecondaryFloatingButton
+                  sx={{ bgcolor: '#1a237e', color: 'white', '&:hover': { bgcolor: '#283593' } }}
+                  component={Link}
+                  to="/radio"
+                  aria-label="radio"
+                  show={menuOpen}
+                  size="medium"
+                >
+                  <RadioIcon />
+                </SecondaryFloatingButton>
+              </Tooltip>
+            </Zoom>
+
             {/* Botón de Consultor (aparece cuando el menú está abierto) */}
             <Zoom in={menuOpen}>
               <SecondaryFloatingButton
@@ -402,7 +419,7 @@ const LoginPage = () => {
                 <Search />
               </SecondaryFloatingButton>
             </Zoom>
-            
+
             {/* Botón principal de Apps/Tools - Tamaño aumentado */}
             <Tooltip title={menuOpen ? "Cerrar menú" : "Herramientas"} placement="left">
               <MainFloatingButton

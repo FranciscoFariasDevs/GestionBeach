@@ -37,6 +37,7 @@
     "notistack": "^3.0.2",
     "pdfkit": "^0.17.1",
     "ping": "^0.4.4",
+    "playwright": "^1.58.2",
     "react-barcode": "^1.6.1",
     "react-to-print": "^3.1.0",
     "recharts": "^3.1.2",

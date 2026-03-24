@@ -1,6 +1,7 @@
 // VentasPage.jsx - Con cálculos en NETO (sin IVA)
 
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Box, Container, Grid, Card, CardContent, CardHeader, TextField,
   Button, Typography, CircularProgress, MenuItem, InputAdornment, Dialog,
@@ -47,10 +48,8 @@ const VentasPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [docFilter, setDocFilter] = useState('');
 
-  const [openDialog, setOpenDialog] = useState(false);
-  const [selectedFolio, setSelectedFolio] = useState(null);
+  const folioDialog = useDialog(); // open + data(folio) + loading — reemplaza openDialog/selectedFolio/loadingProductos
   const [productos, setProductos] = useState([]);
-  const [loadingProductos, setLoadingProductos] = useState(false);
   
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -208,9 +207,8 @@ const VentasPage = () => {
   }, [searchTerm, docFilter, ventasOriginales]);
 
   const handleViewProductos = async (folio) => {
-    setSelectedFolio(folio);
-    setOpenDialog(true);
-    setLoadingProductos(true);
+    folioDialog.openDialog(folio);
+    folioDialog.setLoading(true);
     
     try {
       const response = await api.get(`/ventas/productos?folio=${folio}&sucursal_id=${selectedSucursal}`);
@@ -230,7 +228,7 @@ const VentasPage = () => {
         enqueueSnackbar('Error al cargar productos', { variant: 'error' });
       }
     } finally {
-      setLoadingProductos(false);
+      folioDialog.setLoading(false);
     }
   };
 
@@ -727,9 +725,9 @@ const VentasPage = () => {
           </CardContent>
         </Card>
 
-        <Dialog 
-          open={openDialog} 
-          onClose={() => setOpenDialog(false)} 
+        <Dialog
+          open={folioDialog.open}
+          onClose={folioDialog.closeDialog}
           maxWidth="lg" 
           fullWidth
           PaperProps={{
@@ -747,11 +745,11 @@ const VentasPage = () => {
           }}>
             <ReceiptIcon sx={{ mr: 1 }} />
             <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-              Productos del Folio {selectedFolio}
+              Productos del Folio {folioDialog.data}
             </Typography>
           </DialogTitle>
           <DialogContent dividers sx={{ p: 0 }}>
-            {loadingProductos ? (
+            {folioDialog.loading ? (
               <Box textAlign="center" py={4}>
                 <CircularProgress size={40} />
                 <Typography variant="body2" sx={{ mt: 2 }}>
@@ -821,7 +819,7 @@ const VentasPage = () => {
           <DialogActions sx={{ p: 2 }}>
             <Button 
               variant="outlined"
-              onClick={() => setOpenDialog(false)}
+              onClick={folioDialog.closeDialog}
               startIcon={<ClearIcon />}
             >
               Cerrar

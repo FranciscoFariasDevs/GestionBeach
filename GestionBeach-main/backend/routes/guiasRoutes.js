@@ -8,6 +8,7 @@ router.get('/envio', controller.getGuiasEnvio);
 router.get('/detalle', controller.getDetalleGuia);
 router.get('/emitidas', controller.getGuiasEmitidas);
 router.get('/detalle-emitida', controller.getDetalleGuiaEmitida);
-router.get('/interempresa', controller.getGuiasInterempresa);
+router.get('/centro-costos',        controller.getCentroCostos);
+router.get('/centro-costos-detalle', controller.getCentroCostosDetalle);
 
 module.exports = router;

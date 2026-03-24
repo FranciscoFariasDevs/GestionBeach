@@ -4,65 +4,37 @@ import axios from 'axios';
 // ✅ FUNCIÓN PARA DETECTAR LA URL DEL BACKEND AUTOMÁTICAMENTE
 const getBackendURL = () => {
   const hostname = window.location.hostname;
-  const port = window.location.port;
-  
-  console.log(`🔍 Frontend ejecutándose en: ${hostname}:${port}`);
-  
-  /*switch (hostname) {
+  const isHTTPS  = window.location.protocol === 'https:';
+
+  switch (hostname) {
     case 'localhost':
     case '127.0.0.1':
-      console.log('🏠 Modo desarrollo local');
+      // Dev local: siempre HTTP (localhost nunca fuerza HTTPS-Only en Firefox)
       return 'http://localhost:5000/api';
-      
+
     case '192.168.100.150':
-      console.log('🏠 Acceso desde red local');
-      return 'http://192.168.100.150:5000/api';
-      
-    case '190.102.248.163':
-      console.log('🌐 Acceso desde internet público');
-      return 'http://190.102.248.163:5000/api';
-      
-      case 'http://intranet.beach.cl':
-      console.log('🌐 Acceso desde internet público');
-      return 'http://intranet.beach.cl:5000/api';
-      
+      // Red local:
+      //   - HTTP  → backend directo en :5000 (desarrollo)
+      //   - HTTPS → Firefox HTTPS-Only mode o Nginx con SSL → usar api.beach.cl (producción)
+      return isHTTPS
+        ? 'https://api.beach.cl/api'
+        : 'http://192.168.100.150:5000/api';
+
+    case 'intranet.beach.cl':
+    case 'concurso.beach.cl':
+    case 'reservas.beach.cl':
+      return 'https://api.beach.cl/api';
+
     default:
-      console.log(`⚠️ Hostname desconocido: ${hostname}, usando backend local`);
-      return 'http://192.168.100.150:5000/api';
-  }*/
-
-      switch (hostname) {
-  case 'localhost':
-  case '127.0.0.1':
-    console.log('🏠 Modo desarrollo local');
-    return 'http://localhost:5000/api';
-
-  case '192.168.100.150':
-    console.log('🏠 Acceso desde red local');
-    return 'http://192.168.100.150:5000/api';
-
-  case 'intranet.beach.cl':
-    console.log('🌐 Acceso desde intranet.beach.cl');
-    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
-
-          case 'concurso.beach.cl':
-    console.log('🌐 Acceso desde intranet.beach.cl');
-    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
-
-      case 'reservas.beach.cl':
-    console.log('🌐 Acceso desde intranet.beach.cl');
-    return 'https://api.beach.cl/api'; // ⚠️ apunta al backend por dominio
-
-  default:
-    console.log(`⚠️ Hostname desconocido: ${hostname}, usando backend local`);
-    return 'http://192.168.100.150:5000/api';
-}
+      // Hostname desconocido: respetar el protocolo actual
+      return isHTTPS
+        ? 'https://api.beach.cl/api'
+        : 'http://192.168.100.150:5000/api';
+  }
 };
 
 // URL del backend con detección automática
 const API_URL = process.env.REACT_APP_API_URL || getBackendURL();
-
-console.log(`🔧 API_URL configurada: ${API_URL}`);
 
 // Crear instancia de axios
 const api = axios.create({
@@ -130,17 +102,18 @@ const requiresAuth = (url) => {
 api.interceptors.request.use(
   (config) => {
     const token = getAuthToken();
-    
-    console.log(`📡 API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-    
+
     // Solo agregar token si la ruta lo requiere
     if (requiresAuth(config.url) && token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('🔐 Token agregado a la request');
-    } else if (requiresAuth(config.url) && !token) {
-      console.warn('⚠️ Ruta requiere autenticación pero no hay token');
     }
-    
+
+    // Si el body es FormData, eliminar Content-Type para que el browser
+    // lo genere automáticamente con el boundary correcto (multipart/form-data; boundary=...)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     return config;
   },
   (error) => {
@@ -151,43 +124,18 @@ api.interceptors.request.use(
 
 // ✅ Interceptor de response mejorado
 api.interceptors.response.use(
-  (response) => {
-    console.log(`✅ API Response: ${response.status} from ${response.config.url}`);
-    return response;
-  },
+  (response) => response,
   (error) => {
-    const errorInfo = {
-      url: error.config?.url,
-      method: error.config?.method,
-      baseURL: error.config?.baseURL,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      message: error.message,
-      data: error.response?.data
-    };
-    
-    console.error('❌ API Error:', errorInfo);
-    
     // Manejo específico de errores de autenticación
     if (error.response?.status === 401) {
-      console.error('🚫 Error 401: Token inválido o expirado');
       localStorage.removeItem('token');
-      
-      // Redireccionar al login si no estamos ya ahí
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
     } else if (error.response?.status === 403) {
       console.error('🚫 Error 403: Sin permisos para esta operación');
-    }
-    
-    // Diagnósticos específicos
-    if (error.message === 'Network Error') {
-      console.error('🚫 DIAGNÓSTICO: Posibles causas:');
-      console.error('   - Backend no está corriendo');
-      console.error('   - Puerto bloqueado por firewall');
-      console.error('   - CORS mal configurado');
-      console.error('   - Port forwarding incorrecto');
+    } else if (error.message === 'Network Error') {
+      console.error('🚫 Network Error: backend no disponible o CORS mal configurado');
     }
     
     return Promise.reject(error);
@@ -209,13 +157,11 @@ export const authUtils = {
   // Logout (limpiar token)
   logout: () => {
     localStorage.removeItem('token');
-    console.log('🔓 Usuario deslogueado');
   },
 
   // Login (guardar token)
   login: (token) => {
     localStorage.setItem('token', token);
-    console.log('🔐 Usuario logueado');
   },
 
   // Verificar si una ruta específica requiere auth
@@ -226,10 +172,19 @@ export const authUtils = {
 export const getStaticFileURL = (rutaArchivo) => {
   if (!rutaArchivo) return '';
 
+  // URLs absolutas: si la página es HTTPS y la URL es HTTP → upgradear para evitar mixed content
+  if (rutaArchivo.startsWith('http://') || rutaArchivo.startsWith('https://')) {
+    if (window.location.protocol === 'https:' && rutaArchivo.startsWith('http://')) {
+      return rutaArchivo.replace('http://', 'https://');
+    }
+    return rutaArchivo;
+  }
+
   // Asegurarse de que la ruta comience con /
   const ruta = rutaArchivo.startsWith('/') ? rutaArchivo : `/${rutaArchivo}`;
 
   const hostname = window.location.hostname;
+  const isHTTPS  = window.location.protocol === 'https:';
 
   // Construir la URL base correctamente según el entorno
   switch (hostname) {
@@ -238,16 +193,22 @@ export const getStaticFileURL = (rutaArchivo) => {
       return `http://localhost:5000${ruta}`;
 
     case '192.168.100.150':
-      return `http://192.168.100.150:5000${ruta}`;
+      return isHTTPS
+        ? `https://api.beach.cl${ruta}`
+        : `http://192.168.100.150:5000${ruta}`;
 
     case 'intranet.beach.cl':
     case 'concurso.beach.cl':
     case 'reservas.beach.cl':
       return `https://api.beach.cl${ruta}`;
 
-    default:
+    default: {
       // Fallback: usar la baseURL de api removiendo /api
-      return `${api.defaults.baseURL.replace('/api', '')}${ruta}`;
+      const base = api.defaults.baseURL.replace('/api', '');
+      // Upgradear a HTTPS si la página es HTTPS para evitar mixed content
+      const safeBase = isHTTPS ? base.replace('http://', 'https://') : base;
+      return `${safeBase}${ruta}`;
+    }
   }
 };
 

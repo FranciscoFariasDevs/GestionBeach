@@ -79,27 +79,15 @@ exports.getSucursales = async (req, res) => {
       });
     }
 
-    // Obtener ID del módulo "Rentabilidad"
-    const moduloResult = await pool.request()
-      .input('nombre', sql.VarChar, 'Rentabilidad')
-      .query('SELECT id FROM modulos WHERE nombre = @nombre');
-
-    if (moduloResult.recordset.length === 0) {
-      return res.status(404).json({ message: 'Módulo Rentabilidad no encontrado' });
-    }
-
-    const moduloId = moduloResult.recordset[0].id;
-
-    // Obtener sucursales permitidas para este perfil y módulo
+    // Obtener sucursales FERRETERIA/MULTITIENDA accesibles para este perfil
+    // (en cualquier módulo — así MULTITIENDA registrada en Ventas también aparece aquí)
     const result = await pool.request()
       .input('perfilId', sql.Int, perfilId)
-      .input('moduloId', sql.Int, moduloId)
       .query(`
         SELECT DISTINCT s.id, s.nombre, s.tipo_sucursal
         FROM sucursales s
         INNER JOIN perfil_modulo_sucursal pms ON pms.sucursal_id = s.id
         WHERE pms.perfil_id = @perfilId
-          AND pms.modulo_id = @moduloId
           AND s.tipo_sucursal IN ('FERRETERIA', 'MULTITIENDA')
           AND s.ip IS NOT NULL AND s.ip <> ''
         ORDER BY s.nombre

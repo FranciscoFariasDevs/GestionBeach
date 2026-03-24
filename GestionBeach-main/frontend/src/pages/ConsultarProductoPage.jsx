@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Container, Card, CardContent, Typography, Box, Grid,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -19,8 +20,11 @@ import {
   ShoppingCart as CartIcon,
   Receipt as ReceiptIcon,
   History as HistoryIcon,
-  ListAlt as ListAltIcon
+  ListAlt as ListAltIcon,
+  ArrowUpward as ArrowUpIcon,
+  ArrowDownward as ArrowDownIcon,
 } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import { Tabs, Tab } from '@mui/material';
 import * as XLSX from 'xlsx';
 import api from '../api/api';
@@ -47,11 +51,18 @@ const ConsultarProductoPage = () => {
   const [loading, setLoading] = useState(false);
   const [loadingSucursales, setLoadingSucursales] = useState(true);
   const [error, setError] = useState(null);
+  const [sortField, setSortField] = useState('');
+  const [sortDir,   setSortDir]   = useState('asc');
+
+  const handleSort = useCallback((field) => {
+    setSortField(prev => {
+      if (prev === field) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); return field; }
+      setSortDir('asc'); return field;
+    });
+  }, []);
 
   // Estado del modal de detalle
-  const [detalleOpen, setDetalleOpen] = useState(false);
-  const [detalleData, setDetalleData] = useState(null);
-  const [detalleLoading, setDetalleLoading] = useState(false);
+  const detalle = useDialog();
   const [detalleError, setDetalleError] = useState(null);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
 
@@ -106,31 +117,41 @@ const ConsultarProductoPage = () => {
     [productosFiltrados]
   );
 
+  // Ordenamiento aplicado sobre los filtrados (antes del slice)
+  const productosSorted = useMemo(() => {
+    if (!sortField) return productosFiltrados;
+    return [...productosFiltrados].sort((a, b) => {
+      const va = a[sortField] ?? 0;
+      const vb = b[sortField] ?? 0;
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [productosFiltrados, sortField, sortDir]);
+
   // Filas visibles limitadas para rendimiento DOM
   const productosVisibles = useMemo(() =>
-    productosFiltrados.slice(0, MAX_FILAS_VISIBLES),
-    [productosFiltrados]
+    productosSorted.slice(0, MAX_FILAS_VISIBLES),
+    [productosSorted]
   );
 
   const handleVerDetalle = useCallback(async (producto) => {
     setProductoSeleccionado(producto);
-    setDetalleOpen(true);
-    setDetalleLoading(true);
+    detalle.openDialog();
+    detalle.setLoading(true);
+    detalle.setData(null);
     setDetalleError(null);
-    setDetalleData(null);
     try {
       const response = await api.get(`/consultar-producto/detalle?sucursalId=${sucursalId}&codigo=${encodeURIComponent(producto.codigo)}`);
-      setDetalleData(response.data);
+      detalle.setData(response.data);
     } catch (err) {
       setDetalleError(err.response?.data?.message || 'Error al obtener detalle');
     } finally {
-      setDetalleLoading(false);
+      detalle.setLoading(false);
     }
-  }, [sucursalId]);
+  }, [sucursalId, detalle]);
 
   const handleCerrarDetalle = useCallback(() => {
-    setDetalleOpen(false);
-  }, []);
+    detalle.closeDialog();
+  }, [detalle]);
 
   const exportToExcel = () => {
     if (!data || productosFiltrados.length === 0) return;
@@ -190,7 +211,7 @@ const ConsultarProductoPage = () => {
       </Box>
 
       {/* Filtros */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
         <ToggleButtonGroup value={filtro} exclusive onChange={(e, val) => { if (val) setFiltro(val); }} size="small"
           sx={{ '& .MuiToggleButton-root': { textTransform: 'none', borderRadius: 2, px: 2 } }}>
           <ToggleButton value="vigente" sx={{ '&.Mui-selected': { bgcolor: 'rgba(76,175,80,0.12)', color: '#2e7d32' } }}>Vigentes</ToggleButton>
@@ -206,6 +227,46 @@ const ConsultarProductoPage = () => {
           sx={{ minWidth: 320 }}
         />
       </Box>
+
+      {/* Ordenamiento */}
+      {data && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mb: 2, flexWrap: 'wrap' }}>
+          <Typography variant="caption" color="text.secondary" fontWeight={700}>Ordenar:</Typography>
+          {[
+            { field: 'stock',       label: 'Stock'   },
+            { field: 'neto',        label: 'Neto'    },
+            { field: 'margen',      label: 'Margen'  },
+            { field: 'precio_final',label: 'Precio'  },
+            { field: 'valorizado',  label: 'Valoriz.'},
+          ].map(({ field, label }) => {
+            const active = sortField === field;
+            return (
+              <Chip key={field} size="small" label={label}
+                variant={active ? 'filled' : 'outlined'}
+                onClick={() => handleSort(field)}
+                icon={active
+                  ? (sortDir === 'asc'
+                      ? <ArrowUpIcon   sx={{ fontSize: '11px !important', color: 'white !important' }}/>
+                      : <ArrowDownIcon sx={{ fontSize: '11px !important', color: 'white !important' }}/>)
+                  : undefined}
+                sx={{
+                  cursor: 'pointer', fontSize: '0.72rem', height: 26,
+                  bgcolor:     active ? '#FF9800' : 'transparent',
+                  color:       active ? 'white'   : 'text.secondary',
+                  borderColor: active ? '#FF9800' : 'divider',
+                  '&:hover': { bgcolor: active ? '#F57C00' : alpha('#FF9800', 0.07) },
+                }}
+              />
+            );
+          })}
+          {sortField && (
+            <Chip size="small" label="Quitar orden" variant="outlined"
+              onClick={() => { setSortField(''); setSortDir('asc'); }}
+              sx={{ fontSize: '0.68rem', height: 26, cursor: 'pointer', color: 'text.disabled', borderColor: 'divider' }}
+            />
+          )}
+        </Box>
+      )}
 
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8, flexDirection: 'column', gap: 2 }}>
@@ -269,18 +330,21 @@ const ConsultarProductoPage = () => {
             totalValorizado={totalValorizadoFiltrado}
             busqueda={busqueda}
             onVerDetalle={handleVerDetalle}
+            sortField={sortField}
+            sortDir={sortDir}
+            onSort={handleSort}
           />
         </>
       )}
 
       {/* MODAL DETALLE PRODUCTO */}
-      {detalleOpen && (
+      {detalle.open && (
         <DetalleProductoModal
-          open={detalleOpen}
+          open={detalle.open}
           onClose={handleCerrarDetalle}
           producto={productoSeleccionado}
-          detalle={detalleData}
-          loading={detalleLoading}
+          detalle={detalle.data}
+          loading={detalle.loading}
           error={detalleError}
           sucursalId={sucursalId}
         />
@@ -290,18 +354,48 @@ const ConsultarProductoPage = () => {
 };
 
 // ============ TABLA MEMOIZADA - no re-renderiza al abrir modal ============
-const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalValorizado, busqueda, onVerDetalle }) => (
+const TABLA_COLS = [
+  { label: 'Codigo',      field: null,          align: 'left'  },
+  { label: 'Descripcion', field: null,          align: 'left'  },
+  { label: 'Stock',       field: 'stock',       align: 'right' },
+  { label: 'Familia',     field: null,          align: 'left'  },
+  { label: 'P.Compra',    field: null,          align: 'right' },
+  { label: 'Margen',      field: 'margen',      align: 'right' },
+  { label: 'Neto',        field: 'neto',        align: 'right' },
+  { label: 'Precio Final',field: 'precio_final',align: 'right' },
+  { label: 'Valorizado',  field: 'valorizado',  align: 'right' },
+];
+
+const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalValorizado, busqueda, onVerDetalle, sortField, sortDir, onSort }) => (
   <Paper sx={{ borderRadius: 3, boxShadow: '0 2px 16px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
-    <TableContainer sx={{ maxHeight: 'calc(100vh - 380px)' }}>
+    <TableContainer sx={{ maxHeight: 'calc(100vh - 400px)' }}>
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
-            {['Codigo', 'Descripcion', 'Stock', 'Familia', 'P.Compra', 'Margen', 'Neto', 'Precio Final', 'Valorizado'].map((h, i) => (
-              <TableCell key={h} align={i >= 2 && i !== 3 ? 'right' : 'left'}
-                sx={{ fontWeight: 700, py: 1.2, px: 1.5, fontSize: '0.82rem', bgcolor: '#fafafa', borderBottom: '2px solid #FF9800', color: '#444', whiteSpace: 'nowrap' }}>
-                {h}
-              </TableCell>
-            ))}
+            {TABLA_COLS.map(col => {
+              const active = sortField === col.field;
+              return (
+                <TableCell key={col.label} align={col.align}
+                  onClick={col.field ? () => onSort(col.field) : undefined}
+                  sx={{
+                    fontWeight: 700, py: 1.2, px: 1.5, fontSize: '0.82rem',
+                    bgcolor: active ? '#FFF3E0' : '#fafafa',
+                    borderBottom: '2px solid #FF9800', color: active ? '#E65100' : '#444',
+                    whiteSpace: 'nowrap',
+                    cursor: col.field ? 'pointer' : 'default',
+                    userSelect: 'none',
+                    '&:hover': col.field ? { bgcolor: '#FFF3E0' } : {},
+                  }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4,
+                    justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start' }}>
+                    {col.label}
+                    {col.field && (active
+                      ? (sortDir === 'asc' ? <ArrowUpIcon sx={{ fontSize: 13, color: '#E65100' }}/> : <ArrowDownIcon sx={{ fontSize: 13, color: '#E65100' }}/>)
+                      : <ArrowUpIcon sx={{ fontSize: 13, opacity: 0.2 }}/>)}
+                  </Box>
+                </TableCell>
+              );
+            })}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -409,8 +503,8 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
   const fmtFecha = (f) => f ? new Date(f).toLocaleDateString('es-CL') : '';
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth
-      PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', maxHeight: '90vh' } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth
+      PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', maxHeight: '92vh', width: '95vw' } }}>
       <Box sx={{
         background: 'linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%)',
         color: 'white', px: 3, pt: 2.5, pb: 0, position: 'relative'
@@ -631,33 +725,66 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
                 <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
                   <Chip label={`${tarjeta.movimientos.length} movimientos`} color="primary" size="small" />
                   <Chip label={`Stock actual: ${tarjeta.stock_actual ?? '-'}`} color="success" size="small" />
+                  <Chip label={`Total Ingreso: ${fmtDec(tarjeta.total_entradas ?? 0)}`} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 700 }} />
+                  <Chip label={`Total Egreso: ${fmtDec(tarjeta.total_salidas ?? 0)}`} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontWeight: 700 }} />
                 </Box>
-                <TableContainer sx={{ maxHeight: 400 }}>
-                  <Table size="small" stickyHeader>
+                <TableContainer sx={{ maxHeight: 440 }}>
+                  <Table size="small" stickyHeader sx={{ minWidth: 900 }}>
                     <TableHead>
                       <TableRow>
-                        {['Fecha', 'Tipo', 'Folio', 'Detalle', 'Entrada', 'Salida', 'Saldo'].map(h => (
-                          <TableCell key={h} align={['Entrada','Salida','Saldo'].includes(h) ? 'right' : 'left'}
-                            sx={{ fontWeight: 700, fontSize: '0.78rem', bgcolor: '#fafafa', borderBottom: '2px solid #FF9800', whiteSpace: 'nowrap' }}>{h}</TableCell>
+                        {[
+                          { h: 'Fecha',      right: false },
+                          { h: 'Nº OC',      right: true  },
+                          { h: 'Folio',      right: false },
+                          { h: 'Detalle',    right: false },
+                          { h: 'Ingreso',    right: true  },
+                          { h: 'Egreso',     right: true  },
+                          { h: 'Stock',      right: true  },
+                          { h: 'Proveedor',  right: false },
+                          { h: 'Cliente',    right: false },
+                          { h: '$ Ingreso',  right: true  },
+                          { h: '$ Egreso',   right: true  },
+                        ].map(({ h, right }) => (
+                          <TableCell key={h} align={right ? 'right' : 'left'}
+                            sx={{ fontWeight: 700, fontSize: '0.72rem', bgcolor: '#fafafa', borderBottom: '2px solid #FF9800', whiteSpace: 'nowrap' }}>
+                            {h}
+                          </TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {tarjeta.movimientos.length === 0 ? (
-                        <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>Sin movimientos</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={11} align="center" sx={{ py: 4, color: 'text.secondary' }}>Sin movimientos</TableCell></TableRow>
                       ) : tarjeta.movimientos.map((m, i) => (
                         <TableRow key={i} hover sx={{
-                          bgcolor: m.Entrada > 0 ? 'rgba(76,175,80,0.04)' : m.Salida > 0 ? 'rgba(244,67,54,0.04)' : 'transparent'
+                          bgcolor: m.Ingreso > 0 ? 'rgba(76,175,80,0.04)' : m.Egreso > 0 ? 'rgba(244,67,54,0.04)' : 'transparent'
                         }}>
-                          <TableCell sx={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{fmtFecha(m.Fecha)}</TableCell>
-                          <TableCell><Chip label={m.Tipo || '-'} size="small" sx={{ height: 20, fontSize: '0.7rem',
-                            bgcolor: m.Tipo === 'OC' ? '#e3f2fd' : m.Tipo === 'BO' ? '#fff3e0' : m.Tipo === 'FA' ? '#f3e5f5' : m.Tipo === 'GU' ? '#e8f5e9' : '#f5f5f5'
-                          }} /></TableCell>
-                          <TableCell sx={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{m.Folio || '-'}</TableCell>
-                          <TableCell sx={{ fontSize: '0.78rem', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.Detalle || '-'}</TableCell>
-                          <TableCell align="right" sx={{ fontSize: '0.8rem', fontWeight: 600, color: m.Entrada > 0 ? '#2e7d32' : '#ccc' }}>{m.Entrada > 0 ? fmtDec(m.Entrada) : '-'}</TableCell>
-                          <TableCell align="right" sx={{ fontSize: '0.8rem', fontWeight: 600, color: m.Salida > 0 ? '#c62828' : '#ccc' }}>{m.Salida > 0 ? fmtDec(m.Salida) : '-'}</TableCell>
-                          <TableCell align="right" sx={{ fontSize: '0.8rem', fontWeight: 700 }}>{fmtDec(m.Saldo)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{fmtFecha(m.Fecha)}</TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.72rem', fontFamily: 'monospace', color: m.NumOC > 0 ? '#1565c0' : '#bbb' }}>
+                            {m.NumOC > 0 ? m.NumOC : '-'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.72rem', fontFamily: 'monospace' }}>{m.Folio || '-'}</TableCell>
+                          <TableCell>
+                            <Chip label={m.Detalle || '-'} size="small" sx={{ height: 18, fontSize: '0.65rem',
+                              bgcolor: m.Detalle === 'BO' ? '#fff3e0' : m.Detalle === 'FA' ? '#f3e5f5' : m.Detalle === 'NC' ? '#fce4ec' : m.Detalle === 'GV' ? '#e8f5e9' : '#f5f5f5',
+                              color:   m.Detalle === 'BO' ? '#e65100' : m.Detalle === 'FA' ? '#6a1b9a' : m.Detalle === 'NC' ? '#c62828' : m.Detalle === 'GV' ? '#2e7d32' : '#555',
+                            }} />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 700, color: m.Ingreso > 0 ? '#2e7d32' : '#bbb' }}>
+                            {m.Ingreso > 0 ? fmtDec(m.Ingreso) : '-'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 700, color: m.Egreso > 0 ? '#c62828' : '#bbb' }}>
+                            {m.Egreso > 0 ? fmtDec(m.Egreso) : '-'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>{m.Stock ?? '-'}</TableCell>
+                          <TableCell sx={{ fontSize: '0.72rem', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.Proveedor || '-'}</TableCell>
+                          <TableCell sx={{ fontSize: '0.72rem', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.Cliente || '-'}</TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.72rem', color: '#2e7d32' }}>
+                            {m.PrecioIngreso > 0 ? fmtDec(m.PrecioIngreso) : '-'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontSize: '0.72rem', color: '#c62828' }}>
+                            {m.PrecioEgreso > 0 ? fmtDec(m.PrecioEgreso) : '-'}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

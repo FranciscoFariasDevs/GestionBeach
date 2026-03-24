@@ -54,6 +54,7 @@ router.put('/ordenes/:orden/estado', authMiddleware, ctrl.actualizarEstadoOrden)
 router.post('/deduplicar',           authMiddleware, ctrl.deduplicarCompras);
 router.post('/descargar-pbi-auto',   authMiddleware, ctrl.descargarFacturasPBIAuto);
 router.delete('/compras/:id', authMiddleware, ctrl.eliminarCompra);
+router.put('/compras/:id/madre', authMiddleware, ctrl.marcarCompraMadre);
 
 router.get('/alertas',         authMiddleware, ctrl.getAlertasSemanas);
 router.get('/estado-sync-pbi', authMiddleware, ctrl.getEstadoSyncPBI);
@@ -61,6 +62,7 @@ router.get('/estado-sync-pbi', authMiddleware, ctrl.getEstadoSyncPBI);
 // ─── No Encadenados desde ERP ──────────────────────────────────────────────────
 router.get('/preview-no-encadenados-erp',  authMiddleware, ctrl.getNoEncadenadosERP);
 router.post('/cargar-no-encadenados-erp',  authMiddleware, ctrl.cargarNoEncadenadosERP);
+router.post('/recargar-sucursal-erp',      authMiddleware, ctrl.recargarSucursalERP);
 
 // ─── Productos de una Orden de Compra (ERP) ────────────────────────────────────
 router.get('/productos-oc', authMiddleware, ctrl.getProductosOC);

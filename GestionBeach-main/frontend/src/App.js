@@ -32,6 +32,7 @@ import PagoExitosoPage from './pages/PagoExitosoPage'; // 💳 PÁGINA DE PAGO E
 import PagoErrorPage from './pages/PagoErrorPage'; // 💳 PÁGINA DE ERROR EN PAGO
 import ReportarProblemaPage from './pages/ReportarProblemaPage'; // 🎫 REPORTAR PROBLEMA (TICKETS)
 import GamesPage from './pages/GamesPage'; // 🎮 RINCON DE RELAJO (SECRETO)
+import RadioPage from './pages/RadioPage'; // 📻 RADIO EN VIVO
 
 // ========================================
 // CONFIGURACIÓN
@@ -57,7 +58,7 @@ import RemuneracionesPage from './pages/RemuneracionesPage';
 import CentrosCostosPage from './pages/CentrosCostosPage';
 import FacturasXMLPage from './pages/FacturasXMLPage';
 import RegistroComprasPage from './pages/RegistroComprasPage';
-import PanificacionPage from './pages/PanificacionPage';
+import PlanificacionPage from './pages/PlanificacionPage';
 import InventarioPage from './pages/InventarioPage';
 import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
 import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
@@ -73,6 +74,10 @@ import StocksPage from './pages/StocksPage';
 import AnulacionesPage from './pages/AnulacionesPage';
 import CargarInventarioPage from './pages/CargarInventarioPage';
 import GruposChatPage from './pages/GruposChatPage';
+import MonitorOrdenesPage from './pages/MonitorOrdenesPage';
+import AjustesPage from './pages/AjustesPage';
+import ProveedoresProductoPage from './pages/ProveedoresProductoPage';
+import OrganigramaPage from './pages/OrganigramaPage';
 
 // ========================================
 // COMPONENTS
@@ -180,6 +185,9 @@ function App() {
 
                 {/* 🎮 RINCON DE RELAJO - RUTA SECRETA */}
                 <Route path="/games" element={<GamesPage />} />
+
+                {/* 📻 RADIO EN VIVO - RUTA PÚBLICA */}
+                <Route path="/radio" element={<RadioPage />} />
 
                 {/* ========================================== */}
                 {/* RUTAS PRIVADAS - INTRANET                  */}
@@ -347,6 +355,16 @@ function App() {
                     }
                   />
 
+                  {/* Ajustes de Bodega (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/ajustes"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/ajustes">
+                        <AjustesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
                   {/* Guias (migrado sistema viejo) */}
                   <Route
                     path="/productos/guias"
@@ -383,6 +401,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/productos/anulaciones">
                         <AnulacionesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Proveedores Producto (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/proveedores"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/proveedores">
+                        <ProveedoresProductoPage />
                       </ProtectedRoute>
                     }
                   />
@@ -431,12 +459,22 @@ function App() {
                     }
                   />
 
-                  {/* Panificación - Control de Pagos */}
+                  {/* Planificación - Control de Pagos */}
                   <Route
-                    path="/compras/panificacion"
+                    path="/compras/planificacion"
                     element={
-                      <ProtectedRoute requiredRoute="/compras/panificacion">
-                        <PanificacionPage />
+                      <ProtectedRoute requiredRoute="/compras/planificacion">
+                        <PlanificacionPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Monitor Ordenes de Compra (migrado sistema viejo) */}
+                  <Route
+                    path="/compras/monitor-ordenes"
+                    element={
+                      <ProtectedRoute requiredRoute="/compras/monitor-ordenes">
+                        <MonitorOrdenesPage />
                       </ProtectedRoute>
                     }
                   />
@@ -582,6 +620,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/mis-tickets">
                         <MisTicketsPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* MÓDULO ORGANIGRAMA */}
+                  <Route
+                    path="/organigrama"
+                    element={
+                      <ProtectedRoute requiredRoute="/organigrama">
+                        <OrganigramaPage />
                       </ProtectedRoute>
                     }
                   />

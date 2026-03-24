@@ -1,6 +1,7 @@
 // ModulosPage.jsx
 import pantallasDisponibles from '../constants/pantallasDisponibles';
 import React, { useState, useEffect } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import {
   Box,
   Typography,
@@ -35,18 +36,12 @@ import {
 } from '@mui/icons-material';
 import api from '../api/api';
 
+const emptyModulo = { id: null, nombre: '', descripcion: '', ruta: '', icono: '', tipo: 'menu' };
+
 const ModulosPage = () => {
   const [modulos, setModulos] = useState([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  const [currentModulo, setCurrentModulo] = useState({ 
-    id: null, 
-    nombre: '', 
-    descripcion: '', 
-    ruta: '', 
-    icono: '',
-    tipo: 'menu'
-  });
+  const formDialog   = useDialog({ data: emptyModulo });  // diálogo crear/editar
+  const deleteDialog = useDialog();                        // diálogo confirmar eliminar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
@@ -63,28 +58,25 @@ const ModulosPage = () => {
     }
   };
 
-  const handleOpenDialog = (modulo = { id: null, nombre: '', descripcion: '', ruta: '', icono: '', tipo: 'menu' }) => {
-    setCurrentModulo(modulo);
-    setOpenDialog(true);
+  const handleOpenDialog = (modulo = emptyModulo) => {
+    formDialog.openDialog(modulo);
   };
 
   const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setCurrentModulo({ id: null, nombre: '', descripcion: '', ruta: '', icono: '', tipo: 'menu' });
+    formDialog.closeDialog();
   };
 
   const handleOpenDeleteDialog = (modulo) => {
-    setCurrentModulo(modulo);
-    setOpenDeleteDialog(true);
+    deleteDialog.openDialog(modulo);
   };
 
   const handleCloseDeleteDialog = () => {
-    setOpenDeleteDialog(false);
+    deleteDialog.closeDialog();
   };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setCurrentModulo({ ...currentModulo, [name]: value });
+    formDialog.setData(prev => ({ ...prev, [name]: value }));
   };
 
   const iconosDisponibles = [
@@ -101,12 +93,13 @@ const ModulosPage = () => {
   ];
 
   const handleSubmit = async () => {
+    const modulo = formDialog.data;
     try {
-      if (currentModulo.id) {
-        await api.put(`/modulos/${currentModulo.id}`, currentModulo);
+      if (modulo.id) {
+        await api.put(`/modulos/${modulo.id}`, modulo);
         showSnackbar('Módulo actualizado correctamente', 'success');
       } else {
-        await api.post('/modulos', currentModulo);
+        await api.post('/modulos', modulo);
         showSnackbar('Módulo creado correctamente', 'success');
       }
       handleCloseDialog();
@@ -118,15 +111,15 @@ const ModulosPage = () => {
   };
 
   const handleDeleteModulo = async () => {
+    const modulo = deleteDialog.data;
     try {
-      await api.delete(`/modulos/${currentModulo.id}`);
+      await api.delete(`/modulos/${modulo.id}`);
       showSnackbar('Módulo eliminado correctamente', 'success');
       handleCloseDeleteDialog();
       fetchModulos();
     } catch (error) {
       console.error('Error al eliminar módulo:', error);
-      const msg = error.response?.data?.error || 'Error al eliminar módulo';
-      showSnackbar(msg, 'error');
+      showSnackbar(error.response?.data?.error || 'Error al eliminar módulo', 'error');
     }
   };
 
@@ -219,15 +212,15 @@ const ModulosPage = () => {
       </TableContainer>
 
       {/* Dialog Crear/Editar */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>{currentModulo.id ? 'Editar Módulo' : 'Nuevo Módulo'}</DialogTitle>
+      <Dialog open={formDialog.open} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>{formDialog.data?.id ? 'Editar Módulo' : 'Nuevo Módulo'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             <TextField
               fullWidth
               label="Nombre"
               name="nombre"
-              value={currentModulo.nombre}
+              value={formDialog.data?.nombre || ''}
               onChange={handleInputChange}
               required
             />
@@ -235,7 +228,7 @@ const ModulosPage = () => {
               fullWidth
               label="Descripción"
               name="descripcion"
-              value={currentModulo.descripcion || ''}
+              value={formDialog.data?.descripcion || ''}
               onChange={handleInputChange}
               multiline
               rows={2}
@@ -244,7 +237,7 @@ const ModulosPage = () => {
               fullWidth
               label="Ruta"
               name="ruta"
-              value={currentModulo.ruta || ''}
+              value={formDialog.data?.ruta || ''}
               onChange={handleInputChange}
               placeholder="/dashboard, /ventas, etc."
             />
@@ -252,7 +245,7 @@ const ModulosPage = () => {
               <InputLabel>Icono</InputLabel>
               <Select
                 name="icono"
-                value={currentModulo.icono || ''}
+                value={formDialog.data?.icono || ''}
                 onChange={handleInputChange}
                 label="Icono"
               >
@@ -268,7 +261,7 @@ const ModulosPage = () => {
               <InputLabel>Tipo de Módulo</InputLabel>
               <Select
                 name="tipo"
-                value={currentModulo.tipo || 'menu'}
+                value={formDialog.data?.tipo || 'menu'}
                 onChange={handleInputChange}
                 label="Tipo de Módulo"
               >
@@ -283,11 +276,11 @@ const ModulosPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancelar</Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained" 
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
             color="primary"
-            disabled={!currentModulo.nombre}
+            disabled={!formDialog.data?.nombre}
           >
             Guardar
           </Button>
@@ -295,11 +288,11 @@ const ModulosPage = () => {
       </Dialog>
 
       {/* Confirmación de eliminación */}
-      <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
+      <Dialog open={deleteDialog.open} onClose={handleCloseDeleteDialog}>
         <DialogTitle>Confirmar Eliminación</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            ¿Está seguro que desea eliminar el módulo "{currentModulo.nombre}"? Esta acción no se puede deshacer.
+            ¿Está seguro que desea eliminar el módulo "{deleteDialog.data?.nombre}"? Esta acción no se puede deshacer.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

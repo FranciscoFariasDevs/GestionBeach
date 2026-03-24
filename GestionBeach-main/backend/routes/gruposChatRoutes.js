@@ -5,6 +5,14 @@ const GroupChat = require('../models/GroupChat');
 const ChatMessage = require('../models/ChatMessage');
 const authMiddleware = require('../middleware/authMiddleware');
 
+// Solo super admins pueden crear/editar/eliminar grupos
+const soloSuperAdmin = (req, res, next) => {
+  if (!req.user?.superadmin) {
+    return res.status(403).json({ success: false, message: 'Solo super admins pueden realizar esta acción' });
+  }
+  next();
+};
+
 // GET /api/grupos-chat/usuarios - Obtener todos los usuarios del sistema para seleccionar miembros
 router.get('/usuarios', authMiddleware, async (req, res) => {
   try {
@@ -36,8 +44,8 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/grupos-chat - Crear grupo
-router.post('/', authMiddleware, async (req, res) => {
+// POST /api/grupos-chat - Crear grupo (solo super admin)
+router.post('/', authMiddleware, soloSuperAdmin, async (req, res) => {
   try {
     const { nombre, descripcion, miembros } = req.body;
     const userId = req.user?.id;
@@ -89,8 +97,8 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/grupos-chat/:id - Actualizar grupo (nombre, miembros)
-router.put('/:id', authMiddleware, async (req, res) => {
+// PUT /api/grupos-chat/:id - Actualizar grupo (solo super admin)
+router.put('/:id', authMiddleware, soloSuperAdmin, async (req, res) => {
   try {
     const { nombre, descripcion, miembros } = req.body;
     const update = {};
@@ -109,8 +117,8 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /api/grupos-chat/:id - Desactivar grupo
-router.delete('/:id', authMiddleware, async (req, res) => {
+// DELETE /api/grupos-chat/:id - Desactivar grupo (solo super admin)
+router.delete('/:id', authMiddleware, soloSuperAdmin, async (req, res) => {
   try {
     const grupo = await GroupChat.findByIdAndUpdate(req.params.id, { activo: false }, { new: true });
     if (!grupo) {

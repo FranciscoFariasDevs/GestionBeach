@@ -64,6 +64,7 @@ import {
   Group as GroupIcon,
   Description as DescriptionIcon,
   Summarize as SummarizeIcon,
+  AccountTree as AccountTreeIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -387,15 +388,16 @@ export default function DashboardLayout() {
         //{ text: 'Los Mas Vendidos', path: '/productos', icon: <TrendingUpIcon /> },
         { text: 'Consultar Producto', path: '/productos/consultar', icon: <InventoryIcon /> },
         { text: 'Rentabilidad', path: '/productos/rentabilidad', icon: <TrendingUpIcon /> },
-        { text: 'Margenes', path: '/productos/margenes', icon: <TrendingUpIcon /> },
+        { text: 'Márgenes', path: '/productos/margenes', icon: <TrendingUpIcon /> },
         { text: 'Guias', path: '/productos/guias', icon: <TrendingUpIcon /> },
         { text: 'Resumen Valorizado', path: '/productos/resumen-valorizado', icon: <TrendingUpIcon /> },
-        { text: 'Stocks', path: '/productos/stocks', icon: <TrendingUpIcon /> }
-        //{ text: 'Anulaciones', path: '/productos/anulaciones', icon: <PointOfSaleIcon /> },
-        //{ text: 'Cargar Inventario', path: '/productos/cargar-inventario', icon: <InventoryIcon /> },
+        { text: 'Stocks', path: '/productos/stocks', icon: <TrendingUpIcon /> },
+        { text: 'Ajustes', path: '/productos/ajustes', icon: <TrendingUpIcon /> },
+        { text: 'Proveedores Producto', path: '/productos/proveedores', icon: <TrendingUpIcon /> },
+        { text: 'Anulaciones', path: '/productos/anulaciones', icon: <PointOfSaleIcon /> },
       ],
     },
-    { text: 'Rotacion Ferreterias', icon: <TrendingUpIcon />, path: '/productos/rotacion-ferreterias', orangeType: 'dark' },
+    { text: 'Rotación Ferreterias', icon: <TrendingUpIcon />, path: '/productos/rotacion-ferreterias', orangeType: 'dark' },
     {
       text: 'Compras',
       icon: <ComprasIcon />,
@@ -406,11 +408,13 @@ export default function DashboardLayout() {
       subItems: [
         { text: 'Gestión de Centros de Costos', path: '/compras/centros-costos', icon: <CentrosCostosIcon /> },
         { text: 'Facturas XML', path: '/compras/facturas-xml', icon: <FacturasIcon /> },
-        { text: 'Planificacion Compras-Pagos', path: '/compras/panificacion', icon: <TrendingUpIcon /> },
+        { text: 'Planificación Compras-Pagos', path: '/compras/planificacion', icon: <TrendingUpIcon /> },
+        { text: 'Monitor Ordenes', path: '/compras/monitor-ordenes', icon: <AssignmentIcon /> },
       ],
     },
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
+    { text: 'Organigrama', icon: <AccountTreeIcon />, path: '/organigrama', orangeType: 'light' },
     {
       text: 'Recursos Humanos',
       icon: <GroupIcon />,
@@ -461,7 +465,8 @@ export default function DashboardLayout() {
         '/productos': 'Productos',
         '/compras/centros-costos': 'Gestión de Centros de Costos',
         '/compras/facturas-xml': 'Gestión de Facturas XML',
-        '/compras/panificacion': 'Planificacion Compras-Pagos',
+        '/compras/planificacion': 'Planificación Compras-Pagos',
+        '/compras/monitor-ordenes': 'Monitor Ordenes de Compra',
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
@@ -480,8 +485,10 @@ export default function DashboardLayout() {
         '/productos/guias': 'Guias de Despacho',
         '/productos/resumen-valorizado': 'Resumen Valorizado',
         '/productos/stocks': 'Analisis de Stocks',
-        '/anulaciones': 'Anulaciones',
-        '/cargar-inventario': 'Cargar Inventario',
+        '/productos/ajustes': 'Ajustes de Bodega',
+        '/productos/proveedores': 'Proveedores Producto',
+        '/productos/anulaciones': 'Anulaciones',
+        '/organigrama': 'Organigrama Empresarial',
       }[location.pathname] || 'Beach Market';
 
   // Obtener el perfil del usuario para mostrar

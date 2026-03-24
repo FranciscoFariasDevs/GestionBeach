@@ -3,14 +3,16 @@ require('dotenv').config();
 
 // Configuración para la conexión a SQL Server
 const config = {
-  user: 'sa',
-  password: '*1beachmarket',
-  server: '192.168.100.200',
-  database: 'GestionBeach',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  server: process.env.DB_SERVER,
+  database: process.env.DB_NAME,
   options: {
-    encrypt: false, // Desactiva la encriptación SSL
-    trustServerCertificate: true, // No valida el certificado del servidor
-    enableArithAbort: true
+    encrypt: false,
+    trustServerCertificate: true,
+    enableArithAbort: true,
+    requestTimeout: 300000,   // 5 min por query — necesario para uploads de facturas/Excel
+    connectionTimeout: 15000,
   },
   pool: {
     max: 10,

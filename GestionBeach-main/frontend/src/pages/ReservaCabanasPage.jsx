@@ -3049,42 +3049,7 @@ const ReservaCabanasPage = () => {
                   )}
                 </Paper>
 
-                {/* Opción 2: Webpay */}
-                <Paper
-                  elevation={metodoPagoSeleccionado === 'webpay' ? 4 : 0}
-                  onClick={() => setMetodoPagoSeleccionado('webpay')}
-                  sx={{
-                    p: 2,
-                    mb: 2,
-                    cursor: 'pointer',
-                    border: metodoPagoSeleccionado === 'webpay' ? '3px solid #FF6B00' : '2px solid #E0E0E0',
-                    borderRadius: 2,
-                    bgcolor: metodoPagoSeleccionado === 'webpay' ? '#FFF3E0' : 'white',
-                    transition: 'all 0.3s',
-                    '&:hover': {
-                      borderColor: '#FF6B00',
-                      boxShadow: 3
-                    }
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-                    <MoneyIcon sx={{ fontSize: 32, color: '#FF6B00' }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="subtitle1" fontWeight={700}>
-                        Pago con Webpay
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Confirmación inmediata
-                      </Typography>
-                    </Box>
-                    {metodoPagoSeleccionado === 'webpay' && (
-                      <CheckCircleIcon sx={{ fontSize: 28, color: '#FF6B00' }} />
-                    )}
-                  </Box>
-                  <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
-                    Pago seguro y confirmación instantánea
-                  </Alert>
-                </Paper>
+                {/* Opción 2: Webpay — deshabilitada temporalmente hasta contrato */}
 
                 {/* Botón para confirmar el método seleccionado */}
                 {!reservaTransferenciaConfirmada && (
@@ -3100,8 +3065,6 @@ const ReservaCabanasPage = () => {
                     onClick={() => {
                       if (metodoPagoSeleccionado === 'transferencia') {
                         handlePagoTransferencia();
-                      } else if (metodoPagoSeleccionado === 'webpay') {
-                        handlePagoWebpay();
                       }
                     }}
                     sx={{
@@ -3109,9 +3072,7 @@ const ReservaCabanasPage = () => {
                       fontWeight: 900,
                       fontSize: '1rem',
                       borderRadius: 2,
-                      background: metodoPagoSeleccionado === 'webpay'
-                        ? 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)'
-                        : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                      background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
                       boxShadow: 4,
                       '&:hover': {
                         boxShadow: 6
@@ -3123,8 +3084,6 @@ const ReservaCabanasPage = () => {
                   >
                     {procesandoPago ? (
                       <CircularProgress size={24} color="inherit" />
-                    ) : metodoPagoSeleccionado === 'webpay' ? (
-                      '💳 Pagar con Webpay'
                     ) : metodoPagoSeleccionado === 'transferencia' ? (
                       '🏦 Confirmar Reserva'
                     ) : (

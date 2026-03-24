@@ -22,8 +22,84 @@ const formatPct = (v) => v == null || isNaN(v) ? '0.00%' : v.toFixed(2) + '%';
 const cellSx = { fontSize: '0.82rem', py: 0.5 };
 const headSx = (bg) => ({ fontWeight: 700, bgcolor: bg, color: '#fff', py: 0.8, fontSize: '0.8rem', whiteSpace: 'nowrap' });
 
-// ============ FILA DE VENDEDOR EXPANDIBLE ============
-const FilaVendedor = memo(({ v, documentos, isNC }) => {
+// ============ FILA DE DOCUMENTO EXPANDIBLE (NIVEL 2 → NIVEL 3) ============
+const FilaDocumento = memo(({ d, productos }) => {
+  const [open, setOpen] = useState(false);
+  const prods = useMemo(() => productos.filter(p => String(p.numero_doc) === String(d.numero_doc)), [productos, d.numero_doc]);
+
+  return (
+    <>
+      <TableRow hover sx={{ bgcolor: 'rgba(240,248,255,0.8)', cursor: prods.length ? 'pointer' : 'default' }} onClick={() => prods.length && setOpen(!open)}>
+        <TableCell sx={{ fontSize: '0.75rem', pl: 1 }}>
+          {prods.length > 0 && (
+            <IconButton size="small" sx={{ p: 0, mr: 0.5 }}>
+              {open ? <KeyboardArrowDown fontSize="small" /> : <KeyboardArrowRight fontSize="small" />}
+            </IconButton>
+          )}
+          <span style={{ fontFamily: 'monospace' }}>{d.numero_doc}</span>
+        </TableCell>
+        <TableCell sx={{ fontSize: '0.75rem' }}>
+          <Chip label={d.tipo_doc} size="small" sx={{ height: 20, fontSize: '0.7rem', bgcolor: d.tipo_doc === 'BO' ? '#e3f2fd' : '#fff3e0' }} />
+        </TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPeso(d.venta_sin_dcto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPeso(d.utilidad_sin_dcto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 600, bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPct(d.margen_sin_dcto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.costo_neto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPeso(d.venta_con_dcto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPeso(d.utilidad_con_dcto)}</TableCell>
+        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 600, bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPct(d.margen_con_dcto)}</TableCell>
+      </TableRow>
+      {open && prods.length > 0 && (
+        <TableRow>
+          <TableCell colSpan={9} sx={{ p: 0, bgcolor: 'rgba(255,250,205,0.7)' }}>
+            <Collapse in={open}>
+              <Box sx={{ px: 3, py: 1 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, mb: 0.5, display: 'block', color: '#555' }}>
+                  Productos del documento {d.numero_doc} ({prods.length} ítems)
+                </Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Código</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Descripción</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Cant.</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(255,200,200,0.2)' }}>Venta S/D</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(255,200,200,0.2)' }}>Utilidad S/D</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(255,200,200,0.2)' }}>Margen S/D</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Costo</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(180,255,180,0.2)' }}>Venta C/D</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(180,255,180,0.2)' }}>Utilidad C/D</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem', bgcolor: 'rgba(180,255,180,0.2)' }}>Margen C/D</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {prods.map((p, i) => (
+                      <TableRow key={i} hover sx={{ bgcolor: 'rgba(255,253,231,0.5)' }}>
+                        <TableCell sx={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>{p.codigo}</TableCell>
+                        <TableCell sx={{ fontSize: '0.7rem', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.descripcion}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem' }}>{p.cantidad}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPeso(p.venta_sin_dcto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPeso(p.utilidad_sin_dcto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', fontWeight: 600, bgcolor: 'rgba(255,200,200,0.1)' }}>{formatPct(p.margen_sin_dcto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem' }}>{formatPeso(p.costo_neto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPeso(p.venta_con_dcto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPeso(p.utilidad_con_dcto)}</TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.7rem', fontWeight: 600, bgcolor: 'rgba(180,255,180,0.1)' }}>{formatPct(p.margen_con_dcto)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Collapse>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+});
+
+// ============ FILA DE VENDEDOR EXPANDIBLE (NIVEL 1 → NIVEL 2) ============
+const FilaVendedor = memo(({ v, documentos, productos, isNC }) => {
   const [open, setOpen] = useState(false);
   const docs = useMemo(() => documentos.filter(d => d.Vendedor === v.Vendedor), [documentos, v.Vendedor]);
   const rowBg = isNC ? 'rgba(255,0,0,0.06)' : {};
@@ -71,19 +147,7 @@ const FilaVendedor = memo(({ v, documentos, isNC }) => {
                   </TableHead>
                   <TableBody>
                     {docs.map((d, i) => (
-                      <TableRow key={i} hover>
-                        <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{d.numero_doc}</TableCell>
-                        <TableCell sx={{ fontSize: '0.75rem' }}>
-                          <Chip label={d.tipo_doc} size="small" sx={{ height: 20, fontSize: '0.7rem', bgcolor: d.tipo_doc === 'BO' ? '#e3f2fd' : '#fff3e0' }} />
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.venta_sin_dcto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.utilidad_sin_dcto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>{formatPct(d.margen_sin_dcto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.costo_neto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.venta_con_dcto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>{formatPeso(d.utilidad_con_dcto)}</TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>{formatPct(d.margen_con_dcto)}</TableCell>
-                      </TableRow>
+                      <FilaDocumento key={i} d={d} productos={productos} />
                     ))}
                   </TableBody>
                 </Table>
@@ -131,6 +195,7 @@ export default function MargenesPage() {
   const [error, setError] = useState('');
   const [vendedores, setVendedores] = useState([]);
   const [documentos, setDocumentos] = useState([]);
+  const [productos, setProductos] = useState([]);
   const [totales, setTotales] = useState(null);
 
   useEffect(() => {
@@ -149,6 +214,7 @@ export default function MargenesPage() {
       });
       setVendedores(res.data.vendedores);
       setDocumentos(res.data.documentos);
+      setProductos(res.data.productos || []);
       setTotales(res.data.totales);
     } catch (err) {
       setError(err.response?.data?.message || 'Error al consultar margenes');
@@ -248,9 +314,6 @@ export default function MargenesPage() {
           </Box>
         ) : (
           <>
-            <Box sx={{ px: 1.5, py: 0.5 }}>
-              <Typography variant="body2" color="text.secondary">{filtrados.length} vendedores | Click para ver documentos</Typography>
-            </Box>
             <TableContainer sx={{ maxHeight: 550 }}>
               <Table stickyHeader size="small">
                 <TableHead>
@@ -267,7 +330,7 @@ export default function MargenesPage() {
                 </TableHead>
                 <TableBody>
                   {filtrados.map((v, i) => (
-                    <FilaVendedor key={i} v={v} documentos={documentos} isNC={v.Vendedor === 'NOTAS DE CREDITO'} />
+                    <FilaVendedor key={i} v={v} documentos={documentos} productos={productos} isNC={v.Vendedor === 'NOTAS DE CREDITO'} />
                   ))}
                   {/* FILA TOTALES */}
                   {totales && (

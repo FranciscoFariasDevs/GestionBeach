@@ -395,18 +395,21 @@ const RemuneracionesPage = () => {
 
   // CARGAR CATÁLOGOS
   const cargarCatalogos = useCallback(async () => {
+    // Cargar de forma independiente para que un fallo en una no afecte a la otra
     try {
-      console.log('Cargando catálogos...');
-      const [razonesResponse, sucursalesResponse] = await Promise.all([
-        catalogosAPI.getRazonesSociales(),
-        catalogosAPI.getSucursales()
-      ]);
-      
+      const razonesResponse = await catalogosAPI.getRazonesSociales();
       setRazonesSociales(razonesResponse.data || []);
-      setSucursales(sucursalesResponse.data || []);
-      console.log('Catálogos cargados');
+      console.log('Razones sociales cargadas:', (razonesResponse.data || []).length);
     } catch (err) {
-      console.error('Error al cargar catálogos:', err);
+      console.error('Error al cargar razones sociales:', err);
+    }
+
+    try {
+      const sucursalesResponse = await catalogosAPI.getSucursales();
+      setSucursales(sucursalesResponse.data || []);
+      console.log('Sucursales cargadas:', (sucursalesResponse.data || []).length);
+    } catch (err) {
+      console.error('Error al cargar sucursales:', err);
     }
   }, []);
 
