@@ -52,7 +52,6 @@ const ENC_BG    = '#e8eaf6';
 const NENC_DARK = '#004d40';
 const NENC_MID  = '#00897b';
 const NENC_BG   = '#e0f2f1';
-const PROY_COLOR = '#6a1b9a';
 const OC_COLOR   = '#00695c';
 
 const STATUS_MAP = {
@@ -1716,6 +1715,7 @@ const ESTADO_PAGO_CFG = {
   'Completo':   { bg:'#e8f5e9', color:'#2e7d32', border:'#a5d6a7' },
   'Parcial':    { bg:'#e3f2fd', color:'#1565c0', border:'#90caf9' },
   'Modificado': { bg:'#fce4ec', color:'#c62828', border:'#f48fb1' },
+  'Cancelado':  { bg:'#e8f5e9', color:'#1b5e20', border:'#81c784' },
 };
 
 // ─── Fila de Orden de Compra ──────────────────────────────────────────────────
@@ -2203,14 +2203,9 @@ function EncOcSubRow({ item, onDelete, onVerProductos, onMadre }) {
 // ─── Grupo de proveedor encadenado (nivel 1 → lista OCs → productos) ──────────
 function EncProveedorGrupo({ grupo, onDelete, onVerProductos, onMadre }) {
   const [open, setOpen] = useState(false);
-  const numOC = grupo.ordenes.length;
-  const numPBI   = grupo.ordenes.filter(o => (o.fuente||'').toUpperCase() === 'FACTURA').length;
-  const numExcel = grupo.ordenes.filter(o => (o.fuente||'').toUpperCase() === 'EXCEL').length;
-  const totalPBI   = grupo.ordenes.filter(o => (o.fuente||'').toUpperCase() === 'FACTURA')
-    .reduce((s,o) => s + (o.monto_total_iva ?? (parseFloat(o.monto_con_iva)||0)), 0);
-  const totalExcel = grupo.ordenes.filter(o => (o.fuente||'').toUpperCase() === 'EXCEL')
-    .reduce((s,o) => s + (o.monto_total_iva ?? (parseFloat(o.monto_con_iva)||0)), 0);
-  const diff = totalPBI - totalExcel;
+  const numFactura   = grupo.ordenes.filter(o => o.fuente === 'FACTURA').length;
+  const numRemanente = grupo.ordenes.filter(o => o.fuente === 'REMANENTE').length;
+  const numERP       = grupo.ordenes.filter(o => o.fuente !== 'FACTURA' && o.fuente !== 'REMANENTE').length;
 
   return (
     <>
@@ -2224,28 +2219,19 @@ function EncProveedorGrupo({ grupo, onDelete, onVerProductos, onMadre }) {
           <Box sx={{display:'flex',alignItems:'center',gap:0.8,flexWrap:'wrap'}}>
             {open ? <ExpandLessIcon sx={{fontSize:16,color:ENC_DARK}}/> : <ExpandMoreIcon sx={{fontSize:16,color:ENC_DARK}}/>}
             <Typography variant="body2" fontWeight={800} color={ENC_DARK}>{grupo.proveedor}</Typography>
-            <Chip label={`${numOC} OC${numOC!==1?'s':''}`} size="small"
-              sx={{ fontSize:'0.6rem', height:18, bgcolor:ENC_BG, color:ENC_DARK, fontWeight:700 }}/>
-            {numPBI > 0 && (
-              <Chip label={`${numPBI} PBI ✓`} size="small"
+            {numFactura > 0 && (
+              <Chip label={`${numFactura} factura${numFactura!==1?'s':''} PBI`} size="small"
                 sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
                       bgcolor:'#e8f5e9', color:'#2e7d32', border:'1px solid #a5d6a7' }}/>
             )}
-            {numExcel > 0 && (
-              <Chip label={`${numExcel} Excel`} size="small"
-                sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
-                      bgcolor:'#fff3e0', color:'#e65100', border:'1px solid #ffcc80' }}/>
+            {numERP > 0 && (
+              <Chip label={`${numERP} ERP`} size="small"
+                sx={{ fontSize:'0.6rem', height:18, bgcolor:ENC_BG, color:ENC_DARK, fontWeight:700 }}/>
             )}
-            {numPBI > 0 && numExcel > 0 && (
-              <Tooltip title={`PBI ${fmtM(totalPBI)} vs Excel ${fmtM(totalExcel)}`}>
-                <Chip
-                  label={diff === 0 ? '= coincide' : diff > 0 ? `PBI +${fmtM(diff)}` : `Excel +${fmtM(Math.abs(diff))}`}
-                  size="small"
-                  sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
-                        bgcolor: diff === 0 ? '#e8f5e9' : '#fff8e1',
-                        color:   diff === 0 ? '#2e7d32' : '#f57f17',
-                        border:  `1px solid ${diff === 0 ? '#a5d6a7' : '#ffe082'}` }}/>
-              </Tooltip>
+            {numRemanente > 0 && (
+              <Chip label={`${numRemanente} remanente${numRemanente!==1?'s':''}`} size="small"
+                sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
+                      bgcolor:'#fff8e1', color:'#f57f17', border:'1px solid #ffe082' }}/>
             )}
           </Box>
         </TableCell>
@@ -2256,7 +2242,7 @@ function EncProveedorGrupo({ grupo, onDelete, onVerProductos, onMadre }) {
         </TableCell>
         <TableCell sx={{ py:0.8 }} colSpan={4}/>
       </TableRow>
-      {/* Sub-filas de OCs */}
+      {/* Sub-filas: cada factura / remanente / ERP individualmente */}
       <TableRow>
         <TableCell colSpan={8} sx={{ p:0, border:0 }}>
           <Collapse in={open} timeout="auto" unmountOnExit>
@@ -2264,7 +2250,7 @@ function EncProveedorGrupo({ grupo, onDelete, onVerProductos, onMadre }) {
               <TableBody>
                 {grupo.ordenes.map((item, i) => (
                   <EncOcSubRow
-                    key={item.numero_orden || `enc_sub_${i}`}
+                    key={item.id || `enc_sub_${i}`}
                     item={item}
                     onDelete={onDelete}
                     onVerProductos={onVerProductos}
@@ -2395,72 +2381,6 @@ function NencProveedorGrupo({ grupo, onDelete, onVerProductos }) {
   );
 }
 
-// ─── Card de proyección por semana de vencimiento ────────────────────────────
-function ProyCard({ grupo, totalActual, limite }) {
-  const [open, setOpen] = useState(false);
-  const totalGrupo = grupo.total_comprometido || grupo.ordenes?.reduce((s,o)=>s+(o.monto_con_iva||0),0) || 0;
-  const riesgo = (totalActual + totalGrupo) > limite;
-  const alertColor = riesgo ? '#b71c1c' : '#2e7d32';
-  return (
-    <Paper elevation={0} sx={{border:`1px solid ${alpha(alertColor,.35)}`,borderLeft:`4px solid ${alertColor}`,borderRadius:2,mb:1.5,overflow:'hidden'}}>
-      <Box sx={{display:'flex',alignItems:'center',justifyContent:'space-between',p:1.5,cursor:'pointer',bgcolor:alpha(alertColor,.03),'&:hover':{bgcolor:alpha(alertColor,.06)}}}
-        onClick={()=>setOpen(v=>!v)}>
-        <Box sx={{display:'flex',alignItems:'center',gap:1.5}}>
-          <Avatar sx={{width:32,height:32,bgcolor:alpha(alertColor,.12),color:alertColor,fontSize:'0.75rem',fontWeight:700}}>
-            S{grupo.numero_semana}
-          </Avatar>
-          <Box>
-            <Typography variant="body2" fontWeight={700}>Semana de origen {grupo.numero_semana}</Typography>
-            <Typography variant="caption" color="text.secondary">
-              {grupo.ordenes?.length||0} orden{(grupo.ordenes?.length||0)!==1?'es':''} · vence esta semana
-            </Typography>
-          </Box>
-        </Box>
-        <Box sx={{display:'flex',alignItems:'center',gap:1}}>
-          <Chip
-            icon={riesgo?<WarningIcon sx={{fontSize:'13px !important',color:'white !important'}}/>:<OkIcon sx={{fontSize:'13px !important',color:'white !important'}}/>}
-            label={riesgo?'RIESGO':'OK'}
-            size="small"
-            sx={{bgcolor:alertColor,color:'white',fontWeight:700,fontSize:'0.68rem'}}
-          />
-          <Typography variant="h6" fontWeight={800} color={alertColor}>{fmtM(totalGrupo)}</Typography>
-          {open ? <ExpandLessIcon fontSize="small"/> : <ExpandMoreIcon fontSize="small"/>}
-        </Box>
-      </Box>
-      <Collapse in={open}>
-        <Divider/>
-        <Box sx={{overflow:'auto'}}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{'& th':{bgcolor:alpha(alertColor,.06),fontWeight:700,fontSize:'0.72rem',py:0.8}}}>
-                <TableCell>Proveedor</TableCell>
-                <TableCell>Sucursal</TableCell>
-                <TableCell>Fecha compra</TableCell>
-                <TableCell align="right">NETO</TableCell>
-                <TableCell align="right">c/IVA</TableCell>
-                <TableCell align="center">Plazo</TableCell>
-                <TableCell align="center">Vencimiento</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(grupo.ordenes||[]).map((o,i)=>(
-                <TableRow key={i} sx={{'&:hover':{bgcolor:alpha(alertColor,.03)}}}>
-                  <TableCell>{o.numero}</TableCell>
-                  <TableCell>{o.proveedor}</TableCell>
-                  <TableCell align="right">{fmtM(o.monto_neto||0)}</TableCell>
-                  <TableCell align="right">{fmtM(o.monto_con_iva||0)}</TableCell>
-                  <TableCell align="center"><Chip label={`${o.plazo_dias||30}d`} size="small" sx={{fontSize:'0.6rem',height:16}}/></TableCell>
-                  <TableCell align="center"><Typography variant="caption" fontWeight={600} color={alertColor}>{fmtDate(o.fecha_vencimiento)}</Typography></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      </Collapse>
-    </Paper>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // REDUCER: Estado PBI (mini-Redux pattern)
 // Agrupa los 5 estados del flujo de sincronización PBI en un solo objeto
@@ -2531,7 +2451,6 @@ const PlanificacionPage = () => {
   const [weeksData, setWeeksData]   = useState([]);
   const [openChartFull, setOpenChartFull] = useState(false);
   const [compras, setCompras]       = useState([]);
-  const [proyeccion, setProyeccion] = useState([]);
   const [sucursales, setSucursales] = useState([]);
   const [loadingWeeks, setLoadingWeeks]     = useState(true);
   const [loadingCompras, setLoadingCompras] = useState(false);
@@ -2572,7 +2491,7 @@ const PlanificacionPage = () => {
   const handleVerProductos = useCallback((numeroOrden, sucursal) => {
     setDetalleProdDialog({ open: true, numeroOrden: String(numeroOrden), sucursal: sucursal || '' });
   }, []);
-  const [tabDetalle, setTabDetalle]         = useState(0); // 0=Enc, 1=NoEnc, 2=Proyección, 3=Sucursales
+  const [tabDetalle, setTabDetalle]         = useState(0); // 0=Enc, 1=NoEnc, 2=Sucursales, 3=OC
   const [calOpen,    setCalOpen]    = useState(false);
   const [tabVista,   setTabVista]   = useState(0); // 0=Resumen, 1=Detalle, 2=Cargar Datos
   const [minWaitDone] = useState(true);
@@ -2689,20 +2608,6 @@ const PlanificacionPage = () => {
   const hasOCFilters = searchOC || filterOCSucursal || filterOCEstado || filterOCDesde || filterOCHasta;
   const clearOCFilters = () => { setSearchOC(''); setFilterOCSucursal(''); setFilterOCEstado(''); setFilterOCDesde(''); setFilterOCHasta(''); };
 
-  // Proyección: encadenados que vencen esta semana (agrupados por semana de origen)
-  const proySemana = (() => {
-    const grupos = {};
-    proyeccion.forEach(p => {
-      const sv = p.semana_vencimiento || p.numero_semana;
-      if (sv !== week) return;
-      const key = p.semana_compra || p.semana_origen || 0;
-      if (!grupos[key]) grupos[key] = { numero_semana: key, total_comprometido: 0, ordenes: [] };
-      grupos[key].total_comprometido += parseFloat(p.monto_con_iva||0);
-      grupos[key].ordenes.push(p);
-    });
-    return Object.values(grupos).sort((a,b)=>a.numero_semana-b.numero_semana);
-  })();
-
   const limite    = weekData.limite_semanal || weekData.limite || 100_000_000;
   // Usar siempre los montos calculados desde compras (consistente con los tabs)
   const montoEnc  = encadenados.reduce((s,c)=>s+(parseFloat(c.monto_con_iva)||parseFloat(c.monto_neto)||0),0);
@@ -2733,19 +2638,6 @@ const PlanificacionPage = () => {
     } catch { setCompras([]); }
     finally { setLoadingCompras(false); }
   }, [appliedYear, appliedWeek]);
-
-  const loadProyeccion = useCallback(async () => {
-    try {
-      const r = await api.get(`/planificacion/proyeccion?año=${year}`);
-      const d = r.data;
-      // La proyección trae registros individuales de encadenados
-      const raw = Array.isArray(d) ? d
-        : Array.isArray(d?.proyeccion)
-          ? d.proyeccion.flatMap(p => p.ordenes || [p])
-          : [];
-      setProyeccion(raw);
-    } catch { setProyeccion([]); }
-  }, [year]);
 
   const loadComprasOC = useCallback(async () => {
     setLoadingOC(true);
@@ -2866,7 +2758,7 @@ const PlanificacionPage = () => {
     finally { setLoadingDetalleEmision(false); }
   }, [year]);
 
-  useEffect(() => { loadWeeks(); loadProyeccion(); api.get(`/planificacion/resumen-anual?año=${year}`).then(r => setStatsAnuales(r.data)).catch(() => {}); }, [loadWeeks, loadProyeccion, year]);
+  useEffect(() => { loadWeeks(); api.get(`/planificacion/resumen-anual?año=${year}`).then(r => setStatsAnuales(r.data)).catch(() => {}); }, [loadWeeks, year]);
   // loadCompras se llama DENTRO de loadNoEncadenadosERP (finally) para evitar race condition
   // (el ERP borra e inserta datos — loadCompras separado leería BD vacía entre medio)
   useEffect(() => { loadComprasOC(); }, [loadComprasOC]);
@@ -2917,7 +2809,7 @@ const PlanificacionPage = () => {
         (d.ignorados    > 0 ? `, ${d.ignorados} ignorados`       : ''),
         { variant: 'success' }
       );
-      loadWeeks(); loadCompras(); loadProyeccion();
+      loadWeeks(); loadCompras();
     } catch(err) { enqueueSnackbar(err.response?.data?.message||'Error al cargar', { variant:'error' }); }
     finally { setUploadLoading(false); e.target.value=''; }
   };
@@ -3041,7 +2933,7 @@ const PlanificacionPage = () => {
       enqueueSnackbar(d.message || `OC Sucursal cargado: ${d.insertados||0} nuevos`, { variant: 'success' });
       setOcSucursalOpen(false);
       ocSucursalInputRef._pendingFile = null;
-      loadWeeks(); loadCompras(); loadProyeccion();
+      loadWeeks(); loadCompras();
     } catch (err) {
       enqueueSnackbar(err.response?.data?.message || 'Error al cargar', { variant: 'error' });
     } finally { setOcSucursalLoading(false); }
@@ -3220,12 +3112,12 @@ const PlanificacionPage = () => {
             {/* Etiquetas de mes */}
             <Box sx={{ display: 'flex', mt: 0.5, position: 'relative', height: 14 }}>
               {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => {
-                // Semana aproximada de inicio de cada mes (52/12 ≈ 4.33 semanas/mes)
-                const leftPct = (i * 52 / 12) / 52 * 100;
+                // Posición en px alineada con la barra real de esa semana (10px barra + 1px gap = 11px/semana)
+                const leftPx = Math.round(i * 52 / 12) * (10 + 1);
                 return (
                   <Typography key={mes} variant="caption" sx={{
                     position: 'absolute',
-                    left: `${leftPct}%`,
+                    left: `${leftPx}px`,
                     fontSize: '0.68rem',
                     color: 'text.secondary',
                     userSelect: 'none',
@@ -3331,7 +3223,7 @@ const PlanificacionPage = () => {
             >
               {/* Calendario colapsable */}
               {(() => {
-                const comprasCal = proyeccion.filter(p => p.semana_vencimiento === week || p.numero_semana === week);
+                const comprasCal = compras;
                 return (
                   <Box sx={{ mb:2 }}>
                     <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -3424,13 +3316,13 @@ const PlanificacionPage = () => {
               exit={{    opacity:0, x: direction*-40 }}
               transition={{ duration:0.2, ease:'easeOut' }}
             >
-          {/* Vista unificada: Enc / No Enc / Proyección / Por Sucursal / OC */}
+          {/* Vista unificada: Enc / No Enc / Por Sucursal / OC */}
           <Paper elevation={0} sx={{border:'1px solid',borderColor:'divider',borderRadius:3,overflow:'hidden'}}>
             <Box sx={{borderBottom:'1px solid',borderColor:'divider',px:1,pt:1,pb:1.5}}>
               <Tabs value={tabDetalle} onChange={(_,v)=>setTabDetalle(v)}
                 sx={{minHeight:40,
                   '& .MuiTab-root':{minHeight:40,textTransform:'none',fontWeight:600,fontSize:'0.78rem',minWidth:0,px:1.5},
-                  '& .MuiTabs-indicator':{bgcolor:[ENC_MID,NENC_MID,PROY_COLOR,'#1a237e',OC_COLOR][tabDetalle]||ENC_MID},
+                  '& .MuiTabs-indicator':{bgcolor:[ENC_MID,NENC_MID,'#1a237e',OC_COLOR][tabDetalle]||ENC_MID},
                 }}>
                 <Tab label={
                   <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
@@ -3446,18 +3338,12 @@ const PlanificacionPage = () => {
                   </Box>} sx={{'&.Mui-selected':{color:NENC_DARK}}}/>
                 <Tab label={
                   <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
-                    <TrendingUpIcon sx={{fontSize:14,color:tabDetalle===2?PROY_COLOR:'text.disabled'}}/>
-                    <span>Proyección</span>
-                    <Chip label={proySemana.length} size="small" sx={{height:16,fontSize:'0.6rem',bgcolor:alpha(PROY_COLOR,.1),color:PROY_COLOR}}/>
-                  </Box>} sx={{'&.Mui-selected':{color:PROY_COLOR}}}/>
-                <Tab label={
-                  <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
-                    <SucursalIcon sx={{fontSize:14,color:tabDetalle===3?'#1a237e':'text.disabled'}}/>
+                    <SucursalIcon sx={{fontSize:14,color:tabDetalle===2?'#1a237e':'text.disabled'}}/>
                     <span>Por Sucursal</span>
                   </Box>} sx={{'&.Mui-selected':{color:'#1a237e'}}}/>
                 <Tab label={
                   <Box sx={{display:'flex',alignItems:'center',gap:0.7}}>
-                    <OcIcon sx={{fontSize:14,color:tabDetalle===4?OC_COLOR:'text.disabled'}}/>
+                    <OcIcon sx={{fontSize:14,color:tabDetalle===3?OC_COLOR:'text.disabled'}}/>
                     <span>Órdenes de Compra</span>
                     <Chip label={encAgrupados.length} size="small"
                       sx={{height:16,fontSize:'0.6rem',bgcolor:alpha(OC_COLOR,.1),color:OC_COLOR}}/>
@@ -3675,38 +3561,13 @@ const PlanificacionPage = () => {
               </Box>
             )}
 
-            {/* ─ TAB 2: Proyección ─ */}
+            {/* ─ TAB 2: Por Sucursal ─ */}
             {tabDetalle===2 && (
-              <Box sx={{p:2}}>
-                <Box sx={{display:'flex',alignItems:'center',gap:1.5,mb:2}}>
-                  <Avatar sx={{bgcolor:alpha(PROY_COLOR,.1),width:36,height:36}}>
-                    <TrendingUpIcon sx={{color:PROY_COLOR,fontSize:18}}/>
-                  </Avatar>
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight={700}>Proyección de Vencimientos · Semana {week}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Encadenados comprados en semanas anteriores cuya fecha de pago cae en esta semana
-                    </Typography>
-                  </Box>
-                </Box>
-                {proySemana.length===0
-                  ?<Box sx={{textAlign:'center',py:5,border:'1px dashed',borderColor:'divider',borderRadius:2,bgcolor:'action.hover'}}>
-                    <OkIcon sx={{fontSize:40,color:'#a5d6a7',mb:1}}/>
-                    <Typography variant="body2" color="text.secondary">Sin vencimientos proyectados para semana {week}</Typography>
-                    <Typography variant="caption" color="text.disabled" display="block">Los encadenados con plazo que vencen aquí aparecerán automáticamente</Typography>
-                  </Box>
-                  :proySemana.map((g,i)=><ProyCard key={i} grupo={g} totalActual={total} limite={limite}/>)
-                }
-              </Box>
-            )}
-
-            {/* ─ TAB 3: Por Sucursal ─ */}
-            {tabDetalle===3 && (
               <DesgloseSucursal semana={week} year={year} autoOpen/>
             )}
 
-            {/* ─ TAB 4: Órdenes de Compra (generadas esta semana) ─ */}
-            {tabDetalle===4 && (() => {
+            {/* ─ TAB 3: Órdenes de Compra (generadas esta semana) ─ */}
+            {tabDetalle===3 && (() => {
               const totalNetoOC = comprasOC.reduce((s,c)=>s+(parseFloat(c.monto_neto)||0),0);
               const totalIvaOC  = comprasOC.reduce((s,c)=>s+(parseFloat(c.monto_con_iva)||0),0);
               return (

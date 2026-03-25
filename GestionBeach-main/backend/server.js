@@ -56,7 +56,7 @@ const corsOptions = {
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 200
 };
@@ -182,6 +182,8 @@ const optionalRoutes = [
   { path: './routes/proveedoresRoutes', route: '/api/proveedores-producto' },
   // 🏢 ORGANIGRAMA INTERACTIVO
   { path: './routes/organigramaRoutes', route: '/api/organigrama' },
+  // 📋 KANBAN — TABLERO DE TAREAS
+  { path: './routes/kanbanRoutes', route: '/api/kanban' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -487,7 +489,7 @@ const startServer = async () => {
           'Multitiendas', 'Compras', 'Centros de Costos', 'Facturas XML',
           'Tarjeta Empleado', 'Empleados', 'Cabañas', 'Usuarios', 'Perfiles',
           'Módulos', 'Configuración', 'Correo Electrónico', 'MonitorOrdenes', 'Ajustes',
-          'Organigrama'
+          'Organigrama', 'Kanban'
         ];
 
         // Verificar si modulos tiene IDENTITY

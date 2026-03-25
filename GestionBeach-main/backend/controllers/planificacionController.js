@@ -208,6 +208,11 @@ const asegurarTablas = async (pool) => {
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='es_madre' AND Object_ID=Object_ID('panificacion_compras'))
       ALTER TABLE panificacion_compras ADD es_madre BIT NOT NULL DEFAULT 0
   `);
+  // FK directa FACTURA/REMANENTE → fila EXCEL original (evita mezcla por numero_orden cross-año)
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='id_oc_ref' AND Object_ID=Object_ID('panificacion_compras'))
+      ALTER TABLE panificacion_compras ADD id_oc_ref INT NULL
+  `);
   // Índices de rendimiento (se crean solo si no existen)
   await pool.request().query(`
     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='idx_planif_año_semana' AND object_id=OBJECT_ID('panificacion_compras'))
@@ -246,39 +251,67 @@ exports.getControlSemanal = async (req, res) => {
     const pagosResult = await pool.request()
       .input('año', sql.Int, año)
       .query(`
-        WITH dedup AS (
+        WITH tiene_facturas AS (
+          -- IDs de filas EXCEL que ya tienen al menos una FACTURA.
+          -- Prefiere id_oc_ref (FK directa) para evitar mezcla cross-año.
+          SELECT DISTINCT
+            ISNULL(id_oc_ref, 0) AS oc_id,
+            numero_orden
+          FROM panificacion_compras
+          WHERE tipo_proveedor = 'Encadenado'
+            AND fuente = 'FACTURA'
+            AND ISNULL(es_madre, 0) = 0
+        ),
+        dedup AS (
           SELECT *,
             ROW_NUMBER() OVER (
               PARTITION BY
                 CASE
-                  -- Encadenados con orden: dedup por (año + orden + plazo) sin sucursal
-                  -- Incluir año permite reutilización de N° OC entre ejercicios
-                  WHEN LEN(ISNULL(numero_orden,'')) > 0 AND tipo_proveedor = 'Encadenado'
-                  THEN CAST(año AS NVARCHAR(10))
-                       + '_' + numero_orden
-                       + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
+                  -- FACTURA/REMANENTE: cada fila ocupa su propio slot (no deduplicar)
+                  WHEN tipo_proveedor = 'Encadenado' AND fuente IN ('FACTURA','REMANENTE')
+                    THEN CAST(id AS NVARCHAR(20))
+                  -- EXCEL encadenado con OC: dedup por numero_orden + plazo (colapsar recargas)
+                  WHEN tipo_proveedor = 'Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
+                    THEN 'ENC_' + numero_orden + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
+                  -- No Encadenado con número de orden
+                  WHEN tipo_proveedor = 'No Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
+                    THEN CAST(año AS NVARCHAR(10)) + '_NENC_' + numero_orden
+                         + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
+                         + '_' + ISNULL(sucursal,'')
+                         + '_' + CAST(ROUND(ISNULL(monto_con_iva,0),0) AS NVARCHAR(20))
                   ELSE CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
+              ORDER BY id ASC
             ) AS _rn
           FROM panificacion_compras
-          -- Encadenados: filtrar por AÑO DE VENCIMIENTO (OCs de 2025 que vencen en 2026)
           WHERE (
             (tipo_proveedor = 'Encadenado'    AND CASE WHEN MONTH(fecha_vencimiento) = 12 AND DATEPART(ISO_WEEK, fecha_vencimiento) = 1 THEN YEAR(fecha_vencimiento) + 1 ELSE YEAR(fecha_vencimiento) END = @año)
             OR
             (tipo_proveedor = 'No Encadenado' AND año = @año)
           ) AND ISNULL(es_madre, 0) = 0
         )
-        SELECT semana_vencimiento,
-               -- Proyección OC (EXCEL encadenados, aún no facturados)
-               SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='EXCEL'   THEN monto_con_iva ELSE 0 END) AS pagos_comprometidos_enc,
-               -- Facturas reales PBI (FACTURA encadenados)
-               SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='FACTURA' THEN monto_con_iva ELSE 0 END) AS deuda_facturada_enc,
-               -- Compras inmediatas ERP (No Encadenados)
-               SUM(CASE WHEN tipo_proveedor='No Encadenado'                      THEN monto_con_iva ELSE 0 END) AS deuda_facturada_nenc
-        FROM dedup
-        WHERE _rn = 1
-        GROUP BY semana_vencimiento
+        SELECT d.semana_vencimiento,
+               -- Proyección: EXCEL sin facturas aún + REMANENTE (balance pendiente de OC)
+               SUM(CASE
+                 WHEN d.tipo_proveedor = 'Encadenado' AND d.fuente NOT IN ('FACTURA','REMANENTE')
+                      AND tf.oc_id IS NULL
+                   THEN d.monto_con_iva
+                 WHEN d.tipo_proveedor = 'Encadenado' AND d.fuente = 'REMANENTE'
+                   THEN d.monto_con_iva
+                 ELSE 0
+               END) AS pagos_comprometidos_enc,
+               -- Facturas reales PBI confirmadas
+               SUM(CASE WHEN d.tipo_proveedor = 'Encadenado' AND d.fuente = 'FACTURA'
+                        THEN d.monto_con_iva ELSE 0 END) AS deuda_facturada_enc,
+               -- Compras No Encadenados ERP
+               SUM(CASE WHEN d.tipo_proveedor = 'No Encadenado' THEN d.monto_con_iva ELSE 0 END) AS deuda_facturada_nenc
+        FROM dedup d
+        LEFT JOIN tiene_facturas tf ON (
+          (tf.oc_id > 0 AND tf.oc_id = d.id)
+          OR (tf.oc_id = 0 AND tf.numero_orden = d.numero_orden)
+        )
+        WHERE d._rn = 1
+        GROUP BY d.semana_vencimiento
       `);
 
     const pagosMap = {};
@@ -359,44 +392,111 @@ exports.getCompras = async (req, res) => {
     const pool = await poolPromise;
     await asegurarTablas(pool);
 
-    // CTE deduplica por grupo natural:
-    //   · Encadenado  con numero_orden  → 1 fila por numero_orden
-    //   · Encadenado  sin numero_orden  → 1 fila por (proveedor + semana_compra + monto_con_iva)
-    //   · No Encadenado con numero_orden → 1 fila por (numero_orden + sucursal)
-    //   · No Encadenado sin numero_orden → 1 fila por (proveedor + sucursal + fecha_compra)
+    // Encadenados: se muestran las filas FACTURA individualmente (pagos reales confirmados),
+    //   las filas REMANENTE (balance pendiente), y las EXCEL solo si aún no tienen facturas (proyección).
+    // No Encadenados: dedup por numero_orden+plazo+sucursal+monto para evitar duplicados por recarga.
+    // id_oc_ref: FK directa FACTURA/REMANENTE→EXCEL. Se prefiere sobre numero_orden para evitar mezcla cross-año.
     let query = `
-      WITH dedup AS (
+      WITH tiene_facturas AS (
+        -- IDs de filas EXCEL que ya tienen al menos una FACTURA asociada.
+        -- Usa id_oc_ref cuando está disponible (FK directa); fallback a numero_orden.
+        SELECT DISTINCT
+          ISNULL(id_oc_ref, 0) AS oc_id,
+          numero_orden
+        FROM panificacion_compras
+        WHERE tipo_proveedor = 'Encadenado'
+          AND fuente = 'FACTURA'
+          AND ISNULL(es_madre, 0) = 0
+      ),
+      enc_excel_dedup AS (
+        -- EXCEL/MANUAL encadenados: dedup por numero_orden+plazo para colapsar recargas
         SELECT *,
           ROW_NUMBER() OVER (
             PARTITION BY
               CASE
-                -- Encadenados con orden: dedup por (orden + plazo) sin sucursal
-                -- Un N° de OC es globalmente único; no puede existir en dos sucursales
-                WHEN tipo_proveedor = 'Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
-                  THEN CAST(año AS NVARCHAR(10)) + '_ENC_'
-                       + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'')
+                WHEN LEN(ISNULL(numero_orden,'')) > 0
+                  THEN 'ENC_' + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'')
                        + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
-                WHEN tipo_proveedor = 'Encadenado'
-                  THEN CAST(id AS NVARCHAR(20))
-                WHEN tipo_proveedor = 'No Encadenado' AND LEN(ISNULL(numero_orden,'')) > 0
+                ELSE CAST(id AS NVARCHAR(20))
+              END
+            ORDER BY id ASC
+          ) AS _rn
+        FROM panificacion_compras
+        WHERE tipo_proveedor = 'Encadenado'
+          AND fuente NOT IN ('FACTURA','REMANENTE')
+          AND ISNULL(es_madre, 0) = 0
+      ),
+      dedup_nenc AS (
+        -- No Encadenados: dedup por numero_orden+plazo+sucursal+monto
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              CASE
+                WHEN LEN(ISNULL(numero_orden,'')) > 0
                   THEN CAST(año AS NVARCHAR(10)) + '_NENC_'
                        + ISNULL(CAST(numero_orden AS NVARCHAR(50)),'')
                        + '_PL' + ISNULL(CAST(plazo_dias AS NVARCHAR(10)),'X')
                        + '_' + ISNULL(sucursal,'')
-                ELSE
-                  CAST(id AS NVARCHAR(20))
+                       + '_' + CAST(ROUND(ISNULL(monto_con_iva, 0), 0) AS NVARCHAR(20))
+                ELSE CAST(id AS NVARCHAR(20))
               END
-            ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
+            ORDER BY id ASC
           ) AS _rn
         FROM panificacion_compras
-        WHERE ISNULL(es_madre, 0) = 0
+        WHERE tipo_proveedor = 'No Encadenado'
+          AND ISNULL(es_madre, 0) = 0
+      ),
+      base AS (
+        -- 1. Facturas PBI individuales (pagos reales confirmados)
+        SELECT id, proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
+               monto_neto, monto_con_iva, monto_con_iva AS monto_total_iva,
+               plazo_dias, fecha_vencimiento, semana_vencimiento, tipo_proveedor, sucursal,
+               fuente, fecha_carga, ISNULL(estado_pago, 'Facturado') AS estado_pago, vigente
+        FROM panificacion_compras
+        WHERE tipo_proveedor = 'Encadenado'
+          AND fuente = 'FACTURA'
+          AND ISNULL(es_madre, 0) = 0
+
+        UNION ALL
+
+        -- 2. Remanentes (balance pendiente de OC parcialmente facturada)
+        SELECT id, proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
+               monto_neto, monto_con_iva, monto_con_iva AS monto_total_iva,
+               plazo_dias, fecha_vencimiento, semana_vencimiento, tipo_proveedor, sucursal,
+               fuente, fecha_carga, ISNULL(estado_pago, 'Pendiente') AS estado_pago, vigente
+        FROM panificacion_compras
+        WHERE tipo_proveedor = 'Encadenado'
+          AND fuente = 'REMANENTE'
+          AND ISNULL(es_madre, 0) = 0
+
+        UNION ALL
+
+        -- 3. EXCEL/MANUAL encadenados sin facturas aún (proyección ERP)
+        --    Se usa tiene_facturas con id_oc_ref cuando está disponible
+        SELECT e.id, e.proveedor, e.fecha_compra, e.semana_compra, e.año, e.mes, e.numero_orden,
+               e.monto_neto, e.monto_con_iva, e.monto_con_iva AS monto_total_iva,
+               e.plazo_dias, e.fecha_vencimiento, e.semana_vencimiento, e.tipo_proveedor, e.sucursal,
+               e.fuente, e.fecha_carga, ISNULL(e.estado_pago, 'Pendiente') AS estado_pago, e.vigente
+        FROM enc_excel_dedup e
+        WHERE e._rn = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM tiene_facturas tf
+            WHERE (tf.oc_id > 0 AND tf.oc_id = e.id)
+               OR (tf.oc_id = 0 AND tf.numero_orden = e.numero_orden)
+          )
+
+        UNION ALL
+
+        -- 4. No Encadenados deduplicados
+        SELECT id, proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
+               monto_neto, monto_con_iva, monto_con_iva AS monto_total_iva,
+               plazo_dias, fecha_vencimiento, semana_vencimiento, tipo_proveedor, sucursal,
+               fuente, fecha_carga, ISNULL(estado_pago, 'Pendiente') AS estado_pago, vigente
+        FROM dedup_nenc
+        WHERE _rn = 1
       )
-      SELECT id, proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
-             monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
-             semana_vencimiento, tipo_proveedor, sucursal, fuente, fecha_carga,
-             estado_pago, vigente
-      FROM dedup
-      WHERE _rn = 1
+      SELECT * FROM base
+      WHERE 1=1
     `;
     const request = pool.request();
 
@@ -604,15 +704,17 @@ const insertarCompra = async (pool, data, lote, fuente = 'EXCEL') => {
     .input('sucursal',          sql.NVarChar,    data.sucursal || '')
     .input('fuente',            sql.NVarChar,    fuente)
     .input('lote_carga',        sql.NVarChar,    lote)
+    .input('fecha_carga',       sql.DateTime,    data.fecha_carga || new Date())
+    .input('id_oc_ref',         sql.Int,         data.id_oc_ref || null)
     .query(`
       INSERT INTO panificacion_compras
         (proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
          monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
-         semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga)
+         semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga, fecha_carga, id_oc_ref)
       VALUES
         (@proveedor, @fecha_compra, @semana_compra, @año, @mes, @numero_orden,
          @monto_neto, @monto_con_iva, @plazo_dias, @fecha_vencimiento,
-         @semana_vencimiento, @tipo_proveedor, @sucursal, @fuente, @lote_carga)
+         @semana_vencimiento, @tipo_proveedor, @sucursal, @fuente, @lote_carga, @fecha_carga, @id_oc_ref)
     `);
 };
 
@@ -825,28 +927,29 @@ exports.uploadExcelEncadenados = async (req, res) => {
         const ultimoContextoOC = {}; // numero_orden → { proveedor, fechaCompra, monto }
 
         for (const row of rows) {
-          const ordenRaw       = String(row[iOrden] ?? '').trim();
-          let proveedor        = String(row[iProveedor] ?? '').trim();
-          let fechaCompra      = parseFecha(row[iFecha]);
-          let montoConIvaTotal = parseFloat(String(row[iTotal] ?? '').replace(/[^0-9.-]/g, '')) || 0;
+          const ordenRaw    = String(row[iOrden] ?? '').trim();
+          let proveedor     = String(row[iProveedor] ?? '').trim();
+          let fechaCompra   = parseFecha(row[iFecha]);
+          // La columna "total" del InformeOC contiene montos NETOS (sin IVA)
+          let montoNetoTotal = parseFloat(String(row[iTotal] ?? '').replace(/[^0-9.-]/g, '')) || 0;
 
           // Fila de continuación: misma OC, distinto plazo, celdas vacías → heredar contexto
           if (ordenRaw && ultimoContextoOC[ordenRaw]) {
-            if (!proveedor)        proveedor        = ultimoContextoOC[ordenRaw].proveedor;
-            if (!fechaCompra)      fechaCompra      = ultimoContextoOC[ordenRaw].fechaCompra;
-            if (!montoConIvaTotal) montoConIvaTotal = ultimoContextoOC[ordenRaw].monto;
+            if (!proveedor)       proveedor       = ultimoContextoOC[ordenRaw].proveedor;
+            if (!fechaCompra)     fechaCompra     = ultimoContextoOC[ordenRaw].fechaCompra;
+            if (!montoNetoTotal)  montoNetoTotal  = ultimoContextoOC[ordenRaw].monto;
           }
 
           if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
           if (!fechaCompra) continue;
 
           // Guardar contexto para posibles filas de continuación de esta OC
-          if (ordenRaw) ultimoContextoOC[ordenRaw] = { proveedor, fechaCompra, monto: montoConIvaTotal };
+          if (ordenRaw) ultimoContextoOC[ordenRaw] = { proveedor, fechaCompra, monto: montoNetoTotal };
 
           // Soporta celdas con múltiples plazos: "60-90", "60/90", "60,90", etc.
           const plazos = parsePlazos(row[iPlazo]);
           for (const plazo of plazos) {
-            ocFilasValidas.push({ proveedor, fechaCompra, montoConIvaTotal, plazo, orden: ordenRaw });
+            ocFilasValidas.push({ proveedor, fechaCompra, montoNetoTotal, plazo, orden: ordenRaw });
             if (ordenRaw) ocCantidadPlazos[ordenRaw] = (ocCantidadPlazos[ordenRaw] || 0) + 1;
           }
         }
@@ -854,12 +957,12 @@ exports.uploadExcelEncadenados = async (req, res) => {
         // ── PASO 2: procesar cada fila con el monto dividido por cuotas ──────
         for (const r of ocFilasValidas) {
           try {
-            const { proveedor, fechaCompra, montoConIvaTotal, plazo, orden } = r;
+            const { proveedor, fechaCompra, montoNetoTotal, plazo, orden } = r;
 
-            // Dividir monto por la cantidad de plazos de esta OC
+            // Dividir monto neto por cantidad de cuotas y calcular con IVA
             const cantidadCuotas = (orden && ocCantidadPlazos[orden]) ? ocCantidadPlazos[orden] : 1;
-            const montoCuota = Math.round(montoConIvaTotal / cantidadCuotas);
-            const montoNeto  = Math.round(montoCuota / 1.19);
+            const montoNeto  = Math.round(montoNetoTotal / cantidadCuotas);
+            const montoCuota = Math.round(montoNeto * 1.19);
 
             // Fecha de vencimiento = fecha compra + plazo días
             const fechaVenc = new Date(fechaCompra);
@@ -1448,7 +1551,7 @@ exports.getComprasPorEmision = async (req, res) => {
     const ultimasCargasRes = await pool.request().query(`
       SELECT fuente, MAX(fecha_carga) AS ultima
       FROM panificacion_compras
-      WHERE fuente IN ('EXCEL','ERP','FACTURA')
+      WHERE fuente IN ('EXCEL','ERP','FACTURA','REMANENTE')
       GROUP BY fuente
     `);
     const ultimasCargas = {};
@@ -1657,7 +1760,7 @@ const _cargarSucursalesERP = async ({ sucursalesACargar, fechaInicio, fechaFin, 
                 OR
                 (LEN(s.numero_orden) = 0 AND t.proveedor = @proveedor AND t.plazo_dias = s.plazo_dias)
               )
-              WHEN MATCHED THEN UPDATE SET
+              WHEN MATCHED AND ISNULL(t.es_madre, 0) = 0 THEN UPDATE SET
                 proveedor          = @proveedor,
                 fecha_compra       = @fecha_compra,
                 semana_compra      = @semana_compra,
@@ -1773,7 +1876,7 @@ exports.cargarNoEncadenadosERP = async (req, res) => {
                   OR
                   (LEN(s.numero_orden) = 0 AND t.proveedor = @proveedor AND t.plazo_dias = s.plazo_dias)
                 )
-                WHEN MATCHED THEN UPDATE SET
+                WHEN MATCHED AND ISNULL(t.es_madre, 0) = 0 THEN UPDATE SET
                   proveedor=@proveedor, fecha_compra=@fecha_compra, semana_compra=@semana_compra,
                   año=@año, mes=@mes, monto_neto=@monto_neto, monto_con_iva=@monto_con_iva,
                   fecha_vencimiento=@fecha_vencimiento, semana_vencimiento=@semana_vencimiento,
@@ -1979,9 +2082,9 @@ exports.uploadFacturasPBI = async (req, res) => {
         const proveedor   = String(row[iProveedor] || '').trim();
         if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
 
-        // Solo procesar filas con estado "A Pagar" (ignorar Pagos Futuros, subtotales, etc.)
+        // Procesar filas con estado "A Pagar", "Pagos Futuros" y "Modificado" (ignorar subtotales etc.)
         const estadoFila = String(row[iEstado] || '').trim().toLowerCase();
-        if (estadoFila && estadoFila !== 'a pagar' && estadoFila !== 'modificado') {
+        if (estadoFila && estadoFila !== 'a pagar' && estadoFila !== 'modificado' && estadoFila !== 'pagos futuros') {
           ignorados++;
           continue;
         }
@@ -1991,6 +2094,7 @@ exports.uploadFacturasPBI = async (req, res) => {
         const fechaVenc    = parseFecha(fechaVencRaw);
         if (!fechaVenc) { ignorados++; continue; }
 
+        // A PAGAR del PBI ya incluye IVA; el neto se obtiene dividiendo por 1.19
         const montoConIva  = parseFloat(row[iMonto]) || 0;
         if (montoConIva <= 0) { ignorados++; continue; }
         const montoNeto    = Math.round(montoConIva / 1.19);
@@ -2014,7 +2118,7 @@ exports.uploadFacturasPBI = async (req, res) => {
           const fechaCompraOrig = existingMod.recordset.length > 0 ? existingMod.recordset[0].fecha_compra : null;
           await pool.request()
             .input('oc', sql.NVarChar, oc)
-            .query(`DELETE FROM panificacion_compras WHERE numero_orden = @oc`);
+            .query(`DELETE FROM panificacion_compras WHERE numero_orden = @oc AND fuente != 'REMANENTE'`);
           const semanaCompra  = getWeekNumber(new Date());
           // Usar plazo original de la OC; si no existía, calcular desde fecha_compra original o desde hoy
           const plazoMod = plazoOriginal
@@ -2044,34 +2148,161 @@ exports.uploadFacturasPBI = async (req, res) => {
         // Intentar actualizar registro existente por N° OC (si existe)
         let actualizado = false;
         if (oc) {
-          const existing = await pool.request()
+          // Prioridad 1: buscar fila REMANENTE (saldo pendiente de facturación parcial previa)
+          const remanQ = await pool.request()
             .input('oc', sql.NVarChar, oc)
-            .query(`SELECT id FROM panificacion_compras WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'`);
+            .query(`
+              SELECT TOP 1 id, monto_con_iva, fecha_vencimiento, plazo_dias,
+                     fecha_compra, semana_compra, año, mes, proveedor, sucursal, fecha_carga,
+                     id_oc_ref
+              FROM panificacion_compras
+              WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
+                AND ISNULL(es_madre, 0) = 0
+                AND fuente = 'REMANENTE'
+              ORDER BY id ASC
+            `);
 
-          if (existing.recordset.length > 0) {
-            // Plazo real = diferencia entre fecha_compra original y fecha_vencimiento real de la factura
-            await pool.request()
-              .input('fecha_vencimiento',  sql.Date,          formatDate(fechaVenc))
-              .input('semana_vencimiento', sql.Int,           semanaVenc)
-              .input('monto_con_iva',      sql.Decimal(18,2), montoConIva)
-              .input('monto_neto',         sql.Decimal(18,2), montoNeto)
-              .input('fuente',             sql.NVarChar,      'FACTURA')
-              .input('lote',               sql.NVarChar,      lote)
-              .input('oc',                 sql.NVarChar,      oc)
-              .query(`
-                UPDATE panificacion_compras SET
-                  fecha_vencimiento  = @fecha_vencimiento,
-                  semana_vencimiento = @semana_vencimiento,
-                  monto_con_iva      = @monto_con_iva,
-                  monto_neto         = @monto_neto,
-                  -- plazo_dias NO se recalcula: viene de la OC original (30/60/90/120d)
-                  fuente             = @fuente,
-                  lote_carga         = @lote,
-                  fecha_carga        = GETDATE()
-                WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
-              `);
+          if (remanQ.recordset.length > 0) {
+            // ── Hay REMANENTE: consumirlo con esta factura ──────────────────────
+            const row0           = remanQ.recordset[0];
+            const montoExistente = parseFloat(row0.monto_con_iva) || 0;
+            const remanenteConIva = Math.round(montoExistente - montoConIva);
+
+            if (remanenteConIva < 0) {
+              // Factura cubre (o supera) el REMANENTE → convertir a FACTURA
+              await pool.request()
+                .input('id',                 sql.Int,           row0.id)
+                .input('monto_con_iva',      sql.Decimal(18,2), montoConIva)
+                .input('monto_neto',         sql.Decimal(18,2), montoNeto)
+                .input('lote',               sql.NVarChar,      lote)
+                .input('fecha_vencimiento',  sql.Date,          formatDate(fechaVenc))
+                .input('semana_vencimiento', sql.Int,           semanaVenc)
+                .input('año',                sql.Int,           año)
+                .input('mes',                sql.NVarChar,      getMesNombre(fechaVenc))
+                .input('fuente',             sql.NVarChar,      'FACTURA')
+                .query(`
+                  UPDATE panificacion_compras SET
+                    estado_pago = 'Facturado',
+                    fuente      = @fuente,
+                    lote_carga  = @lote,
+                    monto_con_iva = @monto_con_iva,
+                    monto_neto = @monto_neto,
+                    fecha_vencimiento = @fecha_vencimiento,
+                    semana_vencimiento = @semana_vencimiento,
+                    año = @año,
+                    mes = @mes
+                  WHERE id = @id
+                `);
+            } else {
+              // Factura cubre parcialmente → REMANENTE → FACTURA + nuevo REMANENTE por diferencia
+              await pool.request()
+                .input('id',                 sql.Int,           row0.id)
+                .input('monto_con_iva',      sql.Decimal(18,2), montoConIva)
+                .input('monto_neto',         sql.Decimal(18,2), montoNeto)
+                .input('fuente',             sql.NVarChar,      'FACTURA')
+                .input('lote',               sql.NVarChar,      lote)
+                .input('fecha_vencimiento',  sql.Date,          formatDate(fechaVenc))
+                .input('semana_vencimiento', sql.Int,           semanaVenc)
+                .input('año',                sql.Int,           año)
+                .input('mes',                sql.NVarChar,      getMesNombre(fechaVenc))
+                .query(`
+                  UPDATE panificacion_compras SET
+                    monto_con_iva = @monto_con_iva,
+                    monto_neto    = @monto_neto,
+                    fuente        = @fuente,
+                    lote_carga    = @lote,
+                    fecha_vencimiento = @fecha_vencimiento,
+                    semana_vencimiento = @semana_vencimiento,
+                    año = @año,
+                    mes = @mes
+                  WHERE id = @id
+                `);
+
+              if (remanenteConIva > 0) {
+                const remNeto        = Math.round(remanenteConIva / 1.19);
+                const fechaVencOrig  = new Date(row0.fecha_vencimiento);
+                const semanaVencOrig = getWeekNumber(fechaVencOrig);
+                await insertarCompra(pool, {
+                  proveedor:          row0.proveedor || proveedor,
+                  fecha_compra:       row0.fecha_compra ? formatDate(new Date(row0.fecha_compra)) : hoy,
+                  semana_compra:      row0.semana_compra,
+                  año:                row0.año,
+                  mes:                row0.mes,
+                  numero_orden:       oc,
+                  monto_neto:         remNeto,
+                  monto_con_iva:      remanenteConIva,
+                  plazo_dias:         row0.plazo_dias,
+                  fecha_vencimiento:  formatDate(fechaVencOrig),
+                  semana_vencimiento: semanaVencOrig,
+                  tipo_proveedor:     'Encadenado',
+                  sucursal:           row0.sucursal || '',
+                  fecha_carga:        row0.fecha_carga,
+                  id_oc_ref:          row0.id_oc_ref || null, // propagar FK al EXCEL original
+                }, lote, 'REMANENTE');
+              }
+            }
+
             actualizados++;
             actualizado = true;
+
+          } else {
+            // Prioridad 2: buscar OC original (EXCEL/MANUAL) — NO sobreescribirla,
+            // insertar FACTURA nueva y actualizar su estado_pago
+            const ocOrigQ = await pool.request()
+              .input('oc', sql.NVarChar, oc)
+              .query(`
+                SELECT TOP 1 id, monto_con_iva, fecha_vencimiento, plazo_dias,
+                       fecha_compra, semana_compra, año, mes, proveedor, sucursal, fecha_carga
+                FROM panificacion_compras
+                WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
+                  AND ISNULL(es_madre, 0) = 0
+                  AND fuente NOT IN ('FACTURA', 'REMANENTE')
+                ORDER BY id ASC
+              `);
+
+            if (ocOrigQ.recordset.length > 0) {
+              const refRow = ocOrigQ.recordset[0];
+
+              // Insertar nueva fila FACTURA (la OC original permanece intacta)
+              await insertarCompra(pool, {
+                proveedor:          refRow.proveedor || proveedor,
+                fecha_compra:       hoy,
+                semana_compra:      getWeekNumber(hoyDate),
+                año,
+                mes:                getMesNombre(fechaVenc),
+                numero_orden:       oc,
+                monto_neto:         montoNeto,
+                monto_con_iva:      montoConIva,
+                plazo_dias:         refRow.plazo_dias,
+                fecha_vencimiento:  formatDate(fechaVenc),
+                semana_vencimiento: semanaVenc,
+                tipo_proveedor:     'Encadenado',
+                sucursal:           refRow.sucursal || '',
+                fecha_carga:        refRow.fecha_carga,
+                id_oc_ref:          refRow.id, // FK directa al EXCEL original
+              }, lote, 'FACTURA');
+
+              // Recalcular cobertura y actualizar estado de la OC original
+              const totalQ = await pool.request()
+                .input('oc', sql.NVarChar, oc)
+                .query(`
+                  SELECT ISNULL(SUM(monto_con_iva), 0) AS total
+                  FROM panificacion_compras
+                  WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
+                    AND fuente = 'FACTURA'
+                `);
+              const totalFacturado = parseFloat(totalQ.recordset[0].total) || 0;
+              const ocMonto        = parseFloat(refRow.monto_con_iva) || 0;
+              const nuevoEstado    = totalFacturado >= ocMonto ? 'Cancelado' : 'Parcial';
+
+              await pool.request()
+                .input('id',     sql.Int,      refRow.id)
+                .input('estado', sql.NVarChar, nuevoEstado)
+                .query(`UPDATE panificacion_compras SET estado_pago = @estado WHERE id = @id`);
+
+              insertados++;
+              actualizado = true;
+            }
           }
         }
 
@@ -2274,10 +2505,12 @@ exports.actualizarEstadoOrden = async (req, res) => {
     }
     if (sets.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
 
+    // Solo actualizar la fila EXCEL/MANUAL original, nunca las FACTURA ni REMANENTE
     await request.query(`
       UPDATE panificacion_compras
       SET ${sets.join(', ')}
       WHERE numero_orden = @orden
+        AND fuente NOT IN ('FACTURA', 'REMANENTE')
     `);
 
     res.json({ success: true, message: `Orden ${orden} actualizada` });
@@ -2314,6 +2547,8 @@ const _deduplicar = async (pool) => {
       FROM panificacion_compras
       WHERE numero_orden <> '' AND numero_orden IS NOT NULL
         AND tipo_proveedor = 'Encadenado'
+        AND fuente != 'REMANENTE'
+        AND fuente != 'FACTURA'
     )
     DELETE FROM cte WHERE rn > 1
   `);

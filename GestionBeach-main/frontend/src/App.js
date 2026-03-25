@@ -78,6 +78,7 @@ import MonitorOrdenesPage from './pages/MonitorOrdenesPage';
 import AjustesPage from './pages/AjustesPage';
 import ProveedoresProductoPage from './pages/ProveedoresProductoPage';
 import OrganigramaPage from './pages/OrganigramaPage';
+import KanbanPage from './pages/KanbanPage';
 
 // ========================================
 // COMPONENTS
@@ -630,6 +631,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/organigrama">
                         <OrganigramaPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* MÓDULO KANBAN */}
+                  <Route
+                    path="/kanban"
+                    element={
+                      <ProtectedRoute requiredRoute="/kanban">
+                        <KanbanPage />
                       </ProtectedRoute>
                     }
                   />

@@ -65,6 +65,7 @@ import {
   Description as DescriptionIcon,
   Summarize as SummarizeIcon,
   AccountTree as AccountTreeIcon,
+  ViewKanban as ViewKanbanIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -415,6 +416,7 @@ export default function DashboardLayout() {
     { text: 'Tarjeta Empleado', icon: <BadgeIcon />, path: '/tarjeta-empleado', orangeType: 'light' },
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
     { text: 'Organigrama', icon: <AccountTreeIcon />, path: '/organigrama', orangeType: 'light' },
+    { text: 'Kanban', icon: <ViewKanbanIcon />, path: '/kanban', orangeType: 'light' },
     {
       text: 'Recursos Humanos',
       icon: <GroupIcon />,

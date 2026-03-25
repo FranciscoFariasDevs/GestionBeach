@@ -10,15 +10,16 @@ router.get('/', authMiddleware, async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request()
       .query(`
-        SELECT 
-          u.id, 
-          u.username, 
-          u.nombre_completo,
+        SELECT
+          u.id,
+          u.username,
+          u.nombre_completo AS nombre,
+          u.foto_perfil,
           u.perfil_id,
           p.nombre as perfil_nombre
         FROM usuarios u
         LEFT JOIN perfiles p ON u.perfil_id = p.id
-        ORDER BY u.id
+        ORDER BY u.nombre_completo
       `);
     
     res.status(200).json(result.recordset);

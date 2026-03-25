@@ -42,6 +42,7 @@ export const MODULES = {
   AJUSTES: 'productos/ajustes',
   PROVEEDORES_PRODUCTO: 'productos/proveedores',
   ORGANIGRAMA: 'organigrama',
+  KANBAN: 'kanban',
 };
 
 // Definir acciones
@@ -200,6 +201,7 @@ export function canAccessRoute(ability, route) {
     '/productos/proveedores': MODULES.PROVEEDORES_PRODUCTO,
     '/dashboard/productos/proveedores': MODULES.PROVEEDORES_PRODUCTO,
     '/organigrama': MODULES.ORGANIGRAMA,
+    '/kanban': MODULES.KANBAN,
     '/dashboard/organigrama': MODULES.ORGANIGRAMA,
   };
 

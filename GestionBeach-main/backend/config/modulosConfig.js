@@ -63,4 +63,5 @@ module.exports = [
   { nombre: 'Ajustes',              claves: ['productos/ajustes'] },
   { nombre: 'Proveedores Producto', claves: ['productos/proveedores'] },
   { nombre: 'Organigrama',          claves: ['organigrama'] },
+  { nombre: 'Kanban',               claves: ['kanban'] },
 ];
