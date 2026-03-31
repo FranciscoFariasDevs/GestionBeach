@@ -1,0 +1,85 @@
+services:
+
+  # ─────────────────────────────────────────────
+  #  SQL Server (base de datos principal)
+  # ─────────────────────────────────────────────
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: gestionbeach_sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: ${SA_PASSWORD}
+      MSSQL_PID: Developer          # Gratis para uso no productivo; cambiar a Express o Standard si corresponde
+    ports:
+      - "1433:1433"                 # Exponer para poder conectarse con SSMS desde fuera
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    restart: unless-stopped
+    networks:
+      - gestionbeach
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "${SA_PASSWORD}", "-Q", "SELECT 1", "-No"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ─────────────────────────────────────────────
+  #  Backend (Node.js / Express)
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: gestionbeach_backend
+    env_file:
+      - backend/.env
+    environment:
+      # Sobreescribir el servidor SQL para que apunte al contenedor
+      DB_SERVER: sqlserver
+      NODE_ENV: production
+    ports:
+      - "5000:5000"                 # Opcional: exponer directo (útil para debug)
+    volumes:
+      - uploads_data:/app/backend/uploads
+      - imagenes_data:/app/imagenes-cabanas
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gestionbeach
+
+  # ─────────────────────────────────────────────
+  #  Frontend (React + Nginx)
+  # ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Con nginx proxy, /api se redirige al backend internamente
+        REACT_APP_API_URL: /api
+    container_name: gestionbeach_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - gestionbeach
+
+# ─────────────────────────────────────────────
+#  Volúmenes persistentes
+# ─────────────────────────────────────────────
+volumes:
+  sqlserver_data:
+    name: gestionbeach_sqlserver_data
+  uploads_data:
+    name: gestionbeach_uploads
+  imagenes_data:
+    name: gestionbeach_imagenes
+
+networks:
+  gestionbeach:
+    driver: bridge

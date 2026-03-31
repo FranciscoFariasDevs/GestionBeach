@@ -1,0 +1,33 @@
+node_modules
+.git
+.gitignore
+
+# Archivos de entorno (se montan en runtime)
+.env
+*.env.local
+*.env.development
+*.env.test
+
+# Build del frontend (se construye dentro del contenedor)
+frontend/node_modules
+frontend/build
+
+# Archivos de desarrollo
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Archivos innecesarios para producción
+SISTEMAVIEJO/
+*.xlsx
+*.jpeg
+*.jpg
+*.png
+*.pdf
+
+# El backend/uploads se monta como volumen
+backend/uploads/
+
+# Playwright cache local
+~/.cache/ms-playwright
