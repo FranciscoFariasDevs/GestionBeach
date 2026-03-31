@@ -1,5 +1,9 @@
 // backend/middleware/checkModulePermissions.js
 const { sql, poolPromise } = require('../config/db');
+const { cache } = require('../config/redis');
+
+// TTL: 2 horas — los permisos no cambian seguido, pero deben reflejarse pronto si admin los modifica
+const TTL_PERMISOS = 7200;
 
 /**
  * Middleware para verificar permisos granulares por módulo y sucursal
@@ -30,35 +34,39 @@ const checkModulePermissions = (moduloNombre, tipoPermiso = 'leer') => {
 
       const pool = await poolPromise;
 
-      // Obtener perfil del usuario
-      const userResult = await pool.request()
-        .input('usuarioId', sql.Int, usuario.id)
-        .query('SELECT perfil_id, nombre, email FROM usuarios WHERE id = @usuarioId');
+      // ── Caché: perfil del usuario ──────────────────────────────────────
+      const cacheKeyPerfil = `gb:permisos:usuario:${usuario.id}:perfil`;
+      let perfilId, perfilNombre;
 
-      if (userResult.recordset.length === 0) {
-        console.log('❌ Usuario no encontrado en BD');
-        return res.status(404).json({
-          success: false,
-          message: 'Usuario no encontrado'
-        });
+      const perfilCached = await cache.get(cacheKeyPerfil);
+      if (perfilCached) {
+        perfilId    = perfilCached.perfilId;
+        perfilNombre = perfilCached.perfilNombre;
+      } else {
+        const userResult = await pool.request()
+          .input('usuarioId', sql.Int, usuario.id)
+          .query(`
+            SELECT u.perfil_id, p.nombre as perfil_nombre
+            FROM usuarios u
+            INNER JOIN perfiles p ON p.id = u.perfil_id
+            WHERE u.id = @usuarioId
+          `);
+
+        if (userResult.recordset.length === 0) {
+          console.log('❌ Usuario no encontrado en BD');
+          return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+        }
+
+        perfilId     = userResult.recordset[0].perfil_id;
+        perfilNombre = userResult.recordset[0].perfil_nombre;
+        await cache.set(cacheKeyPerfil, { perfilId, perfilNombre }, TTL_PERMISOS);
       }
 
-      const perfilId = userResult.recordset[0].perfil_id;
-      console.log(`📝 Perfil ID: ${perfilId}`);
+      console.log(`📝 Perfil ID: ${perfilId} (${perfilNombre})`);
 
-      // Verificar si el perfil es Administrador (acceso total)
-      const perfilResult = await pool.request()
-        .input('perfilId', sql.Int, perfilId)
-        .query('SELECT nombre FROM perfiles WHERE id = @perfilId');
-
-      if (perfilResult.recordset.length > 0) {
-        const perfilNombre = perfilResult.recordset[0].nombre;
-        console.log(`👔 Perfil: ${perfilNombre}`);
-
-        if (perfilNombre.toLowerCase() === 'administrador') {
-          console.log('✅ Administrador - Acceso total concedido');
-          return next();
-        }
+      if (perfilNombre?.toLowerCase() === 'administrador') {
+        console.log('✅ Administrador - Acceso total concedido');
+        return next();
       }
 
       // Para solicitudes específicas a sucursales, verificar permiso granular
@@ -67,34 +75,53 @@ const checkModulePermissions = (moduloNombre, tipoPermiso = 'leer') => {
       if (sucursalId) {
         console.log(`🏢 Verificando sucursal ID: ${sucursalId}`);
 
-        // Verificar permiso específico para esta sucursal
-        const permisoResult = await pool.request()
-          .input('perfilId', sql.Int, perfilId)
-          .input('moduloNombre', sql.VarChar, moduloNombre)
-          .input('sucursalId', sql.Int, sucursalId)
-          .query(`
-            SELECT
-              pms.puede_leer,
-              pms.puede_escribir,
-              pms.puede_exportar,
-              s.nombre as sucursal_nombre
-            FROM perfil_modulo_sucursal pms
-              INNER JOIN modulos m ON m.id = pms.modulo_id
-              INNER JOIN sucursales s ON s.id = pms.sucursal_id
-            WHERE pms.perfil_id = @perfilId
-              AND m.nombre = @moduloNombre
-              AND pms.sucursal_id = @sucursalId
-          `);
+        // ── Caché: permisos específicos por módulo + sucursal ──────────
+        const cacheKeyPermiso = `gb:permisos:usuario:${usuario.id}:modulo:${moduloNombre}:sucursal:${sucursalId}`;
+        let permiso;
 
-        if (permisoResult.recordset.length === 0) {
-          console.log('❌ Sin permisos para esta sucursal en este módulo');
+        const permisoCached = await cache.get(cacheKeyPermiso);
+        if (permisoCached !== null) {
+          permiso = permisoCached;
+        } else {
+          const permisoResult = await pool.request()
+            .input('perfilId', sql.Int, perfilId)
+            .input('moduloNombre', sql.VarChar, moduloNombre)
+            .input('sucursalId', sql.Int, sucursalId)
+            .query(`
+              SELECT
+                pms.puede_leer,
+                pms.puede_escribir,
+                pms.puede_exportar,
+                s.nombre as sucursal_nombre
+              FROM perfil_modulo_sucursal pms
+                INNER JOIN modulos m ON m.id = pms.modulo_id
+                INNER JOIN sucursales s ON s.id = pms.sucursal_id
+              WHERE pms.perfil_id = @perfilId
+                AND m.nombre = @moduloNombre
+                AND pms.sucursal_id = @sucursalId
+            `);
+
+          if (permisoResult.recordset.length === 0) {
+            // Guardar en caché el "sin permiso" para no consultar de nuevo
+            await cache.set(cacheKeyPermiso, false, TTL_PERMISOS);
+            console.log('❌ Sin permisos para esta sucursal en este módulo');
+            return res.status(403).json({
+              success: false,
+              message: `No tiene permisos para acceder a la sucursal solicitada en el módulo ${moduloNombre}`
+            });
+          }
+
+          permiso = permisoResult.recordset[0];
+          await cache.set(cacheKeyPermiso, permiso, TTL_PERMISOS);
+        }
+
+        if (permiso === false) {
           return res.status(403).json({
             success: false,
             message: `No tiene permisos para acceder a la sucursal solicitada en el módulo ${moduloNombre}`
           });
         }
 
-        const permiso = permisoResult.recordset[0];
         console.log(`🔍 Permisos encontrados:`, {
           leer: permiso.puede_leer,
           escribir: permiso.puede_escribir,
@@ -139,22 +166,52 @@ const checkModulePermissions = (moduloNombre, tipoPermiso = 'leer') => {
 
         return next();
       } else {
-        // Si no se especifica sucursal, verificar que el usuario tenga acceso al módulo
+        // Sin sucursal específica: verificar acceso general + sucursales permitidas
         console.log('📋 Verificando acceso general al módulo (sin sucursal específica)');
 
-        const tieneAccesoModulo = await pool.request()
-          .input('perfilId', sql.Int, perfilId)
-          .input('moduloNombre', sql.VarChar, moduloNombre)
-          .query(`
-            SELECT COUNT(*) as total
-            FROM perfil_modulo_sucursal pms
-              INNER JOIN modulos m ON m.id = pms.modulo_id
-            WHERE pms.perfil_id = @perfilId
-              AND m.nombre = @moduloNombre
-          `);
+        const cacheKeyGeneral = `gb:permisos:usuario:${usuario.id}:modulo:${moduloNombre}:sucursales`;
+        let sucursalesPermitidas = await cache.get(cacheKeyGeneral);
 
-        if (tieneAccesoModulo.recordset[0].total === 0) {
-          console.log('❌ Sin acceso al módulo');
+        if (sucursalesPermitidas === null) {
+          const tieneAccesoModulo = await pool.request()
+            .input('perfilId', sql.Int, perfilId)
+            .input('moduloNombre', sql.VarChar, moduloNombre)
+            .query(`
+              SELECT COUNT(*) as total
+              FROM perfil_modulo_sucursal pms
+                INNER JOIN modulos m ON m.id = pms.modulo_id
+              WHERE pms.perfil_id = @perfilId
+                AND m.nombre = @moduloNombre
+            `);
+
+          if (tieneAccesoModulo.recordset[0].total === 0) {
+            await cache.set(cacheKeyGeneral, [], TTL_PERMISOS);
+            console.log('❌ Sin acceso al módulo');
+            return res.status(403).json({
+              success: false,
+              message: `No tiene acceso al módulo ${moduloNombre}`
+            });
+          }
+
+          const result = await pool.request()
+            .input('perfilId', sql.Int, perfilId)
+            .input('moduloNombre', sql.VarChar, moduloNombre)
+            .query(`
+              SELECT DISTINCT s.id, s.nombre
+              FROM perfil_modulo_sucursal pms
+                INNER JOIN modulos m ON m.id = pms.modulo_id
+                INNER JOIN sucursales s ON s.id = pms.sucursal_id
+              WHERE pms.perfil_id = @perfilId
+                AND m.nombre = @moduloNombre
+                AND pms.puede_leer = 1
+              ORDER BY s.nombre
+            `);
+
+          sucursalesPermitidas = result.recordset;
+          await cache.set(cacheKeyGeneral, sucursalesPermitidas, TTL_PERMISOS);
+        }
+
+        if (sucursalesPermitidas.length === 0) {
           return res.status(403).json({
             success: false,
             message: `No tiene acceso al módulo ${moduloNombre}`
@@ -162,24 +219,7 @@ const checkModulePermissions = (moduloNombre, tipoPermiso = 'leer') => {
         }
 
         console.log('✅ Acceso general al módulo verificado');
-
-        // Obtener lista de sucursales permitidas para este módulo
-        const sucursalesPermitidas = await pool.request()
-          .input('perfilId', sql.Int, perfilId)
-          .input('moduloNombre', sql.VarChar, moduloNombre)
-          .query(`
-            SELECT DISTINCT s.id, s.nombre
-            FROM perfil_modulo_sucursal pms
-              INNER JOIN modulos m ON m.id = pms.modulo_id
-              INNER JOIN sucursales s ON s.id = pms.sucursal_id
-            WHERE pms.perfil_id = @perfilId
-              AND m.nombre = @moduloNombre
-              AND pms.puede_leer = 1
-            ORDER BY s.nombre
-          `);
-
-        // Añadir sucursales permitidas al request
-        req.sucursalesPermitidas = sucursalesPermitidas.recordset;
+        req.sucursalesPermitidas = sucursalesPermitidas;
         console.log(`📋 Sucursales permitidas: ${req.sucursalesPermitidas.length}`);
 
         return next();

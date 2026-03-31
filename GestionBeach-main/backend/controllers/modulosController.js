@@ -1,6 +1,10 @@
 // backend/controllers/modulosController.js - AJUSTADO A TU ESTRUCTURA DE BD
 const { sql, poolPromise } = require('../config/db');
 const modulosConfig = require('../config/modulosConfig');
+const { cache } = require('../config/redis');
+
+const CACHE_KEY_MODULOS = 'gb:modulos:all';
+const TTL_MODULOS = 21600; // 6 horas
 
 // Lista de pantallas/módulos del dashboard - SINCRONIZADA CON DASHBOARDLAYOUT
 const pantallasDashboard = [
@@ -134,11 +138,18 @@ exports.getDebugInfo = async (req, res) => {
 // Obtener todos los módulos
 exports.getAllModulos = async (req, res) => {
   try {
+    // ── Caché ──────────────────────────────────────────────────────────
+    const cached = await cache.get(CACHE_KEY_MODULOS);
+    if (cached) {
+      console.log(`✅ ${cached.length} módulos desde caché`);
+      return res.status(200).json(cached);
+    }
+
     // Sincronizar pantallas primero
     await sincronizarPantallas();
-    
+
     const pool = await poolPromise;
-    
+
     // Obtener módulos de la base de datos usando tu estructura
     const result = await pool.request()
       .query(`
@@ -168,11 +179,13 @@ exports.getAllModulos = async (req, res) => {
         };
       });
       
+      await cache.set(CACHE_KEY_MODULOS, modulosCompletos, TTL_MODULOS);
       return res.status(200).json(modulosCompletos);
     }
-    
+
     // Si no hay datos en BD, devolver pantallas predefinidas
     console.log('📋 Devolviendo pantallas predefinidas del dashboard');
+    await cache.set(CACHE_KEY_MODULOS, pantallasDashboard, TTL_MODULOS);
     res.status(200).json(pantallasDashboard);
     
   } catch (error) {
@@ -286,6 +299,7 @@ exports.createModulo = async (req, res) => {
       icono: icono || 'extension'
     };
     
+    await cache.del(CACHE_KEY_MODULOS);
     console.log(`✅ Módulo personalizado "${nombre}" creado con ID: ${newModuloId}`);
     res.status(201).json(newModulo);
     
@@ -351,6 +365,7 @@ exports.updateModulo = async (req, res) => {
       icono: icono || 'extension'
     };
     
+    await cache.del(CACHE_KEY_MODULOS);
     console.log(`✅ Módulo ${id} actualizado`);
     res.status(200).json(updatedModulo);
     
@@ -405,6 +420,7 @@ exports.deleteModulo = async (req, res) => {
       .input('id', sql.Int, id)
       .query('DELETE FROM modulos WHERE id = @id');
     
+    await cache.del(CACHE_KEY_MODULOS);
     console.log(`✅ Módulo "${moduloNombre}" eliminado`);
     res.status(200).json({ message: 'Módulo eliminado correctamente' });
     

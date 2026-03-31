@@ -1,11 +1,20 @@
 // backend/controllers/configuracionController.js
 const { sql, poolPromise } = require('../config/db');
+const { cache } = require('../config/redis');
+
+const CACHE_KEY_TEMPORADA = 'gb:config:temporada';
+const TTL_TEMPORADA = 86400; // 24 horas — cambia 2 veces al año
 
 // Obtener temporada actual
 exports.getTemporadaActual = async (req, res) => {
   try {
-    const pool = await poolPromise;
+    // ── Caché ──────────────────────────────────────────────────────────
+    const cached = await cache.get(CACHE_KEY_TEMPORADA);
+    if (cached) {
+      return res.json({ success: true, temporada: cached });
+    }
 
+    const pool   = await poolPromise;
     const result = await pool.request().query(`
       SELECT valor FROM configuracion_sistema WHERE clave = 'temporada_actual'
     `);
@@ -17,9 +26,12 @@ exports.getTemporadaActual = async (req, res) => {
       });
     }
 
+    const temporada = result.recordset[0].valor;
+    await cache.set(CACHE_KEY_TEMPORADA, temporada, TTL_TEMPORADA);
+
     return res.json({
       success: true,
-      temporada: result.recordset[0].valor
+      temporada
     });
 
   } catch (error) {
@@ -55,6 +67,8 @@ exports.actualizarTemporada = async (req, res) => {
         WHERE clave = 'temporada_actual'
       `);
 
+    // Invalidar caché para que el próximo GET lea el valor nuevo
+    await cache.del(CACHE_KEY_TEMPORADA);
     console.log(`✅ Temporada actualizada a: ${temporada}`);
 
     return res.json({

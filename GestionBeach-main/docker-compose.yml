@@ -1,6 +1,26 @@
 services:
 
   # ─────────────────────────────────────────────
+  #  Redis (caché)
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gestionbeach_redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - gestionbeach
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
   #  SQL Server (base de datos principal)
   # ─────────────────────────────────────────────
   sqlserver:
@@ -46,6 +66,8 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - gestionbeach
@@ -75,6 +97,8 @@ services:
 volumes:
   sqlserver_data:
     name: gestionbeach_sqlserver_data
+  redis_data:
+    name: gestionbeach_redis
   uploads_data:
     name: gestionbeach_uploads
   imagenes_data:
