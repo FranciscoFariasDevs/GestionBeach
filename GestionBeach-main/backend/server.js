@@ -592,6 +592,16 @@ const startServer = async () => {
       console.error('⚠️ Error al iniciar job PBI:', jobError.message);
     }
 
+    // ============================================
+    // INICIAR JOB DE LIMPIEZA DE ARCHIVOS ANTIGUOS
+    // ============================================
+    try {
+      const { iniciarJobLimpiezaArchivos } = require('./jobs/limpiarArchivosAntiguos');
+      iniciarJobLimpiezaArchivos();
+    } catch (jobError) {
+      console.error('⚠️ Error al iniciar job de limpieza de archivos:', jobError.message);
+    }
+
     // Crear servidor HTTP para Socket.IO
     const server = http.createServer(app);
 
