@@ -34,6 +34,7 @@ RUN mkdir -p \
     ./backend/uploads/pbi_screenshots \
     ./backend/uploads/tickets \
     ./backend/uploads/concurso-piscinas \
+    ./backend/uploads/cotizaciones \
     ./imagenes-cabanas \
     && chmod -R 777 ./backend/uploads ./imagenes-cabanas
 

@@ -184,6 +184,8 @@ const optionalRoutes = [
   { path: './routes/organigramaRoutes', route: '/api/organigrama' },
   // 📋 KANBAN — TABLERO DE TAREAS
   { path: './routes/kanbanRoutes', route: '/api/kanban' },
+  // 📄 COTIZACIONES — FLUJO DE APROBACIÓN
+  { path: './routes/cotizacionesRoutes', route: '/api/cotizaciones' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {

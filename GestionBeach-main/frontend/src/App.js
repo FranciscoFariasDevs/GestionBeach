@@ -79,6 +79,7 @@ import AjustesPage from './pages/AjustesPage';
 import ProveedoresProductoPage from './pages/ProveedoresProductoPage';
 import OrganigramaPage from './pages/OrganigramaPage';
 import KanbanPage from './pages/KanbanPage';
+import CotizacionesPage from './pages/CotizacionesPage'; // 📄 COTIZACIONES
 
 // ========================================
 // COMPONENTS
@@ -641,6 +642,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/kanban">
                         <KanbanPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* 📄 MÓDULO COTIZACIONES */}
+                  <Route
+                    path="/cotizaciones"
+                    element={
+                      <ProtectedRoute requiredRoute="/cotizaciones">
+                        <CotizacionesPage />
                       </ProtectedRoute>
                     }
                   />
