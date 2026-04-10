@@ -80,7 +80,10 @@ const miniDrawerWidth = 60;
 const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     flexGrow: 1,
-    padding: theme.spacing(3),
+    paddingTop: theme.spacing(3),
+    paddingBottom: theme.spacing(3),
+    paddingLeft: theme.spacing(8),
+    paddingRight: theme.spacing(8),
     transition: theme.transitions.create('margin', {
       easing: theme.transitions.easing.sharp,
       duration: theme.transitions.duration.leavingScreen,
@@ -95,7 +98,8 @@ const Main = styled('main', { shouldForwardProp: (prop) => prop !== 'open' })(
     }),
     [theme.breakpoints.down('md')]: {
       marginLeft: 0,
-      padding: theme.spacing(2),
+      paddingLeft: theme.spacing(2),
+      paddingRight: theme.spacing(2),
     },
   })
 );
@@ -417,6 +421,7 @@ export default function DashboardLayout() {
     { text: 'Empleados', icon: <PersonIcon />, path: '/empleados', orangeType: 'dark' },
     { text: 'Organigrama', icon: <AccountTreeIcon />, path: '/organigrama', orangeType: 'light' },
     { text: 'Kanban', icon: <ViewKanbanIcon />, path: '/kanban', orangeType: 'light' },
+    { text: 'Cotizaciones', icon: <FacturasIcon />, path: '/cotizaciones', orangeType: 'dark' },
     {
       text: 'Recursos Humanos',
       icon: <GroupIcon />,
@@ -452,7 +457,9 @@ export default function DashboardLayout() {
   ];
 
   // ✅ FILTRADO DE PERMISOS ACTIVO - Módulos filtrados según perfil del usuario
-  const menuItems = filterMenuItems(ability, allMenuItems);
+  const menuItems = filterMenuItems(ability, allMenuItems).filter(item =>
+    !(user?.perfilId === 12 && item.path === '/mis-tickets')
+  );
 
   // Obtener título de la página actual
   const currentTitle = showEmail
@@ -491,6 +498,7 @@ export default function DashboardLayout() {
         '/productos/proveedores': 'Proveedores Producto',
         '/productos/anulaciones': 'Anulaciones',
         '/organigrama': 'Organigrama Empresarial',
+        '/cotizaciones': 'Cotizaciones',
       }[location.pathname] || 'Beach Market';
 
   // Obtener el perfil del usuario para mostrar

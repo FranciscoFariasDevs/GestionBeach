@@ -29,10 +29,10 @@ const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024
 exports.uploadFoto = upload.single('foto');
 
 // ─── Perfiles que pueden aprobar (Gerencia + Admin + SuperAdmin) ─────────────
-const PERFILES_GERENTE  = [11];          // Gerencia
-const PERFILES_FINANZAS = [12];          // Finanzas
-const PERFILES_ADMIN    = [10, 16];      // SuperAdmin, Administrador
-const PERFILES_CREADOR  = [14, 10, 16];  // Jefe Local, SuperAdmin, Admin
+const PERFILES_GERENTE  = [11];      // Solo Gerencia puede aprobar/rechazar
+const PERFILES_FINANZAS = [12];      // Finanzas: ve solo aprobadas
+const PERFILES_ADMIN    = [10, 16];  // SuperAdmin/Admin: ven todo pero no aprueban
+const PERFILES_CREADOR  = [10, 14];  // SuperAdmin + Jefes de Local pueden crear
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -46,10 +46,9 @@ function notificar(req, evento, data) {
 async function getUsuariosPorPerfiles(pool, perfilesIds) {
   const r = await pool.request()
     .query(`
-      SELECT id, nombre
+      SELECT id, nombre_completo AS nombre
       FROM usuarios
       WHERE perfil_id IN (${perfilesIds.join(',')})
-        AND activo = 1
     `);
   return r.recordset;
 }
@@ -103,6 +102,7 @@ exports.crearCotizacion = async (req, res) => {
       await pool.request()
         .input('cotizacion_id',   sql.Int, cotizacionId)
         .input('producto',        sql.NVarChar(200), item.producto || '')
+        .input('destino',         sql.NVarChar(200), item.destino || null)
         .input('foto_url',        sql.NVarChar(500), item.foto_url || null)
         .input('link',            sql.NVarChar(500), item.link || null)
         .input('cantidad',        sql.Int, Number(item.cantidad) || 1)
@@ -110,9 +110,9 @@ exports.crearCotizacion = async (req, res) => {
         .input('subtotal',        sql.Decimal(18, 2), subtotal)
         .query(`
           INSERT INTO cotizacion_items
-            (cotizacion_id, producto, foto_url, link, cantidad, precio_unitario, subtotal)
+            (cotizacion_id, producto, destino, foto_url, link, cantidad, precio_unitario, subtotal)
           VALUES
-            (@cotizacion_id, @producto, @foto_url, @link, @cantidad, @precio_unitario, @subtotal)
+            (@cotizacion_id, @producto, @destino, @foto_url, @link, @cantidad, @precio_unitario, @subtotal)
         `);
     }
 
@@ -143,7 +143,7 @@ exports.crearCotizacion = async (req, res) => {
 exports.getCotizaciones = async (req, res) => {
   try {
     const usuario  = req.user;
-    const perfilId = usuario.perfil_id;
+    const perfilId = usuario.perfilId;
     const pool     = await poolPromise;
 
     let whereClause = '';
@@ -154,7 +154,7 @@ exports.getCotizaciones = async (req, res) => {
     } else if (PERFILES_GERENTE.includes(perfilId)) {
       whereClause = ''; // ven todas para poder aprobar
     } else if (PERFILES_FINANZAS.includes(perfilId)) {
-      whereClause = "WHERE c.estado = 'aprobada'";
+      whereClause = "WHERE c.estado IN ('aprobada', 'comprado', 'anulado')";
     } else {
       whereClause = `WHERE c.creado_por = ${usuario.id}`;
     }
@@ -164,7 +164,11 @@ exports.getCotizaciones = async (req, res) => {
         c.id, c.asunto, c.estado, c.creado_por_nombre, c.sucursal_nombre,
         c.aprobado_por_nombre, c.fecha_creacion, c.fecha_respuesta,
         c.total, c.motivo_rechazo,
-        (SELECT COUNT(*) FROM cotizacion_items ci WHERE ci.cotizacion_id = c.id) AS num_items
+        (SELECT COUNT(*) FROM cotizacion_items ci WHERE ci.cotizacion_id = c.id) AS num_items,
+        STUFF((SELECT DISTINCT ', ' + ci2.destino
+               FROM cotizacion_items ci2
+               WHERE ci2.cotizacion_id = c.id AND ci2.destino IS NOT NULL AND ci2.destino != ''
+               FOR XML PATH(''), TYPE).value('.','NVARCHAR(MAX)'), 1, 2, '') AS destinos
       FROM cotizaciones c
       ${whereClause}
       ORDER BY c.fecha_creacion DESC
@@ -183,7 +187,7 @@ exports.getCotizacionById = async (req, res) => {
   try {
     const { id } = req.params;
     const usuario  = req.user;
-    const perfilId = usuario.perfil_id;
+    const perfilId = usuario.perfilId;
     const pool     = await poolPromise;
 
     const cotResult = await pool.request()
@@ -228,9 +232,9 @@ exports.aprobarCotizacion = async (req, res) => {
   try {
     const { id } = req.params;
     const usuario  = req.user;
-    const perfilId = usuario.perfil_id;
+    const perfilId = usuario.perfilId;
 
-    if (![...PERFILES_GERENTE, ...PERFILES_ADMIN].includes(perfilId)) {
+    if (!PERFILES_GERENTE.includes(perfilId)) {
       return res.status(403).json({ success: false, message: 'Solo Gerencia puede aprobar cotizaciones' });
     }
 
@@ -290,9 +294,9 @@ exports.rechazarCotizacion = async (req, res) => {
     const { id } = req.params;
     const { motivo } = req.body;
     const usuario  = req.user;
-    const perfilId = usuario.perfil_id;
+    const perfilId = usuario.perfilId;
 
-    if (![...PERFILES_GERENTE, ...PERFILES_ADMIN].includes(perfilId)) {
+    if (!PERFILES_GERENTE.includes(perfilId)) {
       return res.status(403).json({ success: false, message: 'Solo Gerencia puede rechazar cotizaciones' });
     }
 
@@ -346,5 +350,94 @@ exports.rechazarCotizacion = async (req, res) => {
   } catch (error) {
     console.error('❌ Error al rechazar cotización:', error);
     res.status(500).json({ success: false, message: 'Error al rechazar cotización', error: error.message });
+  }
+};
+
+// ─── MARCAR COMO COMPRADO (solo Finanzas) ────────────────────────────────────
+exports.comprarCotizacion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario  = req.user;
+    const perfilId = usuario.perfilId;
+
+    if (!PERFILES_FINANZAS.includes(perfilId)) {
+      return res.status(403).json({ success: false, message: 'Solo Finanzas puede marcar como comprado' });
+    }
+
+    const pool = await poolPromise;
+    const cotResult = await pool.request().input('id', sql.Int, id).query('SELECT * FROM cotizaciones WHERE id = @id');
+    if (cotResult.recordset.length === 0)
+      return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
+
+    const cot = cotResult.recordset[0];
+    if (cot.estado !== 'aprobada')
+      return res.status(400).json({ success: false, message: `Solo se pueden marcar como compradas las cotizaciones aprobadas (estado actual: ${cot.estado})` });
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('nombre', sql.NVarChar(100), usuario.nombre || usuario.username)
+      .query(`
+        UPDATE cotizaciones
+        SET estado = 'comprado', aprobado_por_nombre = @nombre, fecha_respuesta = GETDATE()
+        WHERE id = @id
+      `);
+
+    notificar(req, 'cotizacion_comprada', {
+      cotizacion_id: id, asunto: cot.asunto,
+      para_usuarios: [cot.creado_por],
+    });
+
+    console.log(`✅ Cotización #${id} marcada como COMPRADO por ${usuario.nombre || usuario.username}`);
+    res.json({ success: true, message: 'Cotización marcada como comprada.' });
+
+  } catch (error) {
+    console.error('❌ Error al marcar como comprado:', error);
+    res.status(500).json({ success: false, message: 'Error al marcar como comprado', error: error.message });
+  }
+};
+
+// ─── ANULAR COTIZACIÓN (solo Finanzas) ───────────────────────────────────────
+exports.anularCotizacion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const usuario  = req.user;
+    const perfilId = usuario.perfilId;
+
+    if (!PERFILES_FINANZAS.includes(perfilId)) {
+      return res.status(403).json({ success: false, message: 'Solo Finanzas puede anular cotizaciones' });
+    }
+
+    const pool = await poolPromise;
+    const cotResult = await pool.request().input('id', sql.Int, id).query('SELECT * FROM cotizaciones WHERE id = @id');
+    if (cotResult.recordset.length === 0)
+      return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
+
+    const cot = cotResult.recordset[0];
+    if (cot.estado !== 'aprobada')
+      return res.status(400).json({ success: false, message: `Solo se pueden anular cotizaciones aprobadas (estado actual: ${cot.estado})` });
+
+    await pool.request()
+      .input('id', sql.Int, id)
+      .input('motivo', sql.NVarChar(sql.MAX), motivo || '')
+      .input('nombre', sql.NVarChar(100), usuario.nombre || usuario.username)
+      .query(`
+        UPDATE cotizaciones
+        SET estado = 'anulado', motivo_rechazo = @motivo,
+            aprobado_por_nombre = @nombre, fecha_respuesta = GETDATE()
+        WHERE id = @id
+      `);
+
+    notificar(req, 'cotizacion_anulada', {
+      cotizacion_id: id, asunto: cot.asunto, motivo,
+      para_usuarios: [cot.creado_por],
+    });
+
+    console.log(`✅ Cotización #${id} ANULADA por ${usuario.nombre || usuario.username}`);
+    res.json({ success: true, message: 'Cotización anulada.' });
+
+  } catch (error) {
+    console.error('❌ Error al anular cotización:', error);
+    res.status(500).json({ success: false, message: 'Error al anular cotización', error: error.message });
   }
 };

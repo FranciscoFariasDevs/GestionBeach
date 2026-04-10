@@ -1,77 +1,31 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Box,
-  Grid,
-  Card,
-  CardHeader,
-  CardContent,
-  TextField,
-  Button,
-  Typography,
-  Paper,
-  Divider,
-  CircularProgress,
-  Alert,
-  useTheme,
-  Fade,
-  Zoom,
-  Avatar,
-  IconButton,
-  Tooltip as MuiTooltip,
-  Chip,
-  Modal,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Menu,
-  MenuItem,
-  ButtonGroup,
-  useMediaQuery,
-  Tabs,
-  Tab,
+  Box, Grid, Card, CardContent, CardHeader, TextField, Button,
+  Typography, Paper, Divider, Alert, useTheme, Fade,
+  Avatar, IconButton, Tooltip as MuiTooltip, Chip, Dialog,
+  DialogContent, DialogTitle, Menu, MenuItem, ButtonGroup,
+  useMediaQuery, Tabs, Tab, LinearProgress, Skeleton, Stack,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { es } from 'date-fns/locale';
 import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  LabelList,
-  AreaChart,
-  Area,
-  Brush,
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, LineChart, Line, LabelList,
+  AreaChart, Area,
 } from 'recharts';
-// Importamos iconos (disponibles gratuitamente en MUI)
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
-import StorefrontIcon from '@mui/icons-material/Storefront';
-import HomeWorkIcon from '@mui/icons-material/HomeWork';
+import TrendingUpIcon    from '@mui/icons-material/TrendingUp';
+import ShoppingCartIcon  from '@mui/icons-material/ShoppingCart';
+import StorefrontIcon    from '@mui/icons-material/Storefront';
+import HomeWorkIcon      from '@mui/icons-material/HomeWork';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import FullscreenIcon from '@mui/icons-material/Fullscreen';
-import CloseIcon from '@mui/icons-material/Close';
-import DownloadIcon from '@mui/icons-material/Download';
-import PrintIcon from '@mui/icons-material/Print';
-import ShareIcon from '@mui/icons-material/Share';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import StoreIcon from '@mui/icons-material/Store';
-import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import RefreshIcon       from '@mui/icons-material/Refresh';
+import FullscreenIcon    from '@mui/icons-material/Fullscreen';
+import CloseIcon         from '@mui/icons-material/Close';
+import DownloadIcon      from '@mui/icons-material/Download';
+import PrintIcon         from '@mui/icons-material/Print';
+import BarChartIcon      from '@mui/icons-material/BarChart';
 import { SummarizeOutlined } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
@@ -79,147 +33,90 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AutoReport from '../components/AutoReport';
 
-// Componente KPI modernizado - Diseño elegante y limpio
-const KpiCard = ({ title, value, color, secondaryValue, secondaryLabel }) => {
-  const theme = useTheme();
+// ── Paleta de gradientes por tipo ─────────────────────────────────────────────
+const GRADIENTS = {
+  primary:   ['#1565c0', '#1976d2'],
+  info:      ['#0277bd', '#0288d1'],
+  success:   ['#2e7d32', '#388e3c'],
+  secondary: ['#6a1b9a', '#7b1fa2'],
+};
 
-  // Seleccionar ícono según título
-  let IconComponent;
-  switch (title) {
-    case 'Supermercados':
-      IconComponent = ShoppingCartIcon;
-      break;
-    case 'Ferreterías':
-      IconComponent = HomeWorkIcon;
-      break;
-    case 'Multitiendas':
-      IconComponent = StorefrontIcon;
-      break;
-    case 'Total':
-      IconComponent = AccountBalanceIcon;
-      break;
-    default:
-      IconComponent = TrendingUpIcon;
+const fmtCLP = (v) =>
+  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(v || 0);
+
+// Formato compacto para etiquetas en gráficos: $5.2M, $820K, etc.
+const fmtCompact = (v) => {
+  if (!v && v !== 0) return '';
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000)     return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000)         return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${v}`;
+};
+
+// ── KPI Card con gradiente ─────────────────────────────────────────────────────
+const KpiCard = ({ title, value, color, secondaryValue, secondaryLabel, loading }) => {
+  const theme = useTheme();
+  const icons = { Supermercados: ShoppingCartIcon, Ferreterías: HomeWorkIcon, Multitiendas: StorefrontIcon, Total: AccountBalanceIcon };
+  const Icon = icons[title] || TrendingUpIcon;
+  const [g0, g1] = GRADIENTS[color] || GRADIENTS.primary;
+
+  if (loading) {
+    return (
+      <Paper elevation={0} sx={{ height: '100%', borderRadius: 3, border: '1px solid', borderColor: 'divider', p: 3 }}>
+        <Skeleton variant="rectangular" width={44} height={44} sx={{ borderRadius: 2, mb: 2 }} />
+        <Skeleton width="50%" height={16} sx={{ mb: 1 }} />
+        <Skeleton width="80%" height={36} sx={{ mb: 1.5 }} />
+        <Skeleton width="60%" height={14} />
+      </Paper>
+    );
   }
 
   return (
-    <Fade in={true} timeout={600}>
+    <Fade in timeout={500}>
       <Paper
         elevation={0}
         sx={{
           height: '100%',
-          p: 3,
-          position: 'relative',
-          borderRadius: 2,
+          borderRadius: 3,
+          overflow: 'hidden',
           border: '1px solid',
           borderColor: 'divider',
-          bgcolor: 'background.paper',
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          '&:hover': {
-            borderColor: `${color}.main`,
-            boxShadow: `0 4px 20px ${theme.palette[color].main}15`,
-            transform: 'translateY(-2px)',
-          },
+          position: 'relative',
+          transition: 'transform 0.25s, box-shadow 0.25s',
+          '&:hover': { transform: 'translateY(-4px)', boxShadow: `0 12px 28px ${g0}30` },
         }}
       >
-        {/* Barra de color superior - Más corta para no salirse de las esquinas */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 8,
-            right: 8,
-            height: 4,
-            bgcolor: `${color}.main`,
-          }}
-        />
+        {/* Franja lateral de color */}
+        <Box sx={{ position: 'absolute', top: 0, left: 0, width: 5, height: '100%', background: `linear-gradient(180deg, ${g0}, ${g1})` }} />
 
-        {/* Contenido */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          {/* Header con ícono y título */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box
+        <Box sx={{ p: 3, pl: 3.5 }}>
+          {/* Icono + título */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+            <Avatar
               sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 1.5,
-                bgcolor: `${color}.lighter` || `${color}.main`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.15,
+                width: 44, height: 44, borderRadius: 2,
+                background: `linear-gradient(135deg, ${g0}, ${g1})`,
               }}
             >
-              <IconComponent sx={{ fontSize: 20, color: `${color}.main` }} />
-            </Box>
-            <Typography
-              variant="body2"
-              sx={{
-                fontWeight: 600,
-                color: 'text.secondary',
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                fontSize: '0.75rem',
-              }}
-            >
+              <Icon sx={{ fontSize: 22, color: '#fff' }} />
+            </Avatar>
+            <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.7rem', letterSpacing: 1 }}>
               {title}
             </Typography>
           </Box>
 
           {/* Valor principal */}
-          <Box>
-            <Typography
-              variant="h4"
-              sx={{
-                fontWeight: 700,
-                color: 'text.primary',
-                lineHeight: 1.2,
-                fontSize: { xs: '1.75rem', sm: '2rem' },
-              }}
-            >
-              {value}
-            </Typography>
-          </Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.1, mb: 0.5, fontSize: { xs: '1.5rem', sm: '1.75rem' } }}>
+            {value}
+          </Typography>
 
-          {/* Información secundaria (Margen) */}
+          {/* Margen */}
           {secondaryValue && (
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                pt: 1.5,
-                borderTop: '1px solid',
-                borderColor: 'divider',
-              }}
-            >
-              <Box
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  bgcolor: `${color}.main`,
-                }}
-              />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: 'text.secondary',
-                  fontSize: '0.813rem',
-                }}
-              >
-                {secondaryLabel}:
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 700,
-                  color: `${color}.main`,
-                  fontSize: '0.875rem',
-                }}
-              >
-                {secondaryValue}
-              </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+              <TrendingUpIcon sx={{ fontSize: 16, color: g0 }} />
+              <Typography variant="caption" color="text.secondary">{secondaryLabel}:</Typography>
+              <Chip label={secondaryValue} size="small" sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: `${g0}18`, color: g0 }} />
             </Box>
           )}
         </Box>
@@ -228,1391 +125,551 @@ const KpiCard = ({ title, value, color, secondaryValue, secondaryLabel }) => {
   );
 };
 
-// Componente Modal para mostrar gráficos en pantalla completa
-const FullscreenChartModal = ({ open, handleClose, title, children }) => {
+// ── Skeleton para gráfico ──────────────────────────────────────────────────────
+const ChartSkeleton = ({ height = 380 }) => (
+  <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+    <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Skeleton width="35%" height={24} />
+    </Box>
+    <Box sx={{ p: 3 }}>
+      <Skeleton variant="rectangular" width="100%" height={height} sx={{ borderRadius: 2 }} />
+    </Box>
+  </Paper>
+);
+
+// ── Tooltip personalizado ──────────────────────────────────────────────────────
+const CustomTooltip = ({ active, payload, label, formatter }) => {
   const theme = useTheme();
-  
+  if (!active || !payload?.length) return null;
   return (
-    <Dialog
-      open={open}
-      onClose={handleClose}
-      maxWidth="lg"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 2,
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)',
-          height: '80vh',
-          maxHeight: '80vh',
-        }
-      }}
-    >
-      <DialogTitle sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        borderBottom: `1px solid ${theme.palette.divider}`,
-        backgroundColor: theme.palette.background.paper,
-        py: 2
-      }}>
-        <Typography variant="h6" component="span" sx={{ fontWeight: 600 }}>
-          {title}
-        </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ 
-          bgcolor: theme.palette.grey[100],
-          '&:hover': { bgcolor: theme.palette.grey[200] },
-        }}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent sx={{ p: 3, height: 'calc(100% - 64px)' }}>
-        <Box sx={{ height: '100%', width: '100%' }}>
-          {children}
+    <Paper elevation={4} sx={{ p: 2, borderRadius: 2, minWidth: 170, border: `1px solid ${theme.palette.divider}` }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{label}</Typography>
+      {payload.map((entry, i) => (
+        <Box key={i} sx={{ display: 'flex', alignItems: 'center', mb: 0.4 }}>
+          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: entry.color, mr: 1, flexShrink: 0 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>{entry.name}:</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700 }}>
+            {formatter ? formatter(entry.value) : entry.value}
+          </Typography>
         </Box>
-      </DialogContent>
-    </Dialog>
+      ))}
+    </Paper>
   );
 };
 
-// Componente gráfico con animación y botón de ampliación
-const AnimatedChartCard = ({ title, height = 380, children, exportData }) => {
+// ── Card de gráfico con fullscreen ─────────────────────────────────────────────
+const ChartCard = ({ title, subtitle, height = 380, children, accentColor }) => {
   const theme = useTheme();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
-  const menuOpen = Boolean(anchorEl);
-  const chartRef = useRef(null);
-  
-  const handleOpenModal = () => {
-    setModalOpen(true);
-  };
-  
-  const handleCloseModal = () => {
-    setModalOpen(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const exportPDF = () => {
+    if (!ref.current) return;
+    html2canvas(ref.current, { scale: 2, useCORS: true }).then((canvas) => {
+      const img = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('landscape', 'mm', 'a4');
+      const w = pdf.internal.pageSize.getWidth();
+      const h = (canvas.height * w) / canvas.width;
+      pdf.setFontSize(14); pdf.text(title, 10, 12);
+      pdf.addImage(img, 'PNG', 10, 18, w - 20, h - 10);
+      pdf.save(`${title.replace(/\s+/g, '_')}.pdf`);
+    });
   };
 
-  const handleMenuClick = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
-
-  // Exportar a PDF
-  const handleExportPDF = () => {
-    if (chartRef.current) {
-      html2canvas(chartRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-      }).then((canvas) => {
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('landscape', 'mm', 'a4');
-        const imgProps = pdf.getImageProperties(imgData);
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        
-        // Añadir título
-        pdf.setFontSize(18);
-        pdf.text(title, 10, 15);
-        pdf.setLineWidth(0.5);
-        pdf.line(10, 20, pdfWidth - 10, 20);
-        
-        // Añadir la imagen
-        pdf.addImage(imgData, 'PNG', 10, 25, pdfWidth - 20, pdfHeight - 10);
-        
-        // Añadir fecha de generación
-        pdf.setFontSize(10);
-        pdf.text(`Generado el: ${new Date().toLocaleString()}`, 10, pdfHeight + 20);
-        
-        pdf.save(`${title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
-      });
-      handleMenuClose();
-    }
-  };
-  
   return (
     <>
-      <Fade in={true} style={{ transitionDelay: '150ms' }}>
-        <Paper
-          elevation={0}
-          sx={{
-            height: '100%',
-            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            overflow: 'hidden',
-            position: 'relative',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
-            '&:hover': {
-              borderColor: 'primary.light',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
-              transform: 'translateY(-2px)',
-            },
-            '&::before': {
-              content: '""',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: '2px',
-              background: 'linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent)',
-              opacity: 0,
-              transition: 'opacity 0.3s',
-            },
-            '&:hover::before': {
-              opacity: 1,
-            }
-          }}
-        >
-          <CardHeader 
-            title={
-              <Typography variant="h6" component="span" sx={{ fontWeight: 600 }}>
-                {title}
-              </Typography>
-            }
-            action={
-              <Box sx={{ display: 'flex' }}>
-                {exportData && (
-                  <MuiTooltip title="Exportar">
-                    <IconButton
-                      aria-label="opciones"
-                      onClick={handleMenuClick}
-                      sx={{ 
-                        mr: 1,
-                        bgcolor: theme.palette.grey[100],
-                        '&:hover': { 
-                          bgcolor: theme.palette.info.light,
-                          color: theme.palette.info.contrastText
-                        },
-                      }}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </MuiTooltip>
-                )}
-                <MuiTooltip title="Ver en pantalla completa">
-                  <IconButton 
-                    aria-label="ampliar gráfico" 
-                    onClick={handleOpenModal}
-                    sx={{ 
-                      bgcolor: theme.palette.grey[100],
-                      '&:hover': { 
-                        bgcolor: theme.palette.primary.light,
-                        color: theme.palette.primary.contrastText
-                      },
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <FullscreenIcon />
-                  </IconButton>
-                </MuiTooltip>
-              </Box>
-            }
-            sx={{ 
-              backgroundColor: theme.palette.background.paper,
-              borderBottom: `1px solid ${theme.palette.divider}`,
-              padding: '16px 24px',
-            }}
-          />
-          <CardContent sx={{ pt: 3, px: 3, pb: 3 }}>
-            <Box ref={chartRef} sx={{ height: height, width: '100%' }}>
-              {children}
-            </Box>
-          </CardContent>
-        </Paper>
-      </Fade>
-      
-      <Menu
-        anchorEl={anchorEl}
-        open={menuOpen}
-        onClose={handleMenuClose}
-        PaperProps={{
-          elevation: 3,
-          sx: { 
-            mt: 1, 
-            minWidth: 180,
-            borderRadius: 2,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-          }
+      <Paper
+        elevation={0}
+        sx={{
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          overflow: 'hidden',
+          transition: 'transform 0.2s, box-shadow 0.2s',
+          '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 8px 24px rgba(0,0,0,0.07)' },
         }}
       >
-        <MenuItem onClick={handleExportPDF}>
-          <DownloadIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Exportar a PDF
-        </MenuItem>
-      </Menu>
-      
-      <FullscreenChartModal 
-        open={modalOpen}
-        handleClose={handleCloseModal}
-        title={title}
-      >
-        {children}
-      </FullscreenChartModal>
+        {/* Línea superior de acento */}
+        {accentColor && <Box sx={{ height: 3, background: accentColor }} />}
+
+        <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '0.95rem' }}>{title}</Typography>
+            {subtitle && <Typography variant="caption" color="text.secondary">{subtitle}</Typography>}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <MuiTooltip title="Exportar PDF">
+              <IconButton size="small" onClick={exportPDF} sx={{ '&:hover': { color: 'primary.main' } }}>
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <MuiTooltip title="Pantalla completa">
+              <IconButton size="small" onClick={() => setOpen(true)} sx={{ '&:hover': { color: 'primary.main' } }}>
+                <FullscreenIcon fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+          </Box>
+        </Box>
+
+        <Box ref={ref} sx={{ px: 1, pt: 1, pb: 2, height }}>
+          {children}
+        </Box>
+      </Paper>
+
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xl" fullWidth PaperProps={{ sx: { borderRadius: 3, height: '85vh' } }}>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', py: 2 }}>
+          <Typography variant="h6" fontWeight={700}>{title}</Typography>
+          <IconButton onClick={() => setOpen(false)} size="small" sx={{ bgcolor: 'grey.100' }}><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, height: 'calc(100% - 64px)' }}>
+          <Box sx={{ height: '100%', width: '100%' }}>{children}</Box>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
 
-// Componente para compartir dashboard
-const ShareDashboardModal = ({ open, handleClose }) => {
-  const theme = useTheme();
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { enqueueSnackbar } = useSnackbar();
-  
-  const handleShare = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      enqueueSnackbar('Dashboard compartido exitosamente', { variant: 'success' });
-      handleClose();
-      setEmail('');
-    }, 1500);
-  };
-  
-  return (
-    <Dialog
-      open={open}
-      onClose={handleClose}
-      maxWidth="sm"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 2,
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)',
-        }
-      }}
-    >
-      <DialogTitle sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        borderBottom: `1px solid ${theme.palette.divider}`,
-        py: 2
-      }}>
-        <Typography variant="h6" component="span" sx={{ fontWeight: 600 }}>
-          Compartir Dashboard
-        </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ 
-          bgcolor: theme.palette.grey[100],
-          '&:hover': { bgcolor: theme.palette.grey[200] },
-        }}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent sx={{ p: 3, mt: 2 }}>
-        <TextField
-          label="Correo Electrónico"
-          fullWidth
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          sx={{ mb: 3 }}
-        />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-          <Button
-            variant="outlined"
-            onClick={handleClose}
-            sx={{ borderRadius: 1.5, textTransform: 'none' }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleShare}
-            disabled={!email || loading}
-            startIcon={loading ? <CircularProgress size={20} /> : <ShareIcon />}
-            sx={{ borderRadius: 1.5, textTransform: 'none', fontWeight: 'bold', color: 'white' }}
-          >
-            {loading ? 'Enviando...' : 'Compartir'}
-          </Button>
-        </Box>
-      </DialogContent>
-    </Dialog>
-  );
-};
+// ── Sección con barra de color ─────────────────────────────────────────────────
+const Section = ({ title, subtitle, color = 'primary.main', children, loading, skeletonCount = 1, skeletonHeight = 380 }) => (
+  <Box sx={{ mb: 5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+      <Box sx={{ width: 4, height: 44, borderRadius: 1, bgcolor: color }} />
+      <Box>
+        <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary' }}>{title}</Typography>
+        {subtitle && <Typography variant="body2" color="text.secondary">{subtitle}</Typography>}
+      </Box>
+    </Box>
+    {loading ? (
+      <Grid container spacing={3}>
+        {Array.from({ length: skeletonCount }).map((_, i) => (
+          <Grid size={{ xs: 12, md: 12 / skeletonCount }} key={i}>
+            <ChartSkeleton height={skeletonHeight} />
+          </Grid>
+        ))}
+      </Grid>
+    ) : children}
+  </Box>
+);
 
-// Componente principal del Dashboard
+// ── Dashboard principal ────────────────────────────────────────────────────────
 const DashboardPage = () => {
-  // Referencias y hooks
   const dashboardRef = useRef(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { enqueueSnackbar } = useSnackbar();
-  
-  // Estados
-  const [startDate, setStartDate] = useState(
-    new Date(new Date().setDate(new Date().getDate() - 7))
-  );
-  const [endDate, setEndDate] = useState(new Date());
+
+  const [startDate, setStartDate]       = useState(new Date(Date.now() - 7 * 86400000));
+  const [endDate, setEndDate]           = useState(new Date());
   const [selectedPeriod, setSelectedPeriod] = useState('week');
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState(0); // 0 = Gráficos, 1 = Reporte
-  
-  // Colores mejorados con tonos más profesionales
-  const COLORS = [
-    theme.palette.primary.main,
-    theme.palette.secondary.main,
-    theme.palette.success.main,
-    theme.palette.info.main,
-    theme.palette.warning.main,
-    '#8884d8', // Púrpura
-    '#82ca9d', // Verde claro
-    '#ffc658', // Amarillo
-    '#ff8042', // Naranja
-    '#0088FE', // Azul
-  ];
-  
-  // Formatear número como moneda chilena
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('es-CL', {
-      style: 'currency',
-      currency: 'CLP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(value);
-  };
-  
-  // Cargar datos del dashboard
-  const loadDashboardData = async () => {
+  const [loading, setLoading]           = useState(false);
+  const [data, setData]                 = useState(null);
+  const [error, setError]               = useState(null);
+  const [activeTab, setActiveTab]       = useState(0);
+  const [loadTime, setLoadTime]         = useState(null);
+
+  const COLORS = [theme.palette.primary.main, theme.palette.info.main, theme.palette.success.main, theme.palette.warning.main, '#8b5cf6', '#ec4899'];
+
+  // ── Cargar datos ─────────────────────────────────────────────────────────────
+  const loadData = useCallback(async (sd = startDate, ed = endDate) => {
+    setLoading(true);
+    setError(null);
+    const t0 = performance.now();
     try {
-      setLoading(true);
-      setError(null);
-      
-      // Llamada a la API
-      const response = await api.post('/dashboard', {
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0]
+      const { data: res } = await api.post('/dashboard', {
+        start_date: sd.toISOString().split('T')[0],
+        end_date:   ed.toISOString().split('T')[0],
       });
-      
-      setData(response.data);
-      enqueueSnackbar('Datos cargados correctamente', { variant: 'success' });
-    } catch (error) {
-      console.error('Error al cargar datos:', error);
-      setError('Error al cargar los datos. Por favor, intente nuevamente.');
+      setData(res);
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      setLoadTime(secs);
+      enqueueSnackbar(`Datos cargados en ${secs}s`, { variant: 'success' });
+    } catch {
+      setError('Error al cargar los datos. Por favor intenta de nuevo.');
       enqueueSnackbar('Error al cargar datos', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  };
-  
-  // Cargar datos iniciales
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-  
-  // Manejar cambio de fechas
-  const handleDateChange = () => {
-    loadDashboardData();
-  };
-  
-  // Manejar cambio de tab
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
-  };
+  }, [startDate, endDate, enqueueSnackbar]);
 
-  // Manejar la generación del reporte - Cambia a la pestaña de reportes
-  const handleGenerateReport = () => {
-    setActiveTab(1); // Cambiar a la pestaña de reportes
-  };
-  
-  // Establecer período predefinido
+  useEffect(() => { loadData(); }, []);
+
   const handlePeriodChange = (period) => {
     const now = new Date();
-    let newStartDate;
-    
-    switch (period) {
-      case 'week':
-        newStartDate = new Date(now.setDate(now.getDate() - 7));
-        break;
-      case 'month':
-        newStartDate = new Date(now.setMonth(now.getMonth() - 1));
-        break;
-      case 'quarter':
-        newStartDate = new Date(now.setMonth(now.getMonth() - 3));
-        break;
-      case 'year':
-        newStartDate = new Date(now.setFullYear(now.getFullYear() - 1));
-        break;
-      default:
-        newStartDate = new Date(now.setDate(now.getDate() - 7));
-    }
-    
-    setStartDate(newStartDate);
-    setEndDate(new Date());
+    const offsets = { week: 7, month: 30, quarter: 90, year: 365 };
+    const sd = new Date(Date.now() - offsets[period] * 86400000);
     setSelectedPeriod(period);
-    
-    // Trigger para cargar datos automáticamente
-    setTimeout(() => {
-      loadDashboardData();
-    }, 100);
+    setStartDate(sd);
+    setEndDate(now);
+    loadData(sd, now);
   };
 
-  // Preparar datos para el gráfico comparativo
-  const prepareComparativeData = () => {
-    if (!data) return [];
-    
-    return [
-      {
-        categoria: 'Supermercados',
-        ventas: data.supermercados.ventas,
-        costos: data.supermercados.costos,
-        utilidad: data.supermercados.utilidad,
-        margen: data.supermercados.margen
-      },
-      {
-        categoria: 'Ferreterías',
-        ventas: data.ferreterias.ventas,
-        costos: data.ferreterias.costos,
-        utilidad: data.ferreterias.utilidad,
-        margen: data.ferreterias.margen
-      },
-      {
-        categoria: 'Multitiendas',
-        ventas: data.multitiendas.ventas,
-        costos: data.multitiendas.costos,
-        utilidad: data.multitiendas.utilidad,
-        margen: data.multitiendas.margen
-      },
-      {
-        categoria: 'Total',
-        ventas: data.total.ventas,
-        costos: data.total.costos,
-        utilidad: data.total.utilidad,
-        margen: data.total.margen
-      }
-    ];
-  };
-  
-  // Esta función fue eliminada porque se quitó la funcionalidad de tendencias
+  // ── Datos para gráfico comparativo ───────────────────────────────────────────
+  const comparativeData = data ? [
+    { categoria: 'Supermercados', ventas: data.supermercados.ventas, costos: data.supermercados.costos, utilidad: data.supermercados.utilidad, margen: data.supermercados.margen },
+    { categoria: 'Ferreterías',   ventas: data.ferreterias.ventas,   costos: data.ferreterias.costos,   utilidad: data.ferreterias.utilidad,   margen: data.ferreterias.margen   },
+    { categoria: 'Multitiendas',  ventas: data.multitiendas.ventas,  costos: data.multitiendas.costos,  utilidad: data.multitiendas.utilidad,  margen: data.multitiendas.margen  },
+    { categoria: 'Total',         ventas: data.total.ventas,         costos: data.total.costos,         utilidad: data.total.utilidad,         margen: data.total.margen         },
+  ] : [];
 
-  // Tooltip personalizado con estilo mejorado
-  const CustomTooltip = ({ active, payload, label, formatter }) => {
-    if (active && payload && payload.length) {
-      return (
-        <Paper
-          elevation={3}
-          sx={{
-            p: 2,
-            backgroundColor: 'rgba(255, 255, 255, 0.98)',
-            border: `1px solid ${theme.palette.grey[300]}`,
-            borderRadius: 1.5,
-            minWidth: 160,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-          }}
-        >
-          <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
-            {label}
-          </Typography>
-          {payload.map((entry, index) => (
-            <Box key={`item-${index}`} sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-              <Box
-                component="span"
-                sx={{
-                  width: 12,
-                  height: 12,
-                  backgroundColor: entry.color,
-                  mr: 1,
-                  display: 'inline-block',
-                  borderRadius: '50%',
-                }}
-              />
-              <Typography variant="body2" color="textSecondary" sx={{ fontWeight: 500 }}>
-                {entry.name}: <strong>{formatter ? formatter(entry.value) : entry.value}</strong>
-              </Typography>
-            </Box>
-          ))}
-        </Paper>
-      );
-    }
-    return null;
-  };
-
-  // Función para exportar a PDF completo
-  const handleExportToPDF = () => {
+  const exportToPDF = () => {
     if (!dashboardRef.current) return;
-    
-    enqueueSnackbar('Preparando PDF, por favor espere...', { variant: 'info' });
-    
-    html2canvas(dashboardRef.current, {
-      scale: 1,
-      useCORS: true,
-      allowTaint: true,
-    }).then((canvas) => {
-      const imgData = canvas.toDataURL('image/png');
+    enqueueSnackbar('Preparando PDF…', { variant: 'info' });
+    html2canvas(dashboardRef.current, { scale: 1, useCORS: true }).then((canvas) => {
+      const img = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210;
-      const pageHeight = 295;
-      const imgHeight = canvas.height * imgWidth / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      pdf.save(`Dashboard_Gerencial_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`);
-      enqueueSnackbar('Dashboard exportado a PDF correctamente', { variant: 'success' });
+      const w = 210, h = canvas.height * w / canvas.width;
+      let left = h, pos = 0;
+      pdf.addImage(img, 'PNG', 0, pos, w, h); left -= 295;
+      while (left >= 0) { pos = left - h; pdf.addPage(); pdf.addImage(img, 'PNG', 0, pos, w, h); left -= 295; }
+      pdf.save(`Dashboard_${new Date().toLocaleDateString('es-CL').replace(/\//g, '-')}.pdf`);
+      enqueueSnackbar('PDF exportado', { variant: 'success' });
     });
   };
-  
-  // Función simplificada para la impresión (sin react-to-print)
-  const handlePrint = () => {
-    window.print();
-    enqueueSnackbar('Enviado a impresión', { variant: 'success' });
-  };
-  
-  // Componente para el encabezado del Dashboard
-  const DashboardHeader = () => {
-    return (
-      <Fade in={true}>
+
+  return (
+    <Box sx={{ pb: 6 }} ref={dashboardRef}>
+
+      {/* ── Barra de progreso al cargar ───────────────────────────────────────── */}
+      {loading && <LinearProgress sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, height: 3 }} />}
+
+      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      <Fade in timeout={400}>
         <Box sx={{ mb: 4 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <Typography variant="h4" component="h1" fontWeight="bold" sx={{ mr: 2 }}>
-                Dashboard Gerencial
-              </Typography>
-              <Chip 
-                label="TIEMPO REAL" 
-                size="small"
-                color="primary"
-                sx={{ 
-                  fontWeight: 'bold',
-                  height: 24,
-                  fontSize: '0.7rem',
-                }}
-              />
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box>
+                <Typography variant="h4" fontWeight={800} sx={{ lineHeight: 1.1 }}>Dashboard Gerencial</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Ventas, costos y márgenes por tipo de sucursal
+                  {loadTime && !loading && (
+                    <Chip label={`Cargado en ${loadTime}s`} size="small" color="success" sx={{ ml: 1.5, height: 18, fontSize: 10 }} />
+                  )}
+                </Typography>
+              </Box>
+              <Chip label="TIEMPO REAL" size="small" color="primary" sx={{ fontWeight: 700, fontSize: '0.65rem', height: 22 }} />
             </Box>
-            
-            {/* Botones de acciones */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                size="small"
-                variant="outlined"
-                color="primary"
-                startIcon={<DownloadIcon />}
-                onClick={handleExportToPDF}
-                sx={{ 
-                  borderRadius: 1.5,
-                  textTransform: 'none',
-                  fontWeight: 500,
-                }}
-              >
-                PDF
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="primary"
-                startIcon={<PrintIcon />}
-                onClick={handlePrint}
-                sx={{ 
-                  borderRadius: 1.5,
-                  textTransform: 'none',
-                  fontWeight: 500,
-                }}
-              >
-                Imprimir
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="primary"
-                startIcon={<ShareIcon />}
-                onClick={() => setShareModalOpen(true)}
-                sx={{ 
-                  borderRadius: 1.5,
-                  textTransform: 'none',
-                  fontWeight: 500,
-                }}
-              >
-                Compartir
-              </Button>
+
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={exportToPDF} sx={{ borderRadius: 2, textTransform: 'none' }}>PDF</Button>
+              <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()} sx={{ borderRadius: 2, textTransform: 'none' }}>Imprimir</Button>
             </Box>
           </Box>
-          <Typography variant="body1" color="textSecondary">
-            Visualización de ventas, costos y márgenes por tipo de sucursal
-          </Typography>
-          
-          {/* Indicador de fecha de actualización */}
-          <Box 
-            sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              mt: 2,
-              p: 1,
-              borderRadius: 2,
-              bgcolor: theme.palette.background.paper,
-              border: `1px solid ${theme.palette.divider}`,
-              width: 'fit-content'
-            }}
-          >
-            <ScheduleIcon fontSize="small" sx={{ color: theme.palette.text.secondary, mr: 1 }} />
-            <Typography variant="caption" color="textSecondary">
-              Última actualización: {new Date().toLocaleString()}
-            </Typography>
-          </Box>
+
+          {/* Última actualización */}
+          <Chip
+            icon={<RefreshIcon sx={{ fontSize: '14px !important' }} />}
+            label={`Actualizado: ${new Date().toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}`}
+            size="small" variant="outlined"
+            sx={{ mt: 1, height: 22, fontSize: 11, color: 'text.secondary' }}
+          />
         </Box>
       </Fade>
-    );
-  };
-  
-  // Filtro de fecha compacto, todo en una línea
-  const DateFilter = () => {
-    return (
-      <Fade in={true}>
-        <Paper
-          elevation={0}
-          sx={{ 
-            p: 2, 
-            mb: 4, 
-            border: '1px solid', 
-            borderColor: 'divider',
-            borderRadius: 2,
-            background: theme.palette.background.paper,
-            boxShadow: '0 2px 10px rgba(0, 0, 0, 0.04)',
-          }}
-        >
+
+      {/* ── Filtro de fechas ─────────────────────────────────────────────────── */}
+      <Fade in timeout={500}>
+        <Paper elevation={0} sx={{ p: 2.5, mb: 4, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
-              <ButtonGroup
-                variant="outlined"
-                aria-label="selección de período"
-                size="small"
-                fullWidth
-              >
-                <Button 
-                  onClick={() => handlePeriodChange('week')}
-                  variant={selectedPeriod === 'week' ? 'contained' : 'outlined'}
-                  sx={{ 
-                    textTransform: 'none',
-                    fontWeight: selectedPeriod === 'week' ? 'bold' : 'normal',
-                  }}
-                >
-                  7d
-                </Button>
-                <Button 
-                  onClick={() => handlePeriodChange('month')}
-                  variant={selectedPeriod === 'month' ? 'contained' : 'outlined'}
-                  sx={{ 
-                    textTransform: 'none',
-                    fontWeight: selectedPeriod === 'month' ? 'bold' : 'normal',
-                  }}
-                >
-                  30d
-                </Button>
-                <Button 
-                  onClick={() => handlePeriodChange('quarter')}
-                  variant={selectedPeriod === 'quarter' ? 'contained' : 'outlined'}
-                  sx={{ 
-                    textTransform: 'none',
-                    fontWeight: selectedPeriod === 'quarter' ? 'bold' : 'normal',
-                  }}
-                >
-                  90d
-                </Button>
-                <Button 
-                  onClick={() => handlePeriodChange('year')}
-                  variant={selectedPeriod === 'year' ? 'contained' : 'outlined'}
-                  sx={{ 
-                    textTransform: 'none',
-                    fontWeight: selectedPeriod === 'year' ? 'bold' : 'normal',
-                  }}
-                >
-                  1a
-                </Button>
+            {/* Período rápido */}
+            <Grid size={{ xs: 12, sm: 'auto' }}>
+              <ButtonGroup size="small" variant="outlined">
+                {[['week','7d'],['month','30d'],['quarter','90d'],['year','1 año']].map(([k, label]) => (
+                  <Button
+                    key={k}
+                    onClick={() => handlePeriodChange(k)}
+                    variant={selectedPeriod === k ? 'contained' : 'outlined'}
+                    sx={{ textTransform: 'none', fontWeight: selectedPeriod === k ? 700 : 400, minWidth: 52 }}
+                  >
+                    {label}
+                  </Button>
+                ))}
               </ButtonGroup>
             </Grid>
-            
-            <Grid item xs={12} md={7}>
+
+            {/* Date pickers */}
+            <Grid size={{ xs: 12, sm: 'grow' }}>
               <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
-                <Grid container spacing={2}>
-                  <Grid item xs={6} md={5}>
-                    <DatePicker
-                      label="Fecha Inicio"
-                      value={startDate}
-                      onChange={(newValue) => setStartDate(newValue)}
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          size: "small",
-                          variant: "outlined",
-                          InputProps: {
-                            sx: { borderRadius: 1.5 }
-                          }
-                        }
-                      }}
-                    />
-                  </Grid>
-                  <Grid item xs={6} md={5}>
-                    <DatePicker
-                      label="Fecha Fin"
-                      value={endDate}
-                      onChange={(newValue) => setEndDate(newValue)}
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          size: "small",
-                          variant: "outlined",
-                          InputProps: {
-                            sx: { borderRadius: 1.5 }
-                          }
-                        }
-                      }}
-                    />
-                  </Grid>
-                </Grid>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <DatePicker label="Desde" value={startDate} onChange={setStartDate}
+                    slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                  <DatePicker label="Hasta" value={endDate} onChange={setEndDate}
+                    slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                </Stack>
               </LocalizationProvider>
             </Grid>
-            
-            <Grid item xs={12} md={2}>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+
+            {/* Botón consultar */}
+            <Grid size={{ xs: 12, sm: 'auto' }}>
+              <Stack direction="row" spacing={1}>
                 <Button
                   variant="contained"
-                  onClick={handleDateChange}
+                  onClick={() => loadData()}
                   disabled={loading}
-                  startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
-                  sx={{ 
-                    py: 1,
-                    borderRadius: 1.5,
-                    textTransform: 'none',
-                    fontWeight: 'bold',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                    flex: 1
-                  }}
+                  startIcon={loading ? null : <RefreshIcon />}
+                  sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, minWidth: 110 }}
                 >
-                  Consultar
+                  {loading ? 'Cargando…' : 'Consultar'}
                 </Button>
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  onClick={handleGenerateReport}
-                  disabled={!data || loading}
-                  startIcon={<SummarizeOutlined />}
-                  sx={{ 
-                    py: 1,
-                    borderRadius: 1.5,
-                    textTransform: 'none',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  Reporte
-                </Button>
-              </Box>
+                {data && (
+                  <Button
+                    variant="outlined" color="secondary"
+                    onClick={() => setActiveTab(1)}
+                    startIcon={<SummarizeOutlined />}
+                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+                  >
+                    Reporte
+                  </Button>
+                )}
+              </Stack>
             </Grid>
           </Grid>
         </Paper>
       </Fade>
-    );
-  };
-  
-  return (
-    <Box sx={{ pb: 8 }} ref={dashboardRef}>
-      <DashboardHeader />
-      
-      <DateFilter />
-      
-      {error && (
-        <Alert 
-          severity="error" 
-          sx={{ 
-            mb: 4,
-            borderRadius: 2,
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)'
-          }}
-        >
-          {error}
-        </Alert>
-      )}
-      
-      {loading && !data && (
-        <Box display="flex" justifyContent="center" alignItems="center" py={8}>
-          <CircularProgress size={48} />
+
+      {error && <Alert severity="error" sx={{ mb: 4, borderRadius: 2 }}>{error}</Alert>}
+
+      {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
+      {(data || loading) && (
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 4 }}>
+          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}
+            sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 }, '& .MuiTabs-indicator': { height: 3, borderRadius: 3 } }}
+          >
+            <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}><BarChartIcon fontSize="small" /> Gráficos</Box>} />
+            <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}><SummarizeOutlined fontSize="small" /> Reporte Gerencial</Box>} disabled={!data || loading} />
+          </Tabs>
         </Box>
       )}
 
-      {data && (
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* PANEL GRÁFICOS                                                        */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 0 && (
         <>
-          {/* Pestañas para separar gráficos y reportes */}
-          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-            <Tabs 
-              value={activeTab} 
-              onChange={handleTabChange}
-              variant="scrollable"
-              scrollButtons="auto"
-              sx={{
-                '& .MuiTab-root': {
-                  textTransform: 'none', 
-                  fontWeight: 600,
-                  fontSize: '1rem',
-                  minHeight: '48px',
-                  paddingLeft: theme.spacing(2),
-                  paddingRight: theme.spacing(2),
-                },
-                '& .Mui-selected': {
-                  color: theme.palette.primary.main,
-                },
-                '& .MuiTabs-indicator': {
-                  height: 3,
-                  borderTopLeftRadius: 3,
-                  borderTopRightRadius: 3,
-                },
-              }}
-            >
-              <Tab 
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <BarChartIcon sx={{ mr: 1 }} fontSize="small" />
-                    Gráficos y Análisis
-                  </Box>
-                } 
-              />
-              <Tab 
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <SummarizeOutlined sx={{ mr: 1 }} fontSize="small" />
-                    Reporte Gerencial
-                  </Box>
-                } 
-                disabled={!data || loading}
-              />
-            </Tabs>
-          </Box>
-          
-          {/* Panel de gráficos */}
-          {activeTab === 0 && (
-            <>
-              {/* SECCIÓN 1: RESUMEN EJECUTIVO - KPIs principales */}
-              <Box sx={{ mb: 5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-                  <Box
-                    sx={{
-                      width: 4,
-                      height: 48,
-                      bgcolor: 'primary.main',
-                    }}
+          {/* ── KPIs ─────────────────────────────────────────────────────────── */}
+          <Section
+            title="Resumen Ejecutivo"
+            subtitle="Indicadores clave por tipo de sucursal"
+            color="primary.main"
+            loading={false}
+          >
+            <Grid container spacing={3}>
+              {[
+                { title: 'Supermercados', color: 'primary',   key: 'supermercados' },
+                { title: 'Ferreterías',   color: 'info',      key: 'ferreterias'   },
+                { title: 'Multitiendas',  color: 'success',   key: 'multitiendas'  },
+                { title: 'Total',         color: 'secondary', key: 'total'         },
+              ].map(({ title, color, key }) => (
+                <Grid size={{ xs: 12, sm: 6, md: 3 }} key={key}>
+                  <KpiCard
+                    title={title}
+                    loading={loading}
+                    value={data ? fmtCLP(data[key]?.ventas) : '—'}
+                    color={color}
+                    secondaryValue={data ? `${(data[key]?.margen || 0).toFixed(2)}%` : null}
+                    secondaryLabel="Margen"
                   />
-                  <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                      Resumen Ejecutivo
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      Indicadores clave de rendimiento por tipo de sucursal
-                    </Typography>
-                  </Box>
-                </Box>
+                </Grid>
+              ))}
+            </Grid>
+          </Section>
 
-                  <Grid container spacing={4}>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <KpiCard
-                        title="Supermercados"
-                        value={formatCurrency(data.supermercados.ventas)}
-                        color="primary"
-                        secondaryValue={`${data.supermercados.margen.toFixed(2)}%`}
-                        secondaryLabel="Margen"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <KpiCard
-                        title="Ferreterías"
-                        value={formatCurrency(data.ferreterias.ventas)}
-                        color="info"
-                        secondaryValue={`${data.ferreterias.margen.toFixed(2)}%`}
-                        secondaryLabel="Margen"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <KpiCard
-                        title="Multitiendas"
-                        value={formatCurrency(data.multitiendas.ventas)}
-                        color="success"
-                        secondaryValue={`${data.multitiendas.margen.toFixed(2)}%`}
-                        secondaryLabel="Margen"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <KpiCard
-                        title="Total"
-                        value={formatCurrency(data.total.ventas)}
-                        color="secondary"
-                        secondaryValue={`${data.total.margen.toFixed(2)}%`}
-                        secondaryLabel="Margen"
-                      />
-                    </Grid>
-                  </Grid>
-              </Box>
-
-              {/* ========================================== */}
-              {/* SECCIÓN 2: ANÁLISIS POR SUCURSAL          */}
-              {/* ========================================== */}
-              <Box sx={{ mb: 5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-                  <Box
-                    sx={{
-                      width: 4,
-                      height: 48,
-                      bgcolor: 'secondary.main',
-                    }}
-                  />
-                  <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                      Análisis por Sucursal
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      Desempeño individual de cada punto de venta por categoría
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Grid container spacing={4}>
-                  {/* 1. Gráfico de barras para supermercados - Mejorado visualmente */}
-                  <Grid item xs={12}>
-                  <AnimatedChartCard
+          {/* ── Ventas por Sucursal ───────────────────────────────────────────── */}
+          <Section
+            title="Análisis por Sucursal"
+            subtitle="Desempeño individual por punto de venta"
+            color="secondary.main"
+            loading={loading}
+            skeletonCount={1}
+            skeletonHeight={280}
+          >
+            {data && (
+              <Grid container spacing={3}>
+                {/* Supermercados */}
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard
                     title="Ventas por Supermercado"
-                    exportData={data.supermercados.sucursales}
+                    subtitle={`${data.supermercados.sucursales.length} sucursales`}
+                    height={Math.max(360, data.supermercados.sucursales.length * 62)}
+                    accentColor={`linear-gradient(90deg, ${GRADIENTS.primary[0]}, ${GRADIENTS.primary[1]})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={data.supermercados.sucursales}
-                        layout="vertical"
-                        margin={{ top: 20, right: 60, left: 10, bottom: 10 }}
-                        barSize={22}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(value) => formatCurrency(value)}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                          domain={[0, 'dataMax + 5000000']}
-                        />
-                        <YAxis
-                          dataKey="nombre"
-                          type="category"
-                          width={150}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.primary, fontSize: 12, fontWeight: 500 }}
-                        />
-                        <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                        <Legend wrapperStyle={{ paddingTop: 8 }} />
-                        <Bar 
-                          dataKey="ventas" 
-                          fill={theme.palette.primary.main} 
-                          name="Ventas"
-                          radius={[0, 6, 6, 0]}
-                          background={{ fill: theme.palette.grey[100], radius: [0, 6, 6, 0] }}
-                        >
-                          <LabelList 
-                            dataKey="ventas" 
-                            position="right" 
-                            formatter={(value) => formatCurrency(value)}
-                            style={{ fontWeight: 'bold', fontSize: 11, fill: theme.palette.text.primary }}
-                            offset={10}
-                          />
+                      <BarChart data={data.supermercados.sucursales} layout="vertical" margin={{ top: 8, right: 8, left: 0, bottom: 8 }} barSize={26}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} horizontal={false} />
+                        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} />
+                        <YAxis dataKey="nombre" type="category" width={115} tick={{ fontSize: 12, fontWeight: 500, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip formatter={fmtCLP} />} />
+                        <Bar dataKey="ventas" name="Ventas" fill={theme.palette.primary.main} radius={[0, 6, 6, 0]} background={{ fill: theme.palette.grey[100], radius: [0, 6, 6, 0] }}>
+                          <LabelList dataKey="ventas" position="insideRight" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
                 </Grid>
 
-                {/* 2. Gráfico de barras para ferreterías y multitiendas - Mejorado visualmente */}
-                <Grid item xs={12}>
-                  <AnimatedChartCard
-                    title="Ventas por Ferretería y Multitienda" 
-                    exportData={[
-                      ...data.ferreterias.sucursales,
-                      ...data.multitiendas.sucursales
-                    ]}
+                {/* Ferreterías + Multitiendas */}
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard
+                    title="Ventas por Ferretería y Multitienda"
+                    subtitle={`${data.ferreterias.sucursales.length + data.multitiendas.sucursales.length} sucursales`}
+                    height={Math.max(360, (data.ferreterias.sucursales.length + data.multitiendas.sucursales.length) * 62)}
+                    accentColor={`linear-gradient(90deg, ${GRADIENTS.info[0]}, ${GRADIENTS.info[1]})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={[
-                          ...data.ferreterias.sucursales,
-                          ...data.multitiendas.sucursales
-                        ]}
-                        layout="vertical"
-                        margin={{ top: 20, right: 60, left: 10, bottom: 10 }}
-                        barSize={22}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(value) => formatCurrency(value)}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                          domain={[0, 'dataMax + 5000000']}
-                        />
-                        <YAxis
-                          dataKey="nombre"
-                          type="category"
-                          width={150}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.primary, fontSize: 12, fontWeight: 500 }}
-                        />
-                        <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                        <Legend 
-                          wrapperStyle={{ paddingTop: 8 }}
-                          formatter={(value, entry) => {
-                            const tipo = entry.dataKey === 'ventas' ? 'Ventas' : entry.dataKey;
-                            return tipo;
-                          }}
-                        />
-                        <Bar 
-                          dataKey="ventas" 
-                          fill={theme.palette.secondary.main} 
-                          name="Ventas"
-                          radius={[0, 6, 6, 0]}
-                          background={{ fill: theme.palette.grey[100], radius: [0, 6, 6, 0] }}
-                        >
-                          <LabelList 
-                            dataKey="ventas" 
-                            position="right" 
-                            formatter={(value) => formatCurrency(value)}
-                            style={{ fontWeight: 'bold', fontSize: 11, fill: theme.palette.text.primary }}
-                            offset={10}
-                          />
+                      <BarChart data={[...data.ferreterias.sucursales, ...data.multitiendas.sucursales]} layout="vertical" margin={{ top: 8, right: 8, left: 0, bottom: 8 }} barSize={26}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} horizontal={false} />
+                        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} />
+                        <YAxis dataKey="nombre" type="category" width={115} tick={{ fontSize: 12, fontWeight: 500, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip formatter={fmtCLP} />} />
+                        <Bar dataKey="ventas" name="Ventas" fill={theme.palette.info.main} radius={[0, 6, 6, 0]} background={{ fill: theme.palette.grey[100], radius: [0, 6, 6, 0] }}>
+                          <LabelList dataKey="ventas" position="insideRight" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
                 </Grid>
               </Grid>
-            </Box>
+            )}
+          </Section>
 
-            {/* ========================================== */}
-            {/* SECCIÓN 3: ANÁLISIS DE RENTABILIDAD       */}
-            {/* ========================================== */}
-            <Box sx={{ mb: 5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-                <Box
-                  sx={{
-                    width: 4,
-                    height: 48,
-                    bgcolor: 'success.main',
-                  }}
-                />
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                    Análisis de Rentabilidad
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    Desglose detallado de utilidades y costos por tipo de sucursal
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Grid container spacing={4}>
-                {/* 3. Desglose de Utilidad y Costos por Supermercado */}
-                <Grid item xs={12} md={6}>
-                  <AnimatedChartCard 
-                    title="Desglose de Utilidad y Costos por Supermercado" 
-                    height={400}
-                    exportData={data.supermercados.sucursales}
+          {/* ── Rentabilidad ─────────────────────────────────────────────────── */}
+          <Section
+            title="Análisis de Rentabilidad"
+            subtitle="Desglose de utilidades y costos"
+            color="success.main"
+            loading={loading}
+            skeletonCount={2}
+            skeletonHeight={280}
+          >
+            {data && (
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard title="Utilidad vs Costos — Supermercados"
+                    height={Math.max(360, data.supermercados.sucursales.length * 62)}
+                    accentColor={`linear-gradient(90deg, ${GRADIENTS.success[0]}, ${GRADIENTS.success[1]})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={data.supermercados.sucursales}
-                        margin={{ top: 20, right: 50, left: 10, bottom: 20 }}
-                        layout="vertical"
-                        barSize={22}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(value) => formatCurrency(value)}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                        />
-                        <YAxis
-                          dataKey="nombre"
-                          type="category"
-                          width={140}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                        />
-                        <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                        <Legend 
-                          wrapperStyle={{ paddingTop: 20 }}
-                          iconType="circle"
-                        />
-                        <Bar 
-                          dataKey="costos" 
-                          name="Costos" 
-                          fill={theme.palette.error.light}
-                          stackId="a"
-                          radius={[0, 0, 0, 0]}
-                        />
-                        <Bar 
-                          dataKey="utilidad" 
-                          name="Utilidad" 
-                          fill={theme.palette.success.light}
-                          stackId="a"
-                          radius={[0, 4, 4, 0]}
-                        >
-                          <LabelList 
-                            dataKey="ventas" 
-                            position="right" 
-                            formatter={(value) => `Total: ${formatCurrency(value)}`}
-                            style={{ fontWeight: 'bold', fontSize: 11 }}
-                          />
+                      <BarChart data={data.supermercados.sucursales} layout="vertical" margin={{ top: 8, right: 8, left: 0, bottom: 8 }} barSize={22}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} horizontal={false} />
+                        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} />
+                        <YAxis dataKey="nombre" type="category" width={115} tick={{ fontSize: 12, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip formatter={fmtCLP} />} />
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 12 }} />
+                        <Bar dataKey="costos"   name="Costos"   fill={theme.palette.error.light}   stackId="a" radius={[0,0,0,0]} />
+                        <Bar dataKey="utilidad" name="Utilidad" fill={theme.palette.success.light} stackId="a" radius={[0,6,6,0]}>
+                          <LabelList dataKey="ventas" position="insideRight" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
                 </Grid>
-                
-                {/* 4. Desglose de Utilidad y Costos por Ferretería y Multitienda */}
-                <Grid item xs={12} md={6}>
-                  <AnimatedChartCard 
-                    title="Desglose de Utilidad y Costos por Ferretería y Multitienda" 
-                    height={400}
-                    exportData={[...data.ferreterias.sucursales, ...data.multitiendas.sucursales]}
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard title="Utilidad vs Costos — Ferreterías & Multitiendas"
+                    height={Math.max(360, (data.ferreterias.sucursales.length + data.multitiendas.sucursales.length) * 62)}
+                    accentColor={`linear-gradient(90deg, ${GRADIENTS.secondary[0]}, ${GRADIENTS.secondary[1]})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={[...data.ferreterias.sucursales, ...data.multitiendas.sucursales]}
-                        margin={{ top: 20, right: 50, left: 10, bottom: 20 }}
-                        layout="vertical"
-                        barSize={22}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(value) => formatCurrency(value)}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                        />
-                        <YAxis
-                          dataKey="nombre"
-                          type="category"
-                          width={140}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                        />
-                        <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                        <Legend 
-                          wrapperStyle={{ paddingTop: 20 }}
-                          iconType="circle"
-                        />
-                        <Bar 
-                          dataKey="costos" 
-                          name="Costos" 
-                          fill={theme.palette.error.light}
-                          stackId="a"
-                          radius={[0, 0, 0, 0]}
-                        />
-                        <Bar 
-                          dataKey="utilidad" 
-                          name="Utilidad" 
-                          fill={theme.palette.success.light}
-                          stackId="a"
-                          radius={[0, 4, 4, 0]}
-                        >
-                          <LabelList 
-                            dataKey="ventas" 
-                            position="right" 
-                            formatter={(value) => `Total: ${formatCurrency(value)}`}
-                            style={{ fontWeight: 'bold', fontSize: 11 }}
-                          />
+                      <BarChart data={[...data.ferreterias.sucursales, ...data.multitiendas.sucursales]} layout="vertical" margin={{ top: 8, right: 8, left: 0, bottom: 8 }} barSize={22}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} horizontal={false} />
+                        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} />
+                        <YAxis dataKey="nombre" type="category" width={115} tick={{ fontSize: 12, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip formatter={fmtCLP} />} />
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 12 }} />
+                        <Bar dataKey="costos"   name="Costos"   fill={theme.palette.error.light}     stackId="a" radius={[0,0,0,0]} />
+                        <Bar dataKey="utilidad" name="Utilidad" fill={theme.palette.secondary.light} stackId="a" radius={[0,6,6,0]}>
+                          <LabelList dataKey="ventas" position="insideRight" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
                 </Grid>
               </Grid>
-            </Box>
+            )}
+          </Section>
 
-            {/* ========================================== */}
-            {/* SECCIÓN 4: ANÁLISIS COMPARATIVO           */}
-            {/* ========================================== */}
-            <Box sx={{ mb: 5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-                <Box
-                  sx={{
-                    width: 4,
-                    height: 48,
-                    bgcolor: 'info.main',
-                  }}
-                />
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }}>
-                    Análisis Comparativo
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    Comparación consolidada entre tipos de sucursales y márgenes
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Grid container spacing={4}>
-                {/* 5. Comparativa de Ventas, Costos y Utilidad - Mejorado visualmente */}
-                <Grid item xs={12}>
-                  <AnimatedChartCard 
-                    title="Comparativa de Ventas, Costos y Utilidad por Tipo de Sucursal" 
-                    height={450}
-                    exportData={prepareComparativeData()}
+          {/* ── Comparativo ──────────────────────────────────────────────────── */}
+          <Section
+            title="Análisis Comparativo"
+            subtitle="Consolidado entre tipos de sucursal"
+            color="info.main"
+            loading={loading}
+            skeletonCount={1}
+            skeletonHeight={360}
+          >
+            {data && (
+              <Grid container spacing={3}>
+                {/* Barras comparativas — ancho completo */}
+                <Grid size={12}>
+                  <ChartCard title="Ventas · Costos · Utilidad" subtitle="Por tipo de sucursal" height={420}
+                    accentColor={`linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.info.main})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={prepareComparativeData()}
-                        margin={{ top: 30, right: 40, left: 60, bottom: 30 }}
-                        barGap={12}
-                        barSize={32}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.4} vertical={false} />
-                        <XAxis
-                          dataKey="categoria"
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.primary, fontSize: 13, fontWeight: 500 }}
-                          tickLine={false}
-                          padding={{ left: 20, right: 20 }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => formatCurrency(value)}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                          tickLine={false}
-                        />
-                        <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                        <Legend 
-                          wrapperStyle={{ paddingTop: 25 }}
-                          iconType="circle"
-                          iconSize={10}
-                        />
-                        <Bar 
-                          dataKey="ventas" 
-                          name="Ventas" 
-                          fill={theme.palette.primary.main}
-                          radius={[6, 6, 0, 0]}
-                        />
-                        <Bar 
-                          dataKey="costos" 
-                          name="Costos" 
-                          fill={theme.palette.error.main}
-                          radius={[6, 6, 0, 0]}
-                        />
-                        <Bar 
-                          dataKey="utilidad" 
-                          name="Utilidad" 
-                          fill={theme.palette.success.main}
-                          radius={[6, 6, 0, 0]}
-                        >
-                          <LabelList 
-                            dataKey="utilidad" 
-                            position="top" 
-                            formatter={(value) => formatCurrency(value)}
-                            style={{ fontWeight: 'bold', fontSize: 12, fill: theme.palette.text.primary }}
-                            offset={10}
-                          />
+                      <BarChart data={comparativeData} margin={{ top: 32, right: 16, left: 4, bottom: 16 }} barGap={8} barCategoryGap="28%" barSize={44}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} vertical={false} />
+                        <XAxis dataKey="categoria" tick={{ fontSize: 13, fontWeight: 600, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} width={54} />
+                        <Tooltip content={<CustomTooltip formatter={fmtCLP} />} />
+                        <Legend iconType="circle" iconSize={9} wrapperStyle={{ paddingTop: 16, fontSize: 13 }} />
+                        <Bar dataKey="ventas"   name="Ventas"   fill={theme.palette.primary.main} radius={[6,6,0,0]}>
+                          <LabelList dataKey="ventas"   position="top" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: theme.palette.primary.dark }} offset={5} />
+                        </Bar>
+                        <Bar dataKey="costos"   name="Costos"   fill={theme.palette.error.main}   radius={[6,6,0,0]}>
+                          <LabelList dataKey="costos"   position="top" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: theme.palette.error.dark }}   offset={5} />
+                        </Bar>
+                        <Bar dataKey="utilidad" name="Utilidad" fill={theme.palette.success.main} radius={[6,6,0,0]}>
+                          <LabelList dataKey="utilidad" position="top" formatter={fmtCompact} style={{ fontSize: 11, fontWeight: 700, fill: theme.palette.success.dark }} offset={5} />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
                 </Grid>
-                
-                {/* 6. Gráfico de líneas para Margen - Mejorado visualmente */}
-                <Grid item xs={12}>
-                  <AnimatedChartCard 
-                    title="Margen por Tipo de Sucursal (%)" 
-                    height={450}
-                    exportData={prepareComparativeData()}
+
+                {/* Pie + Márgenes — lado a lado */}
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard title="Distribución de Ventas" height={360}
+                    accentColor={`linear-gradient(90deg, ${theme.palette.warning.main}, ${theme.palette.warning.light})`}
                   >
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={prepareComparativeData()}
-                        margin={{ top: 30, right: 40, left: 60, bottom: 30 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.4} vertical={false} />
-                        <XAxis
-                          dataKey="categoria"
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.primary, fontSize: 13, fontWeight: 500 }}
-                          tickLine={false}
-                          padding={{ left: 30, right: 30 }}
-                        />
-                        <YAxis
-                          tickFormatter={(value) => `${value}%`}
-                          domain={[0, 'dataMax + 10']}
-                          axisLine={{ stroke: theme.palette.divider, strokeWidth: 1.5 }}
-                          tick={{ fill: theme.palette.text.secondary, fontSize: 12 }}
-                          tickLine={false}
-                        />
-                        <Tooltip
-                          formatter={(value) => [`${value.toFixed(2)}%`, 'Margen']}
-                          content={<CustomTooltip />}
-                        />
-                        <Legend 
-                          wrapperStyle={{ paddingTop: 25 }}
-                          iconType="circle" 
-                          iconSize={10}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="margen" 
-                          name="Margen (%)" 
-                          stroke={theme.palette.warning.main} 
-                          strokeWidth={4}
-                          dot={{ r: 8, fill: theme.palette.warning.main, strokeWidth: 2 }}
-                          activeDot={{ r: 10, fill: theme.palette.warning.light }}
-                        >
-                          <LabelList 
-                            dataKey="margen" 
-                            position="top" 
-                            formatter={(value) => `${value.toFixed(2)}%`}
-                            fill={theme.palette.text.primary}
-                            fontWeight="bold"
-                            fontSize={12}
-                            offset={10}
-                          />
-                        </Line>
-                      </LineChart>
+                      <PieChart>
+                        <Pie data={comparativeData.slice(0, 3)} dataKey="ventas" nameKey="categoria" cx="50%" cy="45%" outerRadius={110}
+                          label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                          {comparativeData.slice(0, 3).map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
+                        </Pie>
+                        <Tooltip formatter={fmtCLP} />
+                        <Legend iconType="circle" iconSize={9} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                      </PieChart>
                     </ResponsiveContainer>
-                  </AnimatedChartCard>
+                  </ChartCard>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <ChartCard title="Margen por Tipo (%)" height={360}
+                    accentColor={`linear-gradient(90deg, ${theme.palette.warning.dark}, ${theme.palette.warning.main})`}
+                  >
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={comparativeData} margin={{ top: 24, right: 16, left: 0, bottom: 8 }} barCategoryGap="30%" barSize={56}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} vertical={false} />
+                        <XAxis dataKey="categoria" tick={{ fontSize: 12, fill: theme.palette.text.primary }} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={(v) => `${v.toFixed(0)}%`} tick={{ fontSize: 11, fill: theme.palette.text.secondary }} axisLine={false} tickLine={false} width={36} />
+                        <Tooltip formatter={(v) => [`${v.toFixed(2)}%`, 'Margen']} />
+                        <Bar dataKey="margen" name="Margen" fill={theme.palette.warning.main} radius={[6,6,0,0]}>
+                          <LabelList dataKey="margen" position="top" formatter={(v) => `${v.toFixed(1)}%`} style={{ fontSize: 12, fontWeight: 700 }} offset={5} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
                 </Grid>
               </Grid>
-            </Box>
-          </>
-        )}
-          
-          {/* Panel de Reporte */}
-          {activeTab === 1 && (
-            <Paper
-              elevation={0}
-              sx={{ 
-                p: 3, 
-                mb: 4, 
-                border: '1px solid', 
-                borderColor: 'divider',
-                borderRadius: 2,
-                boxShadow: '0 2px 10px rgba(0, 0, 0, 0.04)',
-              }}
-            >
-              <AutoReport 
-                data={data} 
-                startDate={startDate} 
-                endDate={endDate} 
-                loading={loading} 
-                formatCurrency={formatCurrency} 
-              />
-            </Paper>
-          )}
+            )}
+          </Section>
         </>
       )}
-      
-      <ShareDashboardModal 
-        open={shareModalOpen}
-        handleClose={() => setShareModalOpen(false)}
-      />
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* PANEL REPORTE                                                         */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 1 && data && (
+        <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
+          <AutoReport data={data} startDate={startDate} endDate={endDate} loading={loading} formatCurrency={fmtCLP} />
+        </Paper>
+      )}
     </Box>
   );
 };

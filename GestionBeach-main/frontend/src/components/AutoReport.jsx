@@ -363,25 +363,25 @@ const AutoReport = ({ data, startDate, endDate, loading, formatCurrency }) => {
           
           {/* KPIs principales */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Paper elevation={1} sx={{ p: 2, borderRadius: 2, bgcolor: '#f0f7ff', height: '100%' }}>
                 <Typography variant="subtitle2" color="textSecondary" gutterBottom>Ventas Totales</Typography>
                 <Typography variant="h5" fontWeight="bold">{formatCurrency(reportData.kpis.ventaTotal)}</Typography>
               </Paper>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Paper elevation={1} sx={{ p: 2, borderRadius: 2, bgcolor: '#fff4f0', height: '100%' }}>
                 <Typography variant="subtitle2" color="textSecondary" gutterBottom>Costos Totales</Typography>
                 <Typography variant="h5" fontWeight="bold">{formatCurrency(reportData.kpis.costoTotal)}</Typography>
               </Paper>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Paper elevation={1} sx={{ p: 2, borderRadius: 2, bgcolor: '#f0fff7', height: '100%' }}>
                 <Typography variant="subtitle2" color="textSecondary" gutterBottom>Utilidad Total</Typography>
                 <Typography variant="h5" fontWeight="bold">{formatCurrency(reportData.kpis.utilidadTotal)}</Typography>
               </Paper>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <Paper elevation={1} sx={{ p: 2, borderRadius: 2, bgcolor: '#f8f0ff', height: '100%' }}>
                 <Typography variant="subtitle2" color="textSecondary" gutterBottom>Margen Promedio</Typography>
                 <Typography variant="h5" fontWeight="bold">{reportData.kpis.margenPromedio}%</Typography>

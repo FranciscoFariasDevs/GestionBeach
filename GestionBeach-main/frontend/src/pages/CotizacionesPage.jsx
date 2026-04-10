@@ -1,28 +1,34 @@
 // frontend/src/pages/CotizacionesPage.jsx
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useMemo } from 'react';
 import {
-  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, Grid, IconButton, InputAdornment, LinearProgress, Paper,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  TextField, Tooltip, Typography, Alert, Avatar, Link,
+  Autocomplete, Box, Button, Chip, Collapse, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, Grid, IconButton, InputAdornment,
+  LinearProgress, Paper, Stack, Switch, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
+  Alert, Avatar, Link, ToggleButton, ToggleButtonGroup, Badge,
 } from '@mui/material';
 import {
   Add, Check, Close, Delete, AttachMoney, Receipt, HourglassEmpty,
-  Visibility, CloudUpload, OpenInNew,
+  Visibility, CloudUpload, OpenInNew, ShoppingCart, Block,
+  FilterList, CalendarMonth, Search, Clear, PictureAsPdf,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import api from '../api/api';
-import { AuthContext } from '../contexts/AuthContext';
+import AuthContext from '../contexts/AuthContext';
 
 // ─── Perfiles ────────────────────────────────────────────────────────────────
-const PERFILES_GERENTE  = [11, 10, 16];   // Gerencia + Admin
-const PERFILES_FINANZAS = [12, 10, 16];   // Finanzas + Admin
-const PERFILES_CREADOR  = [14, 10, 16];   // Jefe Local + Admin
+const PERFILES_GERENTE  = [11];       // Solo Gerencia puede aprobar/rechazar
+const PERFILES_FINANZAS = [12];       // Finanzas: ve solo aprobadas, no aprueba
+const PERFILES_CREADOR  = [10, 14];   // SuperAdmin + Jefes de Local
 
 const ESTADO_CHIP = {
-  pendiente: { label: 'Pendiente',  color: 'warning' },
-  aprobada:  { label: 'Aprobada',   color: 'success' },
-  rechazada: { label: 'Rechazada',  color: 'error'   },
+  pendiente: { label: 'Pendiente',  color: 'warning'  },
+  aprobada:  { label: 'Aprobada',   color: 'success'  },
+  rechazada: { label: 'Rechazada',  color: 'error'    },
+  comprado:  { label: 'Comprado',   color: 'primary'  },
+  anulado:   { label: 'Anulado',    color: 'default'  },
 };
 
 const fmtPeso = (n) =>
@@ -77,6 +83,17 @@ function ItemRow({ item, index, onChange, onRemove, onUploadFoto }) {
           placeholder="Nombre del producto"
           value={item.producto}
           onChange={(e) => onChange(index, 'producto', e.target.value)}
+        />
+      </TableCell>
+
+      {/* Destino */}
+      <TableCell sx={{ width: 150 }}>
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="Ej: Local Viña"
+          value={item.destino || ''}
+          onChange={(e) => onChange(index, 'destino', e.target.value)}
         />
       </TableCell>
 
@@ -140,14 +157,192 @@ function ItemRow({ item, index, onChange, onRemove, onUploadFoto }) {
   );
 }
 
+// ─── Exportar cotización a PDF ────────────────────────────────────────────────
+function exportarCotizacionPDF(cotizacion) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const primary = [22, 93, 170];   // azul corporativo
+  const dark    = [30, 30, 30];
+  const gray    = [120, 120, 120];
+  const light   = [245, 247, 250];
+
+  // ── Banda superior ──────────────────────────────────────────────────────────
+  doc.setFillColor(...primary);
+  doc.rect(0, 0, pageW, 28, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BEACH MARKET', 14, 12);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Gestión de Cotizaciones', 14, 19);
+
+  // Número de cotización (derecha)
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`COT-${String(cotizacion.id).padStart(4, '0')}`, pageW - 14, 16, { align: 'right' });
+
+  // ── Bloque de información ───────────────────────────────────────────────────
+  doc.setTextColor(...dark);
+  let y = 36;
+
+  // Cuadro izquierdo: datos cotización
+  doc.setFillColor(...light);
+  doc.roundedRect(14, y, 115, 36, 2, 2, 'F');
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...gray);
+  doc.text('ASUNTO', 18, y + 7);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...dark);
+  doc.text(cotizacion.asunto || '—', 18, y + 13, { maxWidth: 107 });
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...gray);
+  doc.text('SOLICITANTE', 18, y + 23);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...dark);
+  doc.text(cotizacion.creado_por_nombre || '—', 18, y + 28);
+
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...gray);
+  doc.text('FECHA', 80, y + 23);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...dark);
+  const fechaStr = cotizacion.fecha_creacion
+    ? new Date(cotizacion.fecha_creacion).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : '—';
+  doc.text(fechaStr, 80, y + 28);
+
+  // Cuadro derecho: estado y total
+  const estadoColores = {
+    pendiente: [255, 152, 0],
+    aprobada:  [46, 125, 50],
+    rechazada: [198, 40, 40],
+    comprado:  [21, 101, 192],
+    anulado:   [97, 97, 97],
+  };
+  const estadoLabels = {
+    pendiente: 'PENDIENTE', aprobada: 'APROBADA', rechazada: 'RECHAZADA',
+    comprado: 'COMPRADO', anulado: 'ANULADO',
+  };
+  const color = estadoColores[cotizacion.estado] || [97, 97, 97];
+
+  doc.setFillColor(...color);
+  doc.roundedRect(133, y, 63, 17, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(estadoLabels[cotizacion.estado] || cotizacion.estado?.toUpperCase() || '—', 164, y + 11, { align: 'center' });
+
+  doc.setFillColor(...light);
+  doc.roundedRect(133, y + 20, 63, 16, 2, 2, 'F');
+  doc.setTextColor(...gray);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TOTAL', 164, y + 26, { align: 'center' });
+  doc.setTextColor(...primary);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(fmtPeso(cotizacion.total), 164, y + 33, { align: 'center' });
+
+  y += 44;
+
+  // ── Descripción (si existe) ─────────────────────────────────────────────────
+  if (cotizacion.descripcion) {
+    doc.setFillColor(255, 248, 225);
+    doc.roundedRect(14, y, 182, 10, 2, 2, 'F');
+    doc.setTextColor(120, 80, 0);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text(`Observaciones: ${cotizacion.descripcion}`, 18, y + 7, { maxWidth: 174 });
+    y += 14;
+  }
+
+  // ── Tabla de ítems ──────────────────────────────────────────────────────────
+  const rows = (cotizacion.items || []).map((item, i) => [
+    i + 1,
+    item.producto || '—',
+    item.destino  || '—',
+    item.cantidad,
+    new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.precio_unitario || 0),
+    new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.subtotal || 0),
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['#', 'Producto', 'Destino', 'Cant.', 'P. Unitario', 'Subtotal']],
+    body: rows,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: {
+      fillColor: primary,
+      textColor: 255,
+      fontStyle: 'bold',
+      halign: 'left',
+    },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      3: { halign: 'center', cellWidth: 16 },
+      4: { halign: 'right',  cellWidth: 32 },
+      5: { halign: 'right',  cellWidth: 32, fontStyle: 'bold' },
+    },
+    alternateRowStyles: { fillColor: [249, 250, 252] },
+    margin: { left: 14, right: 14 },
+  });
+
+  // ── Fila de total ──────────────────────────────────────────────────────────
+  const finalY = doc.lastAutoTable.finalY + 4;
+  doc.setFillColor(...primary);
+  doc.roundedRect(pageW - 14 - 80, finalY, 80, 12, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TOTAL:', pageW - 14 - 55, finalY + 8);
+  doc.text(fmtPeso(cotizacion.total), pageW - 16, finalY + 8, { align: 'right' });
+
+  // ── Motivo rechazo/anulación ────────────────────────────────────────────────
+  if (cotizacion.motivo_rechazo) {
+    const my = finalY + 18;
+    doc.setFillColor(255, 235, 238);
+    doc.roundedRect(14, my, 182, 10, 2, 2, 'F');
+    doc.setTextColor(198, 40, 40);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text(`Motivo de rechazo: ${cotizacion.motivo_rechazo}`, 18, my + 7, { maxWidth: 174 });
+  }
+
+  // ── Footer ─────────────────────────────────────────────────────────────────
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFillColor(...primary);
+  doc.rect(0, pageH - 12, pageW, 12, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  const now = new Date().toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+  doc.text(`Generado el ${now} · Beach Market Gestión`, 14, pageH - 4);
+  doc.text(`Pág. 1`, pageW - 14, pageH - 4, { align: 'right' });
+
+  doc.save(`Cotizacion-${String(cotizacion.id).padStart(4, '0')}-${cotizacion.asunto?.replace(/\s+/g, '_').slice(0, 30) || 'sin_asunto'}.pdf`);
+}
+
 // ─── Modal: ver cotización ────────────────────────────────────────────────────
-function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }) {
+function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar, onComprar, onAnular }) {
   const [motivoRechazo, setMotivoRechazo] = useState('');
-  const [rechazando, setRechazando] = useState(false);
+  const [rechazando, setRechazando]       = useState(false);
+  const [anulando, setAnulando]           = useState(false);
+  const [motivoAnulacion, setMotivoAnulacion] = useState('');
 
   if (!cotizacion) return null;
 
-  const puedeAprobar = PERFILES_GERENTE.includes(perfilId) && cotizacion.estado === 'pendiente';
+  const puedeAprobar   = PERFILES_GERENTE.includes(perfilId) && cotizacion.estado === 'pendiente';
+  const puedeFinanzas  = PERFILES_FINANZAS.includes(perfilId) && cotizacion.estado === 'aprobada';
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -155,7 +350,8 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
         <Box>
           <Typography variant="h6">{cotizacion.asunto}</Typography>
           <Typography variant="caption" color="text.secondary">
-            #{cotizacion.id} · {cotizacion.creado_por_nombre} · {cotizacion.sucursal_nombre}
+            #{cotizacion.id} · {cotizacion.creado_por_nombre}
+            {cotizacion.destino ? ` · Destino: ${cotizacion.destino}` : ''}
           </Typography>
         </Box>
         <Chip
@@ -183,6 +379,7 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell>Foto</TableCell>
                 <TableCell>Producto</TableCell>
+                <TableCell>Destino</TableCell>
                 <TableCell>Link</TableCell>
                 <TableCell align="center">Cant.</TableCell>
                 <TableCell align="right">P. Unitario</TableCell>
@@ -205,6 +402,9 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
                     )}
                   </TableCell>
                   <TableCell>{item.producto}</TableCell>
+                  <TableCell sx={{ fontSize: 13, color: item.destino ? 'text.primary' : 'text.disabled' }}>
+                    {item.destino || '—'}
+                  </TableCell>
                   <TableCell>
                     {item.link ? (
                       <Link href={item.link} target="_blank" underline="hover" sx={{ fontSize: 13 }}>
@@ -227,14 +427,12 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
           </Typography>
         </Box>
 
-        {/* Panel de rechazo */}
+        {/* Panel de rechazo (Gerencia) */}
         {rechazando && (
           <Box sx={{ mt: 2 }}>
             <Divider sx={{ mb: 2 }} />
             <TextField
-              fullWidth
-              multiline
-              rows={3}
+              fullWidth multiline rows={3}
               label="Motivo del rechazo"
               value={motivoRechazo}
               onChange={(e) => setMotivoRechazo(e.target.value)}
@@ -243,10 +441,35 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
             />
           </Box>
         )}
+
+        {/* Panel de anulación (Finanzas) */}
+        {anulando && (
+          <Box sx={{ mt: 2 }}>
+            <Divider sx={{ mb: 2 }} />
+            <TextField
+              fullWidth multiline rows={2}
+              label="Motivo de anulación (opcional)"
+              value={motivoAnulacion}
+              onChange={(e) => setMotivoAnulacion(e.target.value)}
+              placeholder="Indica el motivo de la anulación..."
+            />
+          </Box>
+        )}
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
         <Button onClick={onClose} variant="outlined">Cerrar</Button>
+
+        {(PERFILES_GERENTE.includes(perfilId) || PERFILES_FINANZAS.includes(perfilId)) && (
+          <Button
+            startIcon={<PictureAsPdf />}
+            color="secondary"
+            variant="outlined"
+            onClick={() => exportarCotizacionPDF(cotizacion)}
+          >
+            Descargar PDF
+          </Button>
+        )}
 
         {puedeAprobar && !rechazando && (
           <>
@@ -271,17 +494,43 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
 
         {rechazando && (
           <>
-            <Button onClick={() => { setRechazando(false); setMotivoRechazo(''); }}>
-              Cancelar
-            </Button>
+            <Button onClick={() => { setRechazando(false); setMotivoRechazo(''); }}>Cancelar</Button>
             <Button
-              startIcon={<Close />}
-              color="error"
-              variant="contained"
+              startIcon={<Close />} color="error" variant="contained"
               disabled={!motivoRechazo.trim()}
               onClick={() => onRechazar(cotizacion.id, motivoRechazo)}
             >
               Confirmar rechazo
+            </Button>
+          </>
+        )}
+
+        {/* Botones Finanzas */}
+        {puedeFinanzas && !anulando && (
+          <>
+            <Button
+              startIcon={<Block />} color="warning" variant="outlined"
+              onClick={() => setAnulando(true)}
+            >
+              Anular
+            </Button>
+            <Button
+              startIcon={<ShoppingCart />} color="primary" variant="contained"
+              onClick={() => onComprar(cotizacion.id)}
+            >
+              Marcar como Comprado
+            </Button>
+          </>
+        )}
+
+        {anulando && (
+          <>
+            <Button onClick={() => { setAnulando(false); setMotivoAnulacion(''); }}>Cancelar</Button>
+            <Button
+              startIcon={<Block />} color="warning" variant="contained"
+              onClick={() => onAnular(cotizacion.id, motivoAnulacion)}
+            >
+              Confirmar anulación
             </Button>
           </>
         )}
@@ -290,11 +539,47 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar }
   );
 }
 
+// ─── Fila de cotización (reutilizable para vista plana y agrupada) ────────────
+function FilaCotizacion({ c, onVer }) {
+  const chip = ESTADO_CHIP[c.estado] || {};
+  return (
+    <TableRow hover>
+      <TableCell sx={{ color: 'text.secondary', fontSize: 12 }}>#{c.id}</TableCell>
+      <TableCell sx={{ fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {c.asunto}
+      </TableCell>
+      <TableCell sx={{ fontSize: 13 }}>{c.creado_por_nombre}</TableCell>
+      <TableCell sx={{ maxWidth: 160 }}>
+        {c.destinos ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3 }}>
+            {c.destinos.split(', ').map((d, i) => (
+              <Chip key={i} label={d} size="small" variant="outlined" sx={{ fontSize: 11, height: 20 }} />
+            ))}
+          </Box>
+        ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+      </TableCell>
+      <TableCell align="center">{c.num_items}</TableCell>
+      <TableCell align="right" sx={{ fontWeight: 600, fontSize: 13 }}>{fmtPeso(c.total)}</TableCell>
+      <TableCell>
+        <Chip label={chip.label} color={chip.color} size="small" />
+      </TableCell>
+      <TableCell sx={{ fontSize: 12, color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtFecha(c.fecha_creacion)}</TableCell>
+      <TableCell align="center">
+        <Tooltip title="Ver detalle">
+          <IconButton size="small" onClick={() => onVer(c.id)}>
+            <Visibility fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </TableCell>
+    </TableRow>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function CotizacionesPage() {
   const { user } = useContext(AuthContext);
   const { enqueueSnackbar } = useSnackbar();
-  const perfilId = user?.perfil_id;
+  const perfilId = user?.perfilId;
 
   const [cotizaciones, setCotizaciones] = useState([]);
   const [loading, setLoading]           = useState(false);
@@ -306,11 +591,68 @@ export default function CotizacionesPage() {
   const [asunto, setAsunto]           = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [items, setItems]             = useState([
-    { producto: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }
+    { producto: '', destino: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }
   ]);
 
-  const puedeCrear = PERFILES_CREADOR.includes(perfilId);
+  const puedeCrear   = PERFILES_CREADOR.includes(perfilId);
+  const esGerFinanzas = PERFILES_GERENTE.includes(perfilId) || PERFILES_FINANZAS.includes(perfilId);
   const total = items.reduce((s, i) => s + (Number(i.cantidad) || 0) * (Number(i.precio_unitario) || 0), 0);
+
+  // ── Filtros (solo para Gerencia y Finanzas) ────────────────────────────────
+  const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [filtroDestino,  setFiltroDestino]  = useState(null);
+  const [filtroEstados,  setFiltroEstados]  = useState([]);
+  const [agruparFecha,   setAgruparFecha]   = useState(false);
+  const [panelFiltros,   setPanelFiltros]   = useState(false);
+
+  const destinosUnicos = useMemo(() => {
+    const set = new Set();
+    cotizaciones.forEach(c => {
+      (c.destinos || '').split(', ').filter(Boolean).forEach(d => set.add(d.trim()));
+    });
+    return [...set].sort();
+  }, [cotizaciones]);
+
+  const filtrosActivos = (filtroBusqueda ? 1 : 0) + (filtroDestino ? 1 : 0) + filtroEstados.length;
+
+  const cotizacionesFiltradas = useMemo(() => {
+    if (!esGerFinanzas) return cotizaciones;
+    return cotizaciones.filter(c => {
+      if (filtroBusqueda) {
+        const q = filtroBusqueda.toLowerCase();
+        if (!c.asunto?.toLowerCase().includes(q) && !c.creado_por_nombre?.toLowerCase().includes(q))
+          return false;
+      }
+      if (filtroDestino && !(c.destinos || '').toLowerCase().includes(filtroDestino.toLowerCase()))
+        return false;
+      if (filtroEstados.length > 0 && !filtroEstados.includes(c.estado))
+        return false;
+      return true;
+    });
+  }, [cotizaciones, filtroBusqueda, filtroDestino, filtroEstados, esGerFinanzas]);
+
+  const cotizacionesAgrupadas = useMemo(() => {
+    if (!agruparFecha) return null;
+    const groups = {};
+    cotizacionesFiltradas.forEach(c => {
+      const fecha = new Date(c.fecha_creacion);
+      const hoy   = new Date();
+      const ayer  = new Date(); ayer.setDate(hoy.getDate() - 1);
+      let key;
+      if (fecha.toDateString() === hoy.toDateString())  key = 'Hoy';
+      else if (fecha.toDateString() === ayer.toDateString()) key = 'Ayer';
+      else key = fecha.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
+    });
+    return groups;
+  }, [cotizacionesFiltradas, agruparFecha]);
+
+  const limpiarFiltros = () => {
+    setFiltroBusqueda('');
+    setFiltroDestino(null);
+    setFiltroEstados([]);
+  };
 
   // ── Cargar lista ───────────────────────────────────────────────────────────
   const cargarCotizaciones = useCallback(async () => {
@@ -365,7 +707,7 @@ export default function CotizacionesPage() {
 
   // ── Manejo de ítems ────────────────────────────────────────────────────────
   const agregarItem = () =>
-    setItems(prev => [...prev, { producto: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }]);
+    setItems(prev => [...prev, { producto: '', destino: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }]);
 
   const cambiarItem = (index, field, value) =>
     setItems(prev => prev.map((it, i) => i === index ? { ...it, [field]: value } : it));
@@ -409,7 +751,7 @@ export default function CotizacionesPage() {
   const resetForm = () => {
     setAsunto('');
     setDescripcion('');
-    setItems([{ producto: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }]);
+    setItems([{ producto: '', destino: '', foto_url: '', link: '', cantidad: 1, precio_unitario: 0 }]);
   };
 
   // ── Ver cotización con ítems ───────────────────────────────────────────────
@@ -446,15 +788,41 @@ export default function CotizacionesPage() {
     }
   };
 
+  // ── Comprar ────────────────────────────────────────────────────────────────
+  const handleComprar = async (id) => {
+    try {
+      await api.put(`/cotizaciones/${id}/comprar`);
+      enqueueSnackbar('Cotización marcada como Comprada', { variant: 'success' });
+      setCotSeleccionada(null);
+      cargarCotizaciones();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Error al marcar como comprado', { variant: 'error' });
+    }
+  };
+
+  // ── Anular ─────────────────────────────────────────────────────────────────
+  const handleAnular = async (id, motivo) => {
+    try {
+      await api.put(`/cotizaciones/${id}/anular`, { motivo });
+      enqueueSnackbar('Cotización anulada', { variant: 'warning' });
+      setCotSeleccionada(null);
+      cargarCotizaciones();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Error al anular', { variant: 'error' });
+    }
+  };
+
   // ── Contadores de estado ───────────────────────────────────────────────────
   const pendientes = cotizaciones.filter(c => c.estado === 'pendiente').length;
   const aprobadas  = cotizaciones.filter(c => c.estado === 'aprobada').length;
   const rechazadas = cotizaciones.filter(c => c.estado === 'rechazada').length;
+  const compradas  = cotizaciones.filter(c => c.estado === 'comprado').length;
+  const anuladas   = cotizaciones.filter(c => c.estado === 'anulado').length;
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
           <Typography variant="h5" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Receipt color="primary" /> Cotizaciones
@@ -463,39 +831,126 @@ export default function CotizacionesPage() {
             {PERFILES_GERENTE.includes(perfilId)
               ? 'Revisa y aprueba las cotizaciones del equipo'
               : PERFILES_FINANZAS.includes(perfilId)
-              ? 'Cotizaciones aprobadas para procesar'
+              ? 'Gestiona las cotizaciones aprobadas'
               : 'Envía cotizaciones para aprobación de gerencia'}
           </Typography>
         </Box>
-        {puedeCrear && (
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => setModalCrear(true)}
-          >
-            Nueva cotización
-          </Button>
-        )}
+        <Stack direction="row" spacing={1}>
+          {esGerFinanzas && (
+            <Badge badgeContent={filtrosActivos} color="error">
+              <Button
+                variant={panelFiltros ? 'contained' : 'outlined'}
+                startIcon={<FilterList />}
+                onClick={() => setPanelFiltros(p => !p)}
+              >
+                Filtros
+              </Button>
+            </Badge>
+          )}
+          {puedeCrear && (
+            <Button variant="contained" startIcon={<Add />} onClick={() => setModalCrear(true)}>
+              Nueva cotización
+            </Button>
+          )}
+        </Stack>
       </Box>
 
       {/* Chips resumen */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 3 }}>
-        <Chip icon={<HourglassEmpty />} label={`${pendientes} pendiente${pendientes !== 1 ? 's' : ''}`} color="warning" variant="outlined" />
-        <Chip icon={<Check />}          label={`${aprobadas} aprobada${aprobadas !== 1 ? 's' : ''}`}  color="success" variant="outlined" />
-        <Chip icon={<Close />}          label={`${rechazadas} rechazada${rechazadas !== 1 ? 's' : ''}`} color="error" variant="outlined" />
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+        <Chip icon={<HourglassEmpty />} label={`${pendientes} pendiente${pendientes !== 1 ? 's' : ''}`} color="warning" variant="outlined" size="small" />
+        <Chip icon={<Check />}         label={`${aprobadas} aprobada${aprobadas !== 1 ? 's' : ''}`}    color="success" variant="outlined" size="small" />
+        <Chip icon={<Close />}         label={`${rechazadas} rechazada${rechazadas !== 1 ? 's' : ''}`} color="error"   variant="outlined" size="small" />
+        <Chip icon={<ShoppingCart />}  label={`${compradas} comprada${compradas !== 1 ? 's' : ''}`}    color="primary" variant="outlined" size="small" />
+        <Chip icon={<Block />}         label={`${anuladas} anulada${anuladas !== 1 ? 's' : ''}`}        color="default" variant="outlined" size="small" />
+        {esGerFinanzas && cotizacionesFiltradas.length !== cotizaciones.length && (
+          <Chip label={`${cotizacionesFiltradas.length} resultados filtrados`} color="info" size="small" onDelete={limpiarFiltros} />
+        )}
       </Box>
+
+      {/* Panel de filtros (solo Gerencia y Finanzas) */}
+      {esGerFinanzas && (
+        <Collapse in={panelFiltros}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+            <Grid container spacing={2} alignItems="center">
+              {/* Búsqueda */}
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth size="small"
+                  label="Buscar por asunto o solicitante"
+                  value={filtroBusqueda}
+                  onChange={e => setFiltroBusqueda(e.target.value)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment>,
+                    endAdornment: filtroBusqueda ? (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setFiltroBusqueda('')}><Clear fontSize="small" /></IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                />
+              </Grid>
+
+              {/* Filtro por destino */}
+              <Grid item xs={12} md={3}>
+                <Autocomplete
+                  size="small"
+                  options={destinosUnicos}
+                  value={filtroDestino}
+                  onChange={(_, v) => setFiltroDestino(v)}
+                  renderInput={params => (
+                    <TextField {...params} label="Destino" placeholder="Todos los destinos" />
+                  )}
+                  clearOnEscape
+                />
+              </Grid>
+
+              {/* Filtro por estado */}
+              <Grid item xs={12} md={4}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>Estado</Typography>
+                <ToggleButtonGroup
+                  size="small"
+                  value={filtroEstados}
+                  onChange={(_, v) => setFiltroEstados(v)}
+                  sx={{ flexWrap: 'wrap', gap: 0.5 }}
+                >
+                  {Object.entries(ESTADO_CHIP).map(([key, val]) => (
+                    <ToggleButton key={key} value={key} sx={{ py: 0.3, px: 1, fontSize: 12 }}>
+                      {val.label}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Grid>
+
+              {/* Agrupar por fecha + limpiar */}
+              <Grid item xs={12} md={1} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                <Tooltip title="Agrupar por fecha">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <CalendarMonth fontSize="small" color={agruparFecha ? 'primary' : 'disabled'} />
+                    <Switch size="small" checked={agruparFecha} onChange={e => setAgruparFecha(e.target.checked)} />
+                  </Box>
+                </Tooltip>
+                {filtrosActivos > 0 && (
+                  <Button size="small" color="error" onClick={limpiarFiltros} startIcon={<Clear />}>
+                    Limpiar
+                  </Button>
+                )}
+              </Grid>
+            </Grid>
+          </Paper>
+        </Collapse>
+      )}
 
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       {/* Tabla */}
       <TableContainer component={Paper} variant="outlined">
-        <Table>
+        <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: 'grey.50' }}>
               <TableCell>#</TableCell>
               <TableCell>Asunto</TableCell>
               <TableCell>Solicitante</TableCell>
-              <TableCell>Sucursal</TableCell>
+              <TableCell>Destinos</TableCell>
               <TableCell align="center">Ítems</TableCell>
               <TableCell align="right">Total</TableCell>
               <TableCell>Estado</TableCell>
@@ -504,38 +959,38 @@ export default function CotizacionesPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {cotizaciones.length === 0 && !loading ? (
+            {cotizacionesFiltradas.length === 0 && !loading ? (
               <TableRow>
                 <TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                  No hay cotizaciones para mostrar
+                  {filtrosActivos > 0 ? 'No hay resultados con los filtros aplicados' : 'No hay cotizaciones para mostrar'}
                 </TableCell>
               </TableRow>
-            ) : cotizaciones.map((c) => {
-              const chip = ESTADO_CHIP[c.estado] || {};
-              return (
-                <TableRow key={c.id} hover>
-                  <TableCell sx={{ color: 'text.secondary', fontSize: 13 }}>#{c.id}</TableCell>
-                  <TableCell sx={{ fontWeight: 500, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {c.asunto}
-                  </TableCell>
-                  <TableCell>{c.creado_por_nombre}</TableCell>
-                  <TableCell>{c.sucursal_nombre || '—'}</TableCell>
-                  <TableCell align="center">{c.num_items}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtPeso(c.total)}</TableCell>
-                  <TableCell>
-                    <Chip label={chip.label} color={chip.color} size="small" />
-                  </TableCell>
-                  <TableCell sx={{ fontSize: 13, color: 'text.secondary' }}>{fmtFecha(c.fecha_creacion)}</TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="Ver detalle">
-                      <IconButton size="small" onClick={() => verCotizacion(c.id)}>
-                        <Visibility fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            ) : cotizacionesAgrupadas ? (
+              // ── Vista agrupada por fecha ──────────────────────────────────
+              Object.entries(cotizacionesAgrupadas).map(([fecha, grupo]) => (
+                <React.Fragment key={fecha}>
+                  <TableRow>
+                    <TableCell colSpan={9} sx={{
+                      bgcolor: 'primary.50', py: 0.8, px: 2,
+                      borderLeft: '4px solid', borderColor: 'primary.main',
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="subtitle2" fontWeight={700} color="primary.dark" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <CalendarMonth fontSize="small" /> {fecha}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {grupo.length} cotizacion{grupo.length !== 1 ? 'es' : ''} · {fmtPeso(grupo.reduce((s, c) => s + (c.total || 0), 0))}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  {grupo.map(c => <FilaCotizacion key={c.id} c={c} onVer={verCotizacion} />)}
+                </React.Fragment>
+              ))
+            ) : (
+              // ── Vista plana ───────────────────────────────────────────────
+              cotizacionesFiltradas.map(c => <FilaCotizacion key={c.id} c={c} onVer={verCotizacion} />)
+            )}
           </TableBody>
         </Table>
       </TableContainer>
@@ -551,7 +1006,7 @@ export default function CotizacionesPage() {
                 label="Asunto *"
                 value={asunto}
                 onChange={(e) => setAsunto(e.target.value)}
-                placeholder="Ej: Compra de materiales para local Viña del Mar"
+                placeholder="Ej: Compra de materiales de limpieza"
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -585,6 +1040,7 @@ export default function CotizacionesPage() {
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell>Foto</TableCell>
                   <TableCell>Producto *</TableCell>
+                  <TableCell>Destino</TableCell>
                   <TableCell>Link</TableCell>
                   <TableCell>Cantidad</TableCell>
                   <TableCell>Precio unit.</TableCell>
@@ -638,6 +1094,8 @@ export default function CotizacionesPage() {
         perfilId={perfilId}
         onAprobar={handleAprobar}
         onRechazar={handleRechazar}
+        onComprar={handleComprar}
+        onAnular={handleAnular}
       />
     </Box>
   );

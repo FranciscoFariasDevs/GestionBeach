@@ -242,10 +242,16 @@ export default function PerfilPageModular() {
 
       // Guardar permisos modulares (módulo + sucursales en perfil_modulo_sucursal)
       for (const moduloConfig of modulosAsignados) {
+        // Si el módulo no tiene sucursales seleccionadas, usar todas las sucursales
+        // disponibles (módulos globales como Cotizaciones que no dependen de sucursal)
+        const sucursalesAGuardar = moduloConfig.sucursales.length > 0
+          ? moduloConfig.sucursales
+          : sucursales;
+
         await api.post('/permisos-modulares/sucursales', {
           perfil_id: perfilId,
           modulo_id: moduloConfig.modulo_id,
-          sucursales: moduloConfig.sucursales.map(s => ({
+          sucursales: sucursalesAGuardar.map(s => ({
             id: s.id,
             puede_leer: s.puede_leer !== false,
             puede_escribir: s.puede_escribir === true,

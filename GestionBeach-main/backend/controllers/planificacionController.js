@@ -62,9 +62,21 @@ const obtenerSucursalesERP = async () => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Normaliza cualquier valor fecha a un Date local a medianoche, evitando desfase de timezone.
+// SQL Server devuelve DATE como UTC midnight; YYYY-MM-DD con new Date() también es UTC → se pierde 1 día en Chile (UTC-4).
+const _toLocalMidnight = (date) => {
+  if (date instanceof Date) {
+    // Si ya es Date, usar sus componentes UTC para reconstruir fecha local
+    return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
+  const str = String(date).trim();
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(parseInt(iso[1]), parseInt(iso[2]) - 1, parseInt(iso[3]));
+  return new Date(str); // fallback (puede tener timezone implícita)
+};
+
 const getWeekNumber = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
+  const d = _toLocalMidnight(date);
   d.setDate(d.getDate() + 4 - (d.getDay() || 7));
   const yearStart = new Date(d.getFullYear(), 0, 1);
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
@@ -73,8 +85,7 @@ const getWeekNumber = (date) => {
 // Devuelve el año ISO de la semana (puede diferir del año calendario para fechas de fines de diciembre)
 // Ej: 2025-12-31 → 2026 (semana 1 de 2026)
 const getISOWeekYear = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
+  const d = _toLocalMidnight(date);
   d.setDate(d.getDate() + 4 - (d.getDay() || 7));
   return d.getFullYear();
 };
@@ -99,7 +110,9 @@ const getWeekDateRange = (week, year) => {
 const excelSerialToDate = (serial) => {
   if (!serial || isNaN(serial)) return null;
   const utcDays = Math.floor(serial - 25569);
-  return new Date(utcDays * 86400 * 1000);
+  const utcDate = new Date(utcDays * 86400 * 1000);
+  // Usar componentes UTC para construir fecha local y evitar desfase de timezone (Chile UTC-4)
+  return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
 };
 
 const parseFecha = (val) => {
@@ -120,6 +133,11 @@ const parseFecha = (val) => {
   const ddmmyyyyDash = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
   if (ddmmyyyyDash) {
     return new Date(parseInt(ddmmyyyyDash[3]), parseInt(ddmmyyyyDash[2]) - 1, parseInt(ddmmyyyyDash[1]));
+  }
+  // Formato YYYY-MM-DD (ISO sin hora — new Date('YYYY-MM-DD') usa UTC, lo que desplaza 1 día en Chile)
+  const yyyymmdd = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (yyyymmdd) {
+    return new Date(parseInt(yyyymmdd[1]), parseInt(yyyymmdd[2]) - 1, parseInt(yyyymmdd[3]));
   }
   const d = new Date(str);
   return isNaN(d) ? null : d;
@@ -145,7 +163,7 @@ const formatDate = (d) => {
 const getMesNombre = (date) => {
   const meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
                   'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
-  return meses[new Date(date).getMonth()];
+  return meses[_toLocalMidnight(date).getMonth()];
 };
 
 // Asegurar que las tablas existen
@@ -2077,14 +2095,26 @@ exports.uploadFacturasPBI = async (req, res) => {
     let actualizados = 0, insertados = 0, ignorados = 0, errores = 0;
     const hoy = formatDate(new Date());
 
+    // Eliminar TODAS las cargas PBI anteriores antes de insertar la nueva.
+    // Cada carga PBI es una foto completa del estado actual — no se acumulan.
+    await pool.request().query(`
+      DELETE FROM panificacion_compras
+      WHERE fuente = 'FACTURA'
+        AND ISNULL(es_madre, 0) = 0
+        AND (lote_carga LIKE 'FACTURA_%' OR lote_carga IS NOT NULL)
+    `);
+    console.log('[PBI] Cargas anteriores eliminadas — reemplazando con datos frescos');
+
     for (const row of rows) {
       try {
         const proveedor   = String(row[iProveedor] || '').trim();
         if (!proveedor || proveedor.toLowerCase() === 'proveedor') continue;
 
-        // Procesar filas con estado "A Pagar", "Pagos Futuros" y "Modificado" (ignorar subtotales etc.)
+        // Procesar todos los estados de factura PBI (ignorar solo subtotales y filas vacías)
+        // Estados válidos: "A Pagar", "Aprox Pago Siguiente", "Aprox Pago Sub-Siguiente", "Pagos Futuros", "Modificado"
         const estadoFila = String(row[iEstado] || '').trim().toLowerCase();
-        if (estadoFila && estadoFila !== 'a pagar' && estadoFila !== 'modificado' && estadoFila !== 'pagos futuros') {
+        const ESTADOS_VALIDOS = new Set(['a pagar', 'modificado', 'pagos futuros', 'aprox pago siguiente', 'aprox pago sub-siguiente']);
+        if (estadoFila && !ESTADOS_VALIDOS.has(estadoFila)) {
           ignorados++;
           continue;
         }

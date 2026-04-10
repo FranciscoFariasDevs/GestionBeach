@@ -18,4 +18,8 @@ router.get('/:id',     ctrl.getCotizacionById);
 router.put('/:id/aprobar',  ctrl.aprobarCotizacion);
 router.put('/:id/rechazar', ctrl.rechazarCotizacion);
 
+// Acciones de finanzas
+router.put('/:id/comprar', ctrl.comprarCotizacion);
+router.put('/:id/anular',  ctrl.anularCotizacion);
+
 module.exports = router;

@@ -64,4 +64,5 @@ module.exports = [
   { nombre: 'Proveedores Producto', claves: ['productos/proveedores'] },
   { nombre: 'Organigrama',          claves: ['organigrama'] },
   { nombre: 'Kanban',               claves: ['kanban'] },
+  { nombre: 'Cotizaciones',         claves: ['cotizaciones'] },
 ];

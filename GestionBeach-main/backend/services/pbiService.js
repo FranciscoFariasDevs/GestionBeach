@@ -260,16 +260,33 @@ async function exportarDatosVisual(page, context, log) {
   log('Buscando visual de tabla para exportar...');
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, `report_${Date.now()}.png`) });
 
-  // Posiciones donde puede estar la tabla según el screenshot (viewport 1440x900)
-  const hoverPositions = [
-    { x: 1080, y: 300 },
-    { x: 1080, y: 400 },
-    { x: 1080, y: 250 },
-    { x: 900,  y: 350 },
-    { x: 1150, y: 350 },
+  // Estrategia: buscar el contenedor del visual de tabla en el DOM de PBI
+  // PBI envuelve cada visual en divs con clases como "visual-container" o atributos data-visuid
+  // Nos interesa el visual más grande/derecho que tenga datos tabulares
+  const visualSelectors = [
+    '[class*="visualContainer"]',
+    '[class*="visual-container"]:not([class*="visual-container-component"])',
+    '[data-visuid]',
+    '[class*="single-visual"]',
   ];
 
-  // Power BI en español usa "Más opciones", en inglés "More options"
+  let foundExportItem = null;
+
+  // Hover positions para la tabla DERECHA (detalle de facturas, x > 500 en viewport 1440x900)
+  // La tabla de detalle ocupa el lado derecho del reporte
+  const hoverPositions = [
+    { x: 1050, y: 140 },  // esquina superior-derecha del visual tabla
+    { x: 1200, y: 140 },
+    { x: 900,  y: 140 },
+    { x: 1300, y: 140 },
+    { x: 1050, y: 200 },
+    { x: 900,  y: 200 },
+    { x: 1200, y: 200 },
+    { x: 800,  y: 140 },
+    { x: 1050, y: 250 },
+    { x: 800,  y: 200 },
+  ];
+
   const moreBtnSelectors = [
     'button[aria-label="Más opciones"]',
     'button[aria-label="More options"]',
@@ -277,64 +294,62 @@ async function exportarDatosVisual(page, context, log) {
     'button[title="More options"]',
   ];
 
-  let btnOpciones = null;
-
+  // Estrategia "try-and-verify": hover → click botón → verificar si aparece "Exportar datos"
+  // Si no aparece, cerrar menú y probar siguiente posición
   for (const pos of hoverPositions) {
     await page.mouse.move(pos.x, pos.y);
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1000);
 
+    // Recoger TODOS los botones "Más opciones" visibles
+    const candidatos = [];
     for (const sel of moreBtnSelectors) {
       const btns = await page.$$(sel);
       for (const btn of btns) {
         const box = await btn.boundingBox();
-        if (box && box.y > 100) {
-          btnOpciones = btn;
-          log(`Botón "Más opciones" encontrado (${sel}) en pos hover x=${pos.x},y=${pos.y}`);
-          break;
+        // Solo botones en zona de visual (x > 400 para excluir sidebar izquierdo, y en 60-400)
+        if (box && box.x > 400 && box.y > 60 && box.y < 400) {
+          candidatos.push({ btn, box, sel });
         }
       }
-      if (btnOpciones) break;
     }
-    if (btnOpciones) break;
-  }
 
-  if (!btnOpciones) {
-    // Último intento: buscar cualquier botón "..." visible dentro del visual
-    const allBtns = await page.$$('button');
-    for (const btn of allBtns) {
-      const box = await btn.boundingBox();
-      if (!box || box.y < 100) continue;
-      const txt = (await btn.textContent() || '').trim();
-      const lbl = (await btn.getAttribute('aria-label') || '').toLowerCase();
-      if (txt === '...' || lbl.includes('opciones') || lbl.includes('options')) {
-        btnOpciones = btn;
-        log(`Botón "..." encontrado por texto/label: "${lbl || txt}"`);
+    if (candidatos.length === 0) continue;
+
+    // Probar cada candidato: click → verificar menú tiene "Exportar datos"
+    for (const { btn, box, sel } of candidatos) {
+      log(`Probando botón (${sel}) en x=${Math.round(box.x)} y=${Math.round(box.y)} (hover ${pos.x},${pos.y})`);
+      await btn.click();
+      await page.waitForTimeout(1200);
+
+      const exportItem = page.locator('[role="menuitem"]').filter({ hasText: /exportar datos|export data/i });
+      const exportCount = await exportItem.count();
+
+      if (exportCount > 0) {
+        log(`✓ Menú correcto encontrado — "Exportar datos" visible`);
+        foundExportItem = exportItem;
         break;
       }
+
+      // Este botón no era el correcto — cerrar menú y seguir
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
     }
+
+    if (foundExportItem) break;
   }
 
-  if (!btnOpciones) {
-    log('No se encontró botón de opciones del visual');
-    await page.screenshot({ path: path.join(SCREENSHOT_DIR, `no_options_btn_${Date.now()}.png`) });
-    return null;
-  }
-
-  await btnOpciones.click();
-  await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, `context_menu_${Date.now()}.png`) });
 
-  // Buscar "Exportar datos" o "Export data" en el menú contextual
-  const exportItem = page.locator('[role="menuitem"]').filter({ hasText: /exportar datos|export data/i });
-  const exportCount = await exportItem.count();
-  log(`Opciones "Exportar datos" en menú: ${exportCount}`);
-
-  if (exportCount === 0) {
+  if (!foundExportItem) {
+    log('No se encontró opción "Exportar datos" en ningún visual. Tomando screenshot de diagnóstico.');
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, `menu_error_${Date.now()}.png`) });
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
     return null;
   }
+
+  const exportItem = foundExportItem;
+  const exportCount = await exportItem.count();
+  log(`Opciones "Exportar datos" en menú: ${exportCount}`);
 
   await exportItem.first().click();
   log('Click en "Exportar datos", esperando diálogo...');
