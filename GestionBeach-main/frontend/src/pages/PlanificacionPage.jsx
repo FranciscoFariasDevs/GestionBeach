@@ -1822,6 +1822,7 @@ const agruparEncadenados = (items) => {
       semana_vencimiento: item.semana_vencimiento,
       monto_con_iva:     parseFloat(item.monto_con_iva) || 0,
       monto_neto:        parseFloat(item.monto_neto)    || 0,
+      fuente:            item.fuente,
     });
     g.monto_total_iva  += parseFloat(item.monto_con_iva) || 0;
     g.monto_total_neto += parseFloat(item.monto_neto)    || 0;
@@ -1941,6 +1942,7 @@ function EncRow({ item, onDelete, onVerProductos, onMadre }) {
                       <Chip label={p.plazo_dias > 0 ? `${p.plazo_dias}d` : '–'} size="small" sx={{fontSize:'0.62rem',height:18,bgcolor:ENC_BG,color:ENC_DARK}}/>
                       <Typography variant="caption" fontWeight={600} color={ENC_DARK}>{fmtDate(p.fecha_vencimiento)}</Typography>
                       {p.semana_vencimiento && <Typography variant="caption" color="text.secondary">S{p.semana_vencimiento}</Typography>}
+                      {p.fuente && <FuenteBadge fuente={p.fuente}/>}
                       <Typography variant="caption" fontWeight={700} color={ENC_DARK} sx={{ml:'auto'}}>{fmtM(p.monto_con_iva)}</Typography>
                       {onDelete && (
                         <IconButton size="small" onClick={()=>onDelete(p.id)} sx={{opacity:.35,'&:hover':{opacity:1,color:'error.main'}}}>
@@ -2108,6 +2110,9 @@ function FuenteBadge({ fuente }) {
   if (f === 'FACTURA')
     return <Chip label="PBI ✓" size="small" sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
       bgcolor:'#e8f5e9', color:'#2e7d32', border:'1px solid #a5d6a7' }}/>;
+  if (f === 'REMANENTE')
+    return <Chip label="REMANENTE" size="small" sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
+      bgcolor:'#fff8e1', color:'#e65100', border:'1px solid #ffcc02' }}/>;
   if (f === 'EXCEL')
     return <Chip label="Excel" size="small" sx={{ fontSize:'0.6rem', height:18, fontWeight:700,
       bgcolor:'#fff3e0', color:'#e65100', border:'1px solid #ffcc80' }}/>;

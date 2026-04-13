@@ -310,9 +310,11 @@ exports.getControlSemanal = async (req, res) => {
         )
         SELECT d.semana_vencimiento,
                -- Proyección: EXCEL sin facturas aún + REMANENTE (balance pendiente de OC)
+               -- Excluye OCs ya canceladas o facturadas para no inflar la proyección
                SUM(CASE
                  WHEN d.tipo_proveedor = 'Encadenado' AND d.fuente NOT IN ('FACTURA','REMANENTE')
                       AND tf.oc_id IS NULL
+                      AND ISNULL(d.estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
                    THEN d.monto_con_iva
                  WHEN d.tipo_proveedor = 'Encadenado' AND d.fuente = 'REMANENTE'
                    THEN d.monto_con_iva
@@ -497,6 +499,7 @@ exports.getCompras = async (req, res) => {
                e.fuente, e.fecha_carga, ISNULL(e.estado_pago, 'Pendiente') AS estado_pago, e.vigente
         FROM enc_excel_dedup e
         WHERE e._rn = 1
+          AND e.estado_pago NOT IN ('Cancelado', 'Facturado')
           AND NOT EXISTS (
             SELECT 1 FROM tiene_facturas tf
             WHERE (tf.oc_id > 0 AND tf.oc_id = e.id)
@@ -1529,11 +1532,17 @@ exports.getComprasPorEmision = async (req, res) => {
           WHERE año = @año AND ISNULL(es_madre, 0) = 0
         )
         SELECT semana_compra,
-               SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='EXCEL'   THEN monto_con_iva ELSE 0 END) AS enc_oc,
+               SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='EXCEL'
+                             AND ISNULL(estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
+                        THEN monto_con_iva ELSE 0 END) AS enc_oc,
                SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='FACTURA' THEN monto_con_iva ELSE 0 END) AS enc_fact,
                SUM(CASE WHEN tipo_proveedor='No Encadenado'                      THEN monto_con_iva ELSE 0 END) AS no_enc,
-               SUM(monto_con_iva) AS total,
-               COUNT(DISTINCT CASE WHEN tipo_proveedor='Encadenado' THEN ISNULL(numero_orden, CAST(id AS NVARCHAR)) END) AS num_ordenes
+               SUM(CASE WHEN ISNULL(estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
+                             OR fuente IN ('FACTURA','REMANENTE')
+                        THEN monto_con_iva ELSE 0 END) AS total,
+               COUNT(DISTINCT CASE WHEN tipo_proveedor='Encadenado'
+                                        AND ISNULL(estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
+                                   THEN ISNULL(numero_orden, CAST(id AS NVARCHAR)) END) AS num_ordenes
         FROM dedup
         WHERE _rn = 1 AND semana_compra IS NOT NULL AND semana_compra > 0
         GROUP BY semana_compra
@@ -2047,6 +2056,38 @@ exports.getAlertasSemanas = async (req, res) => {
   }
 };
 
+// ─── Helper: si la suma de todas las facturas de un numero_orden cubre la suma
+//     de TODAS las cuotas EXCEL → marcar todas como Cancelado.
+//     Si no alcanza, no toca nada (cada fila ya tiene su estado individual).
+const _cascadaEstadoOC = async (pool, oc) => {
+  if (!oc) return;
+  const r = await pool.request()
+    .input('oc', sql.NVarChar, oc)
+    .query(`
+      SELECT
+        (SELECT ISNULL(SUM(monto_con_iva),0) FROM panificacion_compras
+         WHERE numero_orden=@oc AND tipo_proveedor='Encadenado'
+           AND fuente NOT IN ('FACTURA','REMANENTE') AND ISNULL(es_madre,0)=0) AS total_oc,
+        (SELECT ISNULL(SUM(monto_con_iva),0) FROM panificacion_compras
+         WHERE numero_orden=@oc AND tipo_proveedor='Encadenado'
+           AND fuente='FACTURA') AS total_fact
+    `);
+  const totalOC   = parseFloat(r.recordset[0].total_oc)   || 0;
+  const totalFact = parseFloat(r.recordset[0].total_fact) || 0;
+  if (totalOC > 0 && totalFact >= totalOC) {
+    // Cubierta completamente → todas las cuotas pasan a Cancelado
+    await pool.request()
+      .input('oc', sql.NVarChar, oc)
+      .query(`
+        UPDATE panificacion_compras SET estado_pago = 'Cancelado'
+        WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
+          AND fuente NOT IN ('FACTURA','REMANENTE')
+          AND ISNULL(es_madre,0) = 0
+          AND estado_pago != 'Cancelado'
+      `);
+  }
+};
+
 // ─── POST: Upload Facturas PBI (data PBI) ─────────────────────────────────────
 exports.uploadFacturasPBI = async (req, res) => {
   try {
@@ -2101,6 +2142,15 @@ exports.uploadFacturasPBI = async (req, res) => {
       DELETE FROM panificacion_compras
       WHERE fuente = 'FACTURA'
         AND ISNULL(es_madre, 0) = 0
+        AND (lote_carga LIKE 'FACTURA_%' OR lote_carga IS NOT NULL)
+    `);
+    // Limpiar también REMANENTE generados por el sistema en cargas anteriores
+    // (los que tienen id_oc_ref apuntando a una fila EXCEL — se recalculan en esta carga).
+    await pool.request().query(`
+      DELETE FROM panificacion_compras
+      WHERE fuente = 'REMANENTE'
+        AND ISNULL(es_madre, 0) = 0
+        AND id_oc_ref IS NOT NULL
         AND (lote_carga LIKE 'FACTURA_%' OR lote_carga IS NOT NULL)
     `);
     console.log('[PBI] Cargas anteriores eliminadas — reemplazando con datos frescos');
@@ -2197,6 +2247,7 @@ exports.uploadFacturasPBI = async (req, res) => {
             const row0           = remanQ.recordset[0];
             const montoExistente = parseFloat(row0.monto_con_iva) || 0;
             const remanenteConIva = Math.round(montoExistente - montoConIva);
+            console.log(`[PBI P1] OC="${oc}" → REMANENTE existente id=${row0.id} monto=${montoExistente} | factura=${montoConIva} | diff=${remanenteConIva}`);
 
             if (remanenteConIva < 0) {
               // Factura cubre (o supera) el REMANENTE → convertir a FACTURA
@@ -2275,9 +2326,14 @@ exports.uploadFacturasPBI = async (req, res) => {
             actualizados++;
             actualizado = true;
 
+            // Verificar si el numero_orden completo quedó cubierto → marcar todas las cuotas
+            await _cascadaEstadoOC(pool, oc);
+
           } else {
             // Prioridad 2: buscar OC original (EXCEL/MANUAL) — NO sobreescribirla,
-            // insertar FACTURA nueva y actualizar su estado_pago
+            // insertar FACTURA nueva y actualizar su estado_pago.
+            // IMPORTANTE: saltar filas ya Canceladas para que cada factura encuentre
+            // su propia cuota/fila y no se acumulen todas en la primera.
             const ocOrigQ = await pool.request()
               .input('oc', sql.NVarChar, oc)
               .query(`
@@ -2287,11 +2343,13 @@ exports.uploadFacturasPBI = async (req, res) => {
                 WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
                   AND ISNULL(es_madre, 0) = 0
                   AND fuente NOT IN ('FACTURA', 'REMANENTE')
+                  AND estado_pago NOT IN ('Cancelado', 'Facturado')
                 ORDER BY id ASC
               `);
 
             if (ocOrigQ.recordset.length > 0) {
               const refRow = ocOrigQ.recordset[0];
+              console.log(`[PBI P2] OC="${oc}" → EXCEL id=${refRow.id} monto_oc=${refRow.monto_con_iva} | factura_monto=${montoConIva}`);
 
               // Insertar nueva fila FACTURA (la OC original permanece intacta)
               await insertarCompra(pool, {
@@ -2312,23 +2370,59 @@ exports.uploadFacturasPBI = async (req, res) => {
                 id_oc_ref:          refRow.id, // FK directa al EXCEL original
               }, lote, 'FACTURA');
 
-              // Recalcular cobertura y actualizar estado de la OC original
-              const totalQ = await pool.request()
-                .input('oc', sql.NVarChar, oc)
+              // Actualizar estado de esta cuota individual primero
+              const totalIndivQ = await pool.request()
+                .input('refId', sql.Int, refRow.id)
                 .query(`
-                  SELECT ISNULL(SUM(monto_con_iva), 0) AS total
+                  SELECT ISNULL(SUM(monto_con_iva),0) AS total
                   FROM panificacion_compras
-                  WHERE numero_orden = @oc AND tipo_proveedor = 'Encadenado'
-                    AND fuente = 'FACTURA'
+                  WHERE id_oc_ref = @refId AND fuente = 'FACTURA'
                 `);
-              const totalFacturado = parseFloat(totalQ.recordset[0].total) || 0;
-              const ocMonto        = parseFloat(refRow.monto_con_iva) || 0;
-              const nuevoEstado    = totalFacturado >= ocMonto ? 'Cancelado' : 'Parcial';
-
+              const totalIndiv = parseFloat(totalIndivQ.recordset[0].total) || 0;
+              const ocMonto    = parseFloat(refRow.monto_con_iva) || 0;
+              const estadoIndiv = totalIndiv >= ocMonto ? 'Cancelado' : 'Parcial';
               await pool.request()
                 .input('id',     sql.Int,      refRow.id)
-                .input('estado', sql.NVarChar, nuevoEstado)
+                .input('estado', sql.NVarChar, estadoIndiv)
                 .query(`UPDATE panificacion_compras SET estado_pago = @estado WHERE id = @id`);
+
+              console.log(`[PBI P2] OC="${oc}" → totalFacturado=${totalIndiv} ocMonto=${ocMonto} estado=${estadoIndiv}`);
+              // Si la facturación es parcial → crear REMANENTE con el saldo pendiente.
+              // Sin este paso, la fila EXCEL queda excluida por `tiene_facturas` y el
+              // saldo restante desaparece de la vista aunque la OC no esté cancelada.
+              if (estadoIndiv === 'Parcial') {
+                const diffConIva = Math.round(ocMonto - totalIndiv);
+                if (diffConIva > 0) {
+                  // Eliminar REMANENTE previo para esta cuota si existiera (evita duplicados)
+                  await pool.request()
+                    .input('refId', sql.Int, refRow.id)
+                    .query(`DELETE FROM panificacion_compras WHERE id_oc_ref = @refId AND fuente = 'REMANENTE'`);
+                  const diffNeto       = Math.round(diffConIva / 1.19);
+                  const fechaVencRef   = new Date(refRow.fecha_vencimiento);
+                  const semanaVencRef  = getWeekNumber(fechaVencRef);
+                  console.log(`[PBI P2] OC="${oc}" → CREANDO REMANENTE diffConIva=${diffConIva} semVenc=${semanaVencRef}`);
+                  await insertarCompra(pool, {
+                    proveedor:          refRow.proveedor || proveedor,
+                    fecha_compra:       refRow.fecha_compra ? formatDate(new Date(refRow.fecha_compra)) : hoy,
+                    semana_compra:      refRow.semana_compra,
+                    año:                refRow.año || año,
+                    mes:                refRow.mes || getMesNombre(fechaVencRef),
+                    numero_orden:       oc,
+                    monto_neto:         diffNeto,
+                    monto_con_iva:      diffConIva,
+                    plazo_dias:         refRow.plazo_dias,
+                    fecha_vencimiento:  formatDate(fechaVencRef),
+                    semana_vencimiento: semanaVencRef,
+                    tipo_proveedor:     'Encadenado',
+                    sucursal:           refRow.sucursal || '',
+                    fecha_carga:        refRow.fecha_carga,
+                    id_oc_ref:          refRow.id,
+                  }, lote, 'REMANENTE');
+                }
+              }
+
+              // Luego verificar si el numero_orden completo quedó cubierto → marcar todas las cuotas
+              await _cascadaEstadoOC(pool, oc);
 
               insertados++;
               actualizado = true;
