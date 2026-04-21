@@ -39,6 +39,8 @@ import {
   Close as CloseIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
+  Bookmark as BookmarkIcon,
+  Receipt as ReceiptIcon,
 } from '@mui/icons-material';
 import InputAdornment from '@mui/material/InputAdornment';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -242,16 +244,21 @@ function AlertasCriticas({ weeksData, currentWeek, onJump }) {
 }
 
 // ─── Mini bar chart de 52 semanas ─────────────────────────────────────────────
-const BAR_H = 80; // altura máxima de la barra en px
-function WeekMiniBar({ w, isCurrent, onClick }) {
+const BAR_H     = 110;
+const MINI_BAR_W = 13;
+const MINI_GAP   = 1;
+
+function WeekMiniBar({ w, isCurrent, onClick, maxVal }) {
   const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
-  const hasDatos = (w.encadenados || 0) > 0 || (w.deuda_facturada_nenc || 0) > 0;
-  const pct = w.porcentaje_uso || 0;
-  const height = hasDatos ? Math.max(5, Math.min(BAR_H, Math.round(pct / 100 * BAR_H))) : 5;
+  const enc      = parseFloat(w.encadenados)          || 0;
+  const factEnc  = parseFloat(w.deuda_facturada_enc)  || 0;
+  const nenc     = parseFloat(w.deuda_facturada_nenc) || 0;
+  const total    = enc + factEnc + nenc;
+  const hasDatos = total > 0;
+  const height   = hasDatos ? Math.max(5, Math.min(BAR_H, Math.round(total / maxVal * BAR_H))) : 5;
   const barColor = isCurrent ? '#1a237e' : hasDatos ? sc.color : '#bdbdbd';
-  const enc  = w.encadenados || 0;
-  const nenc = w.deuda_facturada_nenc || 0;
-  const lim  = w.limite_semanal || 100000000;
+  const pct = w.porcentaje_uso || 0;
+  const lim  = parseFloat(w.limite_semanal) || 100_000_000;
 
   return (
     <Tooltip title={
@@ -271,8 +278,8 @@ function WeekMiniBar({ w, isCurrent, onClick }) {
       </Box>
     }>
       <Box onClick={onClick} sx={{
-        width: 10,
-        height: BAR_H + 4,
+        width: MINI_BAR_W,
+        height: BAR_H + 26,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -281,10 +288,9 @@ function WeekMiniBar({ w, isCurrent, onClick }) {
         position: 'relative',
         '&:hover .bar': { opacity: 1, transform: 'scaleY(1.05)', transformOrigin: 'bottom' },
       }}>
-        {/* Etiqueta semana actual encima */}
         {isCurrent && (
           <Typography variant="caption" sx={{
-            position: 'absolute', top: -16, fontSize: '0.65rem',
+            position: 'absolute', top: 0, fontSize: '0.65rem',
             fontWeight: 800, color: '#1a237e', whiteSpace: 'nowrap',
           }}>S{w.semana}</Typography>
         )}
@@ -303,8 +309,8 @@ function WeekMiniBar({ w, isCurrent, onClick }) {
 }
 
 // ─── Gráfico Anual Pantalla Completa ─────────────────────────────────────────
-const FULL_BAR_H = 340;
-const FULL_BAR_W = 20;
+const FULL_BAR_H = 420;
+const FULL_BAR_W = 22;
 const MESES_COMPLETOS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const CHART_BG    = '#0f172a';
 const CHART_GRID  = 'rgba(255,255,255,0.06)';
@@ -318,19 +324,42 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
   const totNoEnc    = weeksData.reduce((s,w) => s + (parseFloat(w.deuda_facturada_nenc) || 0), 0);
   const totGeneral  = totEncOC + totFactEnc + totNoEnc;
 
-  const maxVal = Math.max(...weeksData.map(w =>
+  const maxBarVal = Math.max(...weeksData.map(w =>
     (parseFloat(w.encadenados)||0) + (parseFloat(w.deuda_facturada_enc)||0) + (parseFloat(w.deuda_facturada_nenc)||0)
   ), 1);
-
-  const avgLimite   = weeksData.reduce((s,w) => s + (parseFloat(w.limite_semanal)||100_000_000), 0) / weeksData.length;
-  const limiteFrac  = Math.min(avgLimite / maxVal, 1);
-  const limiteTopPx = FULL_BAR_H * (1 - limiteFrac);
-  const alerta80Top = FULL_BAR_H * (1 - limiteFrac * 0.8);
+  const maxLimite = Math.max(...weeksData.map(w => parseFloat(w.limite_semanal) || 100_000_000));
+  const maxVal    = Math.max(maxBarVal, maxLimite) * 1.1;
 
   const semanasAlerta = weeksData.filter(w => w.estado && w.estado !== 'OK' && w.estado !== 'SIN_DATOS');
 
-  // Etiquetas del eje Y (4 niveles)
+  // Etiquetas eje Y — valores abreviados
+  const fmtY = v => {
+    if (v >= 1_000_000_000) return `$${(v/1_000_000_000).toFixed(1)}B`;
+    if (v >= 1_000_000)     return `$${Math.round(v/1_000_000)}M`;
+    if (v >= 1_000)         return `$${Math.round(v/1_000)}K`;
+    return `$${Math.round(v)}`;
+  };
   const yLabels = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: maxVal * f, y: FULL_BAR_H * (1 - f) }));
+
+  // Puntos del SVG para la línea de límite variable (step-function)
+  const limPts = weeksData.map((w, i) => {
+    const lim = parseFloat(w.limite_semanal) || 100_000_000;
+    return {
+      y:   Math.max(0, Math.min(FULL_BAR_H, FULL_BAR_H * (1 - lim / maxVal))),
+      y80: Math.max(0, Math.min(FULL_BAR_H, FULL_BAR_H * (1 - lim * 0.8 / maxVal))),
+      x1:  i * (FULL_BAR_W + 4),
+      x2:  i * (FULL_BAR_W + 4) + FULL_BAR_W,
+      lim,
+    };
+  });
+  const _buildLimitPath = yKey => {
+    let d = `M ${limPts[0].x1},${limPts[0][yKey]}`;
+    for (let i = 1; i < limPts.length; i++) d += ` H ${limPts[i].x1} V ${limPts[i][yKey]}`;
+    return d + ` H ${limPts[limPts.length - 1].x2}`;
+  };
+  const limitePath  = _buildLimitPath('y');
+  const alerta80Path = _buildLimitPath('y80');
+  const svgW = weeksData.length * (FULL_BAR_W + 4);
 
   return (
     <Dialog open={open} onClose={onClose} fullScreen
@@ -397,15 +426,19 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
           '&::-webkit-scrollbar-thumb':{ bgcolor:'rgba(255,255,255,0.15)', borderRadius:3 },
         }}>
           {/* Contenedor principal del gráfico */}
-          <Box sx={{ display:'flex', gap:0, minWidth: weeksData.length * (FULL_BAR_W + 4) + 60 }}>
+          <Box sx={{ display:'flex', gap:0, minWidth: weeksData.length * (FULL_BAR_W + 4) + 100 }}>
 
             {/* Eje Y */}
-            <Box sx={{ width:52, flexShrink:0, position:'relative', height: FULL_BAR_H, mr:1 }}>
+            <Box sx={{ width:82, flexShrink:0, position:'relative', height: FULL_BAR_H, mr:1 }}>
               {yLabels.map(({ frac, val, y }) => (
                 <Box key={frac} sx={{ position:'absolute', top: y, right:0, transform:'translateY(-50%)',
                   display:'flex', alignItems:'center', gap:0.5 }}>
-                  <Typography variant="caption" sx={{ fontSize:'0.58rem', color:CHART_AXIS, whiteSpace:'nowrap', textAlign:'right' }}>
-                    {frac === 0 ? '' : fmtM(val).replace('$','')}
+                  {frac > 0 && (
+                    <Box sx={{ width:6, height:1, bgcolor:'rgba(255,255,255,0.2)', flexShrink:0 }}/>
+                  )}
+                  <Typography variant="caption" sx={{ fontSize:'0.7rem', color: frac > 0 ? CHART_AXIS : 'transparent',
+                    whiteSpace:'nowrap', textAlign:'right', fontWeight:500 }}>
+                    {fmtY(val)}
                   </Typography>
                 </Box>
               ))}
@@ -420,30 +453,57 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
               {yLabels.slice(1).map(({ frac, y }) => (
                 <Box key={frac} sx={{
                   position:'absolute', top: y + 16, left:16, right:16,
-                  borderTop: frac === limiteFrac ? '2px dashed rgba(239,68,68,0.6)' : `1px solid ${CHART_GRID}`,
+                  borderTop: `1px solid ${CHART_GRID}`,
                   zIndex:1, pointerEvents:'none',
                 }}/>
               ))}
 
-              {/* Línea límite */}
-              <Box sx={{ position:'absolute', top: limiteTopPx + 16, left:16, right:16,
-                borderTop:'2px dashed rgba(239,68,68,0.7)', zIndex:3, pointerEvents:'none' }}>
-                <Box sx={{ position:'absolute', right:0, top:-22, bgcolor:'rgba(239,68,68,0.15)',
-                  border:'1px solid rgba(239,68,68,0.4)', borderRadius:1, px:1, py:0.2 }}>
-                  <Typography variant="caption" sx={{ color:'#f87171', fontSize:'0.62rem', fontWeight:700 }}>
-                    Límite {fmtM(avgLimite)}
-                  </Typography>
-                </Box>
-              </Box>
+              {/* ── Líneas de límite variable por semana (SVG step-function) ── */}
+              <svg
+                viewBox={`0 0 ${svgW} ${FULL_BAR_H}`}
+                style={{ position:'absolute', top:16, left:16, width:svgW, height:FULL_BAR_H,
+                  pointerEvents:'none', overflow:'visible', zIndex:4 }}
+              >
+                {/* Zona sombreada bajo la línea de límite */}
+                <defs>
+                  <linearGradient id="limZone" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(239,68,68,0)" />
+                    <stop offset="100%" stopColor="rgba(239,68,68,0.06)" />
+                  </linearGradient>
+                </defs>
 
-              {/* Línea 80% */}
-              <Box sx={{ position:'absolute', top: alerta80Top + 16, left:16, right:16,
-                borderTop:'1px dashed rgba(251,146,60,0.5)', zIndex:2, pointerEvents:'none' }}>
-                <Box sx={{ position:'absolute', left:0, top:-18, bgcolor:'rgba(251,146,60,0.12)',
-                  border:'1px solid rgba(251,146,60,0.35)', borderRadius:1, px:0.8, py:0.1 }}>
-                  <Typography variant="caption" sx={{ color:'#fb923c', fontSize:'0.58rem', fontWeight:700 }}>80%</Typography>
-                </Box>
-              </Box>
+                {/* Línea 80% — naranja */}
+                <path d={alerta80Path} stroke="rgba(251,146,60,0.55)" strokeWidth="1.5"
+                  strokeDasharray="4,3" fill="none"/>
+
+                {/* Línea límite — rojo */}
+                <path d={limitePath} stroke="rgba(239,68,68,0.9)" strokeWidth="2.5"
+                  strokeDasharray="7,4" fill="none"/>
+
+                {/* Etiqueta "Límite" al final */}
+                <rect x={limPts[limPts.length-1].x2 + 5} y={limPts[limPts.length-1].y - 11}
+                  width={52} height={18} rx={3}
+                  fill="rgba(239,68,68,0.18)" stroke="rgba(239,68,68,0.45)" strokeWidth={0.8}/>
+                <text x={limPts[limPts.length-1].x2 + 31} y={limPts[limPts.length-1].y + 3}
+                  textAnchor="middle" fill="#f87171" fontSize={9} fontWeight={700}>Límite</text>
+
+                {/* Etiqueta "80%" al final */}
+                <rect x={limPts[limPts.length-1].x2 + 5} y={limPts[limPts.length-1].y80 - 11}
+                  width={30} height={18} rx={3}
+                  fill="rgba(251,146,60,0.14)" stroke="rgba(251,146,60,0.4)" strokeWidth={0.8}/>
+                <text x={limPts[limPts.length-1].x2 + 20} y={limPts[limPts.length-1].y80 + 3}
+                  textAnchor="middle" fill="#fb923c" fontSize={9} fontWeight={700}>80%</text>
+
+                {/* Punto destacado en el cambio de límite entre semanas */}
+                {limPts.map((p, i) => {
+                  if (i === 0) return null;
+                  if (Math.abs(p.lim - limPts[i-1].lim) < 100) return null;
+                  return (
+                    <circle key={i} cx={p.x1} cy={p.y} r={3}
+                      fill="#f87171" stroke="#0f172a" strokeWidth={1.5}/>
+                  );
+                })}
+              </svg>
 
               {/* Separadores de mes */}
               {MESES_COMPLETOS.map((_, i) => {
@@ -591,11 +651,11 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
               </Box>
             ))}
             <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
-              <Box sx={{ width:20, borderTop:'2px dashed rgba(239,68,68,0.7)' }}/>
-              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>Límite semanal</Typography>
+              <Box sx={{ width:20, borderTop:'2.5px dashed rgba(239,68,68,0.9)' }}/>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>Límite (variable por semana)</Typography>
             </Box>
             <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
-              <Box sx={{ width:20, borderTop:'2px dashed rgba(251,146,60,0.6)' }}/>
+              <Box sx={{ width:20, borderTop:'1.5px dashed rgba(251,146,60,0.6)' }}/>
               <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', fontSize:'0.72rem' }}>80% del límite</Typography>
             </Box>
           </Box>
@@ -1028,6 +1088,718 @@ function StatsAnuales({ stats }) {
   );
 }
 
+// ─── Vista Orden → Factura → Remanente ───────────────────────────────────────
+const OF_COLOR  = '#e65100';
+const OF_BG     = '#fff3e0';
+
+const FUENTE_META = {
+  EXCEL:     { label:'Excel OC',   color:'#1565c0', bg:'#e3f2fd' },
+  MANUAL:    { label:'Manual',     color:'#1565c0', bg:'#e3f2fd' },
+  ERP:       { label:'ERP',        color:'#2e7d32', bg:'#e8f5e9' },
+  FACTURA:   { label:'Factura',    color:'#6a1b9a', bg:'#f3e5f5' },
+  REMANENTE: { label:'Remanente',  color:'#e65100', bg:'#fff3e0' },
+};
+
+function VistaOrdenFactura({ registros, loading, año, onRefresh }) {
+  const [busqueda, setBusqueda] = React.useState('');
+  const [soloConFactura, setSoloConFactura] = React.useState(false);
+  const [soloConRemanente, setSoloConRemanente] = React.useState(false);
+  const [expandidos, setExpandidos] = React.useState({});
+
+  // Agrupar por numero_orden
+  const grupos = React.useMemo(() => {
+    const map = {};
+    registros.forEach(r => {
+      const key = r.numero_orden;
+      if (!map[key]) map[key] = { key, proveedor: r.proveedor, sucursal: r.sucursal, oc: [], facturas: [], remanente: null, esMadre: false };
+      const g = map[key];
+      if (r.es_madre) g.esMadre = true;
+      if (['EXCEL','MANUAL','ERP'].includes(r.fuente)) g.oc.push(r);
+      else if (r.fuente === 'FACTURA') g.facturas.push(r);
+      else if (r.fuente === 'REMANENTE') g.remanente = r;
+    });
+
+    return Object.values(map).map(g => {
+      const montoOC       = g.oc.reduce((s,r) => s + (parseFloat(r.monto_con_iva)||0), 0);
+      const montoFacturado= g.facturas.reduce((s,r) => s + (parseFloat(r.monto_con_iva)||0), 0);
+      const montoRemanente= g.remanente ? (parseFloat(g.remanente.monto_con_iva)||0) : 0;
+      const pctFacturado  = montoOC > 0 ? Math.min(100, Math.round(montoFacturado / montoOC * 100)) : 0;
+      const estado = g.facturas.length === 0 ? 'pendiente'
+        : montoRemanente > 0                  ? 'parcial'
+        : 'completo';
+      return { ...g, montoOC, montoFacturado, montoRemanente, pctFacturado, estado };
+    }).sort((a,b) => b.montoOC - a.montoOC);
+  }, [registros]);
+
+  const filtrados = React.useMemo(() => {
+    let r = grupos;
+    if (soloConFactura)    r = r.filter(g => g.facturas.length > 0);
+    if (soloConRemanente)  r = r.filter(g => g.montoRemanente > 0);
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      r = r.filter(g =>
+        (g.proveedor||'').toLowerCase().includes(q) ||
+        (g.key||'').toLowerCase().includes(q) ||
+        (g.sucursal||'').toLowerCase().includes(q)
+      );
+    }
+    return r;
+  }, [grupos, soloConFactura, soloConRemanente, busqueda]);
+
+  const toggle = k => setExpandidos(p => ({ ...p, [k]: !p[k] }));
+
+  const totOC         = filtrados.reduce((s,g) => s + g.montoOC, 0);
+  const totFacturado  = filtrados.reduce((s,g) => s + g.montoFacturado, 0);
+  const totRemanente  = filtrados.reduce((s,g) => s + g.montoRemanente, 0);
+
+  const fmtFecha = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–';
+
+  const estadoChip = estado => {
+    const m = { pendiente:{ label:'Sin factura', color:'#e65100', bg:'#fff3e0' }, parcial:{ label:'Parcial', color:'#f57c00', bg:'#fff8e1' }, completo:{ label:'Facturado', color:'#2e7d32', bg:'#e8f5e9' } };
+    return m[estado] || m.pendiente;
+  };
+
+  if (loading) return (
+    <Box sx={{ display:'flex', justifyContent:'center', p:6 }}>
+      <CircularProgress size={28} sx={{ color: OF_COLOR }}/>
+    </Box>
+  );
+
+  return (
+    <Box>
+      {/* Header */}
+      <Paper elevation={0} sx={{ borderRadius:3, overflow:'hidden', mb:2, border:`1.5px solid ${alpha(OF_COLOR,0.25)}` }}>
+        <Box sx={{ px:3, py:2, background:`linear-gradient(135deg,${OF_COLOR},#bf360c)`, color:'white',
+          display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:1.5 }}>
+          <Box sx={{ display:'flex', alignItems:'center', gap:1.5 }}>
+            <span style={{ fontSize:24 }}>🔗</span>
+            <Box>
+              <Typography variant="h6" fontWeight={800} lineHeight={1.1}>Orden → Factura</Typography>
+              <Typography variant="caption" sx={{ opacity:0.7 }}>Año {año} · {filtrados.length} órdenes</Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display:'flex', gap:2, flexWrap:'wrap' }}>
+            {[
+              { label:'Total OC',      val: fmtM(totOC),        color:'#ffcc80' },
+              { label:'Facturado',     val: fmtM(totFacturado),  color:'#a5d6a7' },
+              { label:'Remanente',     val: fmtM(totRemanente),  color:'#ffab91' },
+            ].map(({ label, val, color }) => (
+              <Box key={label} sx={{ textAlign:'center', bgcolor:'rgba(255,255,255,0.12)', px:2, py:0.8, borderRadius:2 }}>
+                <Typography variant="caption" sx={{ opacity:0.65, display:'block', fontSize:'0.62rem' }}>{label}</Typography>
+                <Typography variant="body2" fontWeight={800} sx={{ color }}>{val}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        {/* Filtros */}
+        <Box sx={{ px:2, py:1.2, bgcolor:'#fffbf7', borderTop:`1px solid ${alpha(OF_COLOR,0.1)}`,
+          display:'flex', gap:1.5, flexWrap:'wrap', alignItems:'center' }}>
+          <TextField size="small" placeholder="Buscar proveedor, OC, sucursal…"
+            value={busqueda} onChange={e=>setBusqueda(e.target.value)}
+            sx={{ flex:1, minWidth:200, '& .MuiOutlinedInput-root':{ borderRadius:2, fontSize:'0.8rem', height:34 } }}
+            InputProps={{ startAdornment: <span style={{ marginRight:4, opacity:0.45 }}>🔍</span> }}/>
+          <Button size="small" variant={soloConFactura ? 'contained' : 'outlined'}
+            onClick={() => setSoloConFactura(v=>!v)}
+            sx={{ borderRadius:2, fontSize:'0.72rem', height:34, textTransform:'none',
+              ...(soloConFactura ? { bgcolor:'#6a1b9a','&:hover':{bgcolor:'#4a148c'} } : { borderColor:alpha('#6a1b9a',0.4), color:'#6a1b9a' }) }}>
+            Con factura
+          </Button>
+          <Button size="small" variant={soloConRemanente ? 'contained' : 'outlined'}
+            onClick={() => setSoloConRemanente(v=>!v)}
+            sx={{ borderRadius:2, fontSize:'0.72rem', height:34, textTransform:'none',
+              ...(soloConRemanente ? { bgcolor:OF_COLOR,'&:hover':{bgcolor:'#bf360c'} } : { borderColor:alpha(OF_COLOR,0.4), color:OF_COLOR }) }}>
+            Con remanente
+          </Button>
+          <Button size="small" variant="outlined" onClick={onRefresh} startIcon={<span style={{fontSize:13}}>↺</span>}
+            sx={{ borderRadius:2, fontSize:'0.72rem', height:34, textTransform:'none', borderColor:'divider', color:'text.secondary' }}>
+            Actualizar
+          </Button>
+        </Box>
+      </Paper>
+
+      {/* Lista de grupos */}
+      {filtrados.length === 0 ? (
+        <Box sx={{ textAlign:'center', py:6 }}>
+          <Typography variant="body2" color="text.disabled">Sin órdenes para mostrar</Typography>
+        </Box>
+      ) : filtrados.map(g => {
+        const isOpen = !!expandidos[g.key];
+        const ec = estadoChip(g.estado);
+        return (
+          <Paper key={g.key} elevation={0} sx={{
+            mb:1.5, border:'1px solid', borderRadius:3, overflow:'hidden',
+            borderColor: g.estado === 'completo' ? alpha('#2e7d32',0.2) : g.estado === 'parcial' ? alpha('#f57c00',0.25) : alpha(OF_COLOR,0.2),
+          }}>
+            {/* ── Cabecera de la OC ── */}
+            <Box onClick={() => toggle(g.key)} sx={{
+              px:2, py:1.4, display:'flex', alignItems:'center', gap:1.5, cursor:'pointer',
+              bgcolor: g.estado === 'completo' ? alpha('#2e7d32',0.04) : g.estado === 'parcial' ? alpha('#f57c00',0.05) : alpha(OF_COLOR,0.04),
+              '&:hover':{ filter:'brightness(0.97)' },
+            }}>
+              {/* Icono expandir */}
+              <Typography variant="caption" sx={{ color:'text.disabled', fontSize:16, flexShrink:0 }}>
+                {isOpen ? '▾' : '▸'}
+              </Typography>
+
+              {/* Proveedor + OC */}
+              <Box sx={{ flex:1, minWidth:0 }}>
+                <Box sx={{ display:'flex', alignItems:'center', gap:0.8, flexWrap:'wrap' }}>
+                  <Typography variant="body2" fontWeight={700} sx={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {g.proveedor || '(Sin nombre)'}
+                  </Typography>
+                  {g.esMadre && (
+                    <Chip label="👑 Madre" size="small" sx={{ height:16, fontSize:'0.6rem', bgcolor:alpha(MADRE_COLOR,0.12), color:MADRE_COLOR }}/>
+                  )}
+                </Box>
+                <Typography variant="caption" sx={{ color:'text.secondary', fontSize:'0.7rem' }}>
+                  OC #{g.key} {g.sucursal ? `· ${g.sucursal}` : ''}
+                </Typography>
+              </Box>
+
+              {/* Barra progreso */}
+              <Box sx={{ width:120, flexShrink:0 }}>
+                <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.3 }}>
+                  <Typography variant="caption" sx={{ fontSize:'0.6rem', color:'text.disabled' }}>Facturado</Typography>
+                  <Typography variant="caption" sx={{ fontSize:'0.62rem', fontWeight:700,
+                    color: g.pctFacturado >= 100 ? '#2e7d32' : g.pctFacturado > 0 ? '#f57c00' : OF_COLOR }}>
+                    {g.pctFacturado}%
+                  </Typography>
+                </Box>
+                <Box sx={{ height:6, borderRadius:3, bgcolor:alpha('#000',0.07), overflow:'hidden' }}>
+                  <Box sx={{ height:'100%', borderRadius:3, width:`${g.pctFacturado}%`,
+                    bgcolor: g.pctFacturado >= 100 ? '#2e7d32' : g.pctFacturado > 0 ? '#f57c00' : '#bdbdbd',
+                    transition:'width .4s ease' }}/>
+                </Box>
+              </Box>
+
+              {/* Montos */}
+              <Box sx={{ textAlign:'right', flexShrink:0 }}>
+                <Typography variant="body2" fontWeight={800} sx={{ fontSize:'0.82rem' }}>{fmtM(g.montoOC)}</Typography>
+                <Typography variant="caption" sx={{ color:'text.disabled', fontSize:'0.65rem' }}>Total OC</Typography>
+              </Box>
+
+              {/* Estado */}
+              <Chip label={ec.label} size="small" sx={{ height:20, fontSize:'0.62rem', fontWeight:700,
+                bgcolor:ec.bg, color:ec.color, flexShrink:0 }}/>
+            </Box>
+
+            {/* ── Detalle expandido ── */}
+            <Collapse in={isOpen} unmountOnExit>
+              <Box sx={{ px:2, pb:1.5, pt:0.5, bgcolor:'#fafafa', borderTop:'1px solid', borderColor:'divider' }}>
+
+                {/* OC original */}
+                {g.oc.length > 0 && (
+                  <Box sx={{ mb:1.5 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary"
+                      sx={{ textTransform:'uppercase', letterSpacing:0.5, fontSize:'0.62rem', display:'block', mb:0.6 }}>
+                      Orden de Compra Original
+                    </Typography>
+                    {g.oc.map(r => {
+                      const fm = FUENTE_META[r.fuente] || FUENTE_META.EXCEL;
+                      return (
+                        <Box key={r.id} sx={{ display:'flex', flexWrap:'wrap', gap:2, p:1.2, borderRadius:2,
+                          bgcolor:alpha(fm.color,0.06), border:`1px solid ${alpha(fm.color,0.2)}`, mb:0.5 }}>
+                          <Box sx={{ minWidth:80 }}>
+                            <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem">Fuente</Typography>
+                            <Chip label={fm.label} size="small" sx={{ height:16, fontSize:'0.6rem', fontWeight:700, bgcolor:fm.bg, color:fm.color }}/>
+                          </Box>
+                          {[
+                            { l:'Fecha emisión', v: fmtFecha(r.fecha_compra) },
+                            { l:'Fecha venc.',   v: fmtFecha(r.fecha_vencimiento) },
+                            { l:'Semana',        v: r.semana_compra ? `S${r.semana_compra}` : '–' },
+                            { l:'Plazo',         v: r.plazo_dias ? `${r.plazo_dias}d` : '–' },
+                            { l:'Monto neto',    v: fmtM(r.monto_neto) },
+                            { l:'Monto c/IVA',   v: fmtM(r.monto_con_iva) },
+                          ].map(({ l, v }) => (
+                            <Box key={l} sx={{ minWidth:80 }}>
+                              <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem">{l}</Typography>
+                              <Typography variant="caption" fontWeight={600} fontSize="0.72rem">{v}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
+
+                {/* Facturas */}
+                {g.facturas.length > 0 && (
+                  <Box sx={{ mb:1.5 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary"
+                      sx={{ textTransform:'uppercase', letterSpacing:0.5, fontSize:'0.62rem', display:'block', mb:0.6 }}>
+                      Facturas ({g.facturas.length})
+                    </Typography>
+                    {g.facturas.map((r,idx) => (
+                      <Box key={r.id} sx={{ display:'flex', flexWrap:'wrap', gap:2, p:1.2, borderRadius:2,
+                        bgcolor:alpha('#6a1b9a',0.05), border:`1px solid ${alpha('#6a1b9a',0.18)}`, mb:0.5 }}>
+                        <Box sx={{ minWidth:30 }}>
+                          <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem">#</Typography>
+                          <Typography variant="caption" fontWeight={700} color="#6a1b9a" fontSize="0.72rem">{idx+1}</Typography>
+                        </Box>
+                        {[
+                          { l:'Fecha factura',  v: fmtFecha(r.fecha_compra) },
+                          { l:'Fecha venc.',    v: fmtFecha(r.fecha_vencimiento) },
+                          { l:'Semana venc.',   v: r.semana_vencimiento ? `S${r.semana_vencimiento}` : '–' },
+                          { l:'Plazo',          v: r.plazo_dias ? `${r.plazo_dias}d` : '–' },
+                          { l:'Monto neto',     v: fmtM(r.monto_neto) },
+                          { l:'Monto c/IVA',    v: fmtM(r.monto_con_iva) },
+                          { l:'Estado pago',    v: r.estado_pago || '–' },
+                        ].map(({ l, v }) => (
+                          <Box key={l} sx={{ minWidth:80 }}>
+                            <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem">{l}</Typography>
+                            <Typography variant="caption" fontWeight={600} fontSize="0.72rem">{v}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {g.facturas.length === 0 && (
+                  <Box sx={{ py:1, mb:1.5, px:1.5, borderRadius:2, bgcolor:alpha(OF_COLOR,0.06),
+                    border:`1px dashed ${alpha(OF_COLOR,0.3)}`, display:'flex', alignItems:'center', gap:1 }}>
+                    <Typography variant="caption" sx={{ color:OF_COLOR, fontSize:'0.72rem' }}>
+                      ⚠️ Sin facturas registradas para esta OC
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Remanente */}
+                {g.remanente && (
+                  <Box>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary"
+                      sx={{ textTransform:'uppercase', letterSpacing:0.5, fontSize:'0.62rem', display:'block', mb:0.6 }}>
+                      Remanente (pendiente)
+                    </Typography>
+                    <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, p:1.2, borderRadius:2,
+                      bgcolor:alpha('#e65100',0.07), border:`1px solid ${alpha('#e65100',0.25)}` }}>
+                      {[
+                        { l:'Fecha venc.',   v: fmtFecha(g.remanente.fecha_vencimiento) },
+                        { l:'Semana venc.',  v: g.remanente.semana_vencimiento ? `S${g.remanente.semana_vencimiento}` : '–' },
+                        { l:'Monto neto',    v: fmtM(g.remanente.monto_neto) },
+                        { l:'Monto c/IVA',   v: fmtM(g.remanente.monto_con_iva) },
+                        { l:'Estado',        v: g.remanente.estado_pago || 'Pendiente' },
+                      ].map(({ l, v }) => (
+                        <Box key={l} sx={{ minWidth:90 }}>
+                          <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem">{l}</Typography>
+                          <Typography variant="caption" fontWeight={700} color="#e65100" fontSize="0.75rem">{v}</Typography>
+                        </Box>
+                      ))}
+                      {/* Barra visual OC vs facturado vs remanente */}
+                      <Box sx={{ flex:1, minWidth:160 }}>
+                        <Typography variant="caption" color="text.disabled" display="block" fontSize="0.6rem" mb={0.3}>
+                          Desglose del total OC
+                        </Typography>
+                        <Box sx={{ display:'flex', height:12, borderRadius:2, overflow:'hidden', gap:'1px' }}>
+                          {g.montoFacturado > 0 && (
+                            <Box sx={{ flex: g.montoFacturado, bgcolor:'#6a1b9a', minWidth:4 }}/>
+                          )}
+                          {g.montoRemanente > 0 && (
+                            <Box sx={{ flex: g.montoRemanente, bgcolor:'#e65100', minWidth:4 }}/>
+                          )}
+                          {(g.montoOC - g.montoFacturado - g.montoRemanente) > 0 && (
+                            <Box sx={{ flex: g.montoOC - g.montoFacturado - g.montoRemanente, bgcolor:'#e0e0e0', minWidth:4 }}/>
+                          )}
+                        </Box>
+                        <Box sx={{ display:'flex', gap:1.5, mt:0.5 }}>
+                          {[
+                            { label:'Facturado', color:'#6a1b9a', v: fmtM(g.montoFacturado) },
+                            { label:'Remanente', color:'#e65100', v: fmtM(g.montoRemanente) },
+                          ].map(({ label, color, v }) => (
+                            <Box key={label} sx={{ display:'flex', alignItems:'center', gap:0.4 }}>
+                              <Box sx={{ width:8, height:8, borderRadius:'50%', bgcolor:color, flexShrink:0 }}/>
+                              <Typography variant="caption" sx={{ fontSize:'0.62rem', color:'text.secondary' }}>
+                                {label}: <strong style={{color}}>{v}</strong>
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            </Collapse>
+          </Paper>
+        );
+      })}
+    </Box>
+  );
+}
+
+// ─── Panel lateral: Órdenes marcadas como madre ───────────────────────────────
+const MADRE_COLOR = '#6a1b9a';
+const MADRE_BG    = '#f3e5f5';
+
+function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
+  const [busqueda, setBusqueda] = React.useState('');
+  const [filtroTipo, setFiltroTipo] = React.useState('todos');
+  const [expandedOC, setExpandedOC] = React.useState({});
+  const [productosOC, setProductosOC] = React.useState({});
+  const [loadingOC, setLoadingOC] = React.useState({});
+
+  const toggleProductos = React.useCallback(async (r) => {
+    const k = r.numero_orden;
+    if (!k) return;
+    setExpandedOC(p => ({ ...p, [k]: !p[k] }));
+    if (!productosOC[k] && !loadingOC[k]) {
+      setLoadingOC(p => ({ ...p, [k]: true }));
+      try {
+        const params = { numero_orden: k };
+        if (r.sucursal) params.sucursal = r.sucursal;
+        const { data } = await api.get('/planificacion/productos-oc', { params });
+        setProductosOC(p => ({ ...p, [k]: data.productos || [] }));
+      } catch (err) {
+        console.error('[ProductosOC] Error:', err);
+        setProductosOC(p => ({ ...p, [k]: [] }));
+      } finally {
+        setLoadingOC(p => ({ ...p, [k]: false }));
+      }
+    }
+  }, [productosOC, loadingOC]);
+
+  const filtradas = React.useMemo(() => {
+    let r = registros;
+    if (filtroTipo !== 'todos') r = r.filter(x => (x.tipo_proveedor||'').toLowerCase().includes(filtroTipo === 'enc' ? 'enc' : 'no'));
+    if (busqueda.trim()) {
+      const q = busqueda.trim().toLowerCase();
+      r = r.filter(x =>
+        (x.proveedor||'').toLowerCase().includes(q) ||
+        (x.numero_orden||'').toLowerCase().includes(q) ||
+        (x.sucursal||'').toLowerCase().includes(q)
+      );
+    }
+    return r;
+  }, [registros, busqueda, filtroTipo]);
+
+  const totMonto  = filtradas.reduce((s,r) => s + (parseFloat(r.monto_con_iva)||0), 0);
+  const totNeto   = filtradas.reduce((s,r) => s + (parseFloat(r.monto_neto)||0), 0);
+
+  const fuenteChip = fuente => {
+    const map = { EXCEL:{ label:'Excel', color:'#1565c0', bg:'#e3f2fd' }, ERP:{ label:'ERP', color:'#2e7d32', bg:'#e8f5e9' },
+                  FACTURA:{ label:'Factura', color:'#6a1b9a', bg:'#f3e5f5' }, REMANENTE:{ label:'Remanente', color:'#e65100', bg:'#fff3e0' },
+                  MANUAL:{ label:'Manual', color:'#37474f', bg:'#eceff1' } };
+    return map[fuente] || { label: fuente||'–', color:'#607d8b', bg:'#eceff1' };
+  };
+
+  return (
+    <Box sx={{ display:'flex', flexDirection:'column', height:'100%' }}>
+      {/* Header */}
+      <Box sx={{ p:2, background:`linear-gradient(135deg, ${MADRE_COLOR} 0%, #4a148c 100%)`, color:'white' }}>
+        <Box sx={{ display:'flex', alignItems:'center', gap:1, mb:0.5 }}>
+          <Box sx={{ p:0.6, bgcolor:'rgba(255,255,255,0.18)', borderRadius:1.5, display:'flex' }}>
+            <span style={{ fontSize:18, lineHeight:1 }}>👑</span>
+          </Box>
+          <Typography variant="subtitle1" fontWeight={800}>Órdenes Madre</Typography>
+          <Chip label={registros.length} size="small"
+            sx={{ bgcolor:'rgba(255,255,255,0.18)', color:'white', fontSize:'0.65rem', height:20, ml:'auto' }}/>
+        </Box>
+        <Typography variant="caption" sx={{ opacity:0.7, fontSize:'0.68rem' }}>
+          Excluidas del resumen semanal
+        </Typography>
+        {/* Totales rápidos */}
+        <Box sx={{ display:'flex', gap:1.5, mt:1.2 }}>
+          {[
+            { label:'Total c/IVA', val: fmtM(totMonto) },
+            { label:'Neto',        val: fmtM(totNeto) },
+            { label:'OC',          val: `${filtradas.length}` },
+          ].map(({ label, val }) => (
+            <Box key={label} sx={{ flex:1, bgcolor:'rgba(255,255,255,0.1)', borderRadius:1.5, p:0.8, textAlign:'center' }}>
+              <Typography variant="caption" sx={{ opacity:0.65, fontSize:'0.6rem', display:'block' }}>{label}</Typography>
+              <Typography variant="body2" fontWeight={800} fontSize="0.8rem">{val}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      {/* Filtros */}
+      <Box sx={{ px:1.5, py:1, bgcolor:'#faf4ff', borderBottom:'1px solid', borderColor:alpha(MADRE_COLOR,0.12), display:'flex', gap:1, flexWrap:'wrap' }}>
+        <TextField
+          size="small" placeholder="Buscar proveedor, N° OC…"
+          value={busqueda} onChange={e => setBusqueda(e.target.value)}
+          sx={{ flex:1, minWidth:140, '& .MuiOutlinedInput-root':{ borderRadius:2, fontSize:'0.78rem', height:32 } }}
+          InputProps={{ startAdornment: <span style={{ marginRight:4, opacity:0.4, fontSize:14 }}>🔍</span> }}
+        />
+        <Box sx={{ display:'flex', gap:0.5 }}>
+          {[['todos','Todos'],['enc','Enc.'],['nenc','No Enc.']].map(([k,l]) => (
+            <Chip key={k} label={l} size="small" onClick={() => setFiltroTipo(k)}
+              variant={filtroTipo === k ? 'filled' : 'outlined'}
+              sx={{ fontSize:'0.65rem', height:28, cursor:'pointer',
+                ...(filtroTipo === k && { bgcolor: MADRE_COLOR, color:'white' }) }}/>
+          ))}
+        </Box>
+      </Box>
+
+      {/* Lista */}
+      <Box sx={{ flex:1, overflowY:'auto', px:1.5, py:1,
+        '&::-webkit-scrollbar':{ width:4 },
+        '&::-webkit-scrollbar-thumb':{ bgcolor:alpha(MADRE_COLOR,0.25), borderRadius:2 },
+      }}>
+        {loading ? (
+          <Box sx={{ display:'flex', justifyContent:'center', p:4 }}>
+            <CircularProgress size={24} sx={{ color: MADRE_COLOR }}/>
+          </Box>
+        ) : filtradas.length === 0 ? (
+          <Box sx={{ textAlign:'center', py:5 }}>
+            <Typography variant="body2" sx={{ color:'text.disabled', fontSize:'0.82rem' }}>
+              {registros.length === 0 ? 'Ninguna OC marcada como madre aún' : 'Sin resultados para esa búsqueda'}
+            </Typography>
+          </Box>
+        ) : filtradas.map(r => {
+          const isEnc = !(r.tipo_proveedor||'').toLowerCase().includes('no');
+          const fc    = fuenteChip(r.fuente);
+          return (
+            <Box key={r.id} sx={{
+              mb:1, p:1.5, borderRadius:2,
+              border:`1px solid ${alpha(MADRE_COLOR, 0.15)}`,
+              bgcolor:'white',
+              boxShadow:'0 1px 4px rgba(0,0,0,0.05)',
+              '&:hover':{ borderColor: alpha(MADRE_COLOR,0.35), boxShadow:'0 2px 8px rgba(106,27,154,0.10)' },
+              transition:'border-color .15s, box-shadow .15s',
+            }}>
+              {/* Fila 1: proveedor + monto */}
+              <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:1, mb:0.6 }}>
+                <Typography variant="body2" fontWeight={700} sx={{
+                  fontSize:'0.78rem', color:'text.primary',
+                  overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1,
+                }}>
+                  {r.proveedor || '(Sin nombre)'}
+                </Typography>
+                <Typography variant="body2" fontWeight={800} color={MADRE_COLOR} sx={{ fontSize:'0.8rem', flexShrink:0 }}>
+                  {fmtM(r.monto_con_iva)}
+                </Typography>
+              </Box>
+
+              {/* Fila 2: chips de tipo/fuente + N° OC */}
+              <Box sx={{ display:'flex', alignItems:'center', gap:0.6, flexWrap:'wrap', mb:0.6 }}>
+                <Chip size="small" label={isEnc ? 'Encadenado' : 'No Enc.'} sx={{
+                  height:16, fontSize:'0.6rem', fontWeight:700,
+                  bgcolor: isEnc ? ENC_BG : NENC_BG,
+                  color: isEnc ? ENC_DARK : NENC_DARK,
+                }}/>
+                <Chip size="small" label={fc.label} sx={{ height:16, fontSize:'0.6rem', fontWeight:700, bgcolor:fc.bg, color:fc.color }}/>
+                {r.numero_orden && (
+                  <Chip
+                    size="small"
+                    label={`OC #${r.numero_orden}`}
+                    onClick={() => toggleProductos(r)}
+                    icon={loadingOC[r.numero_orden]
+                      ? <CircularProgress size={10} sx={{ color: MADRE_COLOR }}/>
+                      : <ExpandMoreIcon sx={{ fontSize:'12px !important', transform: expandedOC[r.numero_orden] ? 'rotate(180deg)' : 'none', transition:'transform .2s' }}/>}
+                    sx={{ height:18, fontSize:'0.62rem', fontWeight:700, cursor:'pointer',
+                      bgcolor: expandedOC[r.numero_orden] ? alpha(MADRE_COLOR,0.12) : alpha(MADRE_COLOR,0.06),
+                      color: MADRE_COLOR,
+                      border:`1px solid ${alpha(MADRE_COLOR, expandedOC[r.numero_orden] ? 0.4 : 0.2)}`,
+                      '&:hover':{ bgcolor: alpha(MADRE_COLOR,0.15) },
+                      '& .MuiChip-icon':{ ml:'4px' },
+                    }}
+                  />
+                )}
+              </Box>
+
+              {/* Fila 3: fechas + semana + sucursal */}
+              <Box sx={{ display:'flex', flexWrap:'wrap', gap:1, mb:0.8 }}>
+                {[
+                  { icon:'📅', label:'Emisión',   val: r.fecha_compra      ? new Date(r.fecha_compra+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
+                  { icon:'💳', label:'Vence',     val: r.fecha_vencimiento ? new Date(r.fecha_vencimiento+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
+                  { icon:'📦', label:'Sem.',       val: r.semana_compra ? `S${r.semana_compra} / ${r.año||''}` : '–' },
+                  { icon:'🏪', label:'Sucursal',  val: r.sucursal || '–' },
+                  { icon:'💰', label:'Neto',       val: fmtM(r.monto_neto) },
+                  { icon:'⏱️',  label:'Plazo',     val: r.plazo_dias ? `${r.plazo_dias} días` : '–' },
+                ].map(({ icon, label, val }) => (
+                  <Box key={label} sx={{ minWidth:90 }}>
+                    <Typography variant="caption" sx={{ color:'text.disabled', fontSize:'0.6rem', display:'block' }}>
+                      {icon} {label}
+                    </Typography>
+                    <Typography variant="caption" sx={{ fontWeight:600, fontSize:'0.7rem', color:'text.secondary' }}>
+                      {val}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              {/* Productos expandibles */}
+              {r.numero_orden && (
+                <Collapse in={!!expandedOC[r.numero_orden]} unmountOnExit>
+                  <Box sx={{ mt:1, pt:1, borderTop:`1px dashed ${alpha(MADRE_COLOR,0.2)}` }}>
+                    {loadingOC[r.numero_orden] ? (
+                      <Box sx={{ display:'flex', justifyContent:'center', py:1.5 }}>
+                        <CircularProgress size={18} sx={{ color: MADRE_COLOR }}/>
+                      </Box>
+                    ) : (productosOC[r.numero_orden] || []).length === 0 ? (
+                      <Typography variant="caption" sx={{ color:'text.disabled', fontSize:'0.68rem', display:'block', textAlign:'center', py:1 }}>
+                        Sin detalle de productos en ERP
+                      </Typography>
+                    ) : (
+                      <Box>
+                        <Typography variant="caption" sx={{ color: MADRE_COLOR, fontWeight:700, fontSize:'0.65rem', display:'block', mb:0.5 }}>
+                          PRODUCTOS ({(productosOC[r.numero_orden]||[]).length})
+                        </Typography>
+                        <Box sx={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'2px 8px', alignItems:'baseline' }}>
+                          {/* Header */}
+                          {['Producto','Cant.','Total'].map(h => (
+                            <Typography key={h} variant="caption" sx={{ color:'text.disabled', fontSize:'0.6rem', fontWeight:700, pb:0.3 }}>{h}</Typography>
+                          ))}
+                          {/* Rows */}
+                          {(productosOC[r.numero_orden]||[]).map((p,i) => (
+                            <React.Fragment key={i}>
+                              <Typography variant="caption" sx={{ fontSize:'0.68rem', color:'text.primary', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                {p.descripcion || p.codigo_producto || '–'}
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize:'0.68rem', color:'text.secondary', textAlign:'right' }}>
+                                {Number(p.cantidad||0).toFixed(0)}
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize:'0.68rem', fontWeight:600, color: MADRE_COLOR, textAlign:'right' }}>
+                                {fmtM(p.total)}
+                              </Typography>
+                            </React.Fragment>
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+                </Collapse>
+              )}
+
+              {/* ── Historial facturas / remanente ── */}
+              {(() => {
+                const ofData = r.numero_orden ? ofMap[r.numero_orden] : null;
+                if (!ofData) return null;
+                const { facturas = [], remanente } = ofData;
+                if (!facturas.length && !remanente) return null;
+                const fmtD = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'2-digit'}) : '–';
+                const totFact = facturas.reduce((s,f)=>s+(parseFloat(f.monto_con_iva)||0),0);
+                const totRem  = remanente ? (parseFloat(remanente.monto_con_iva)||0) : 0;
+                const totOC   = totFact + totRem;
+                const pct     = totOC > 0 ? Math.round(totFact/totOC*100) : 0;
+                const histKey = `hist-${r.id}`;
+                const histOpen = !!expandedOC[histKey];
+                return (
+                  <Box sx={{ mt:1, pt:1, borderTop:`1px dashed ${alpha('#6a1b9a',0.2)}` }}>
+
+                    {/* ── Resumen compacto siempre visible ── */}
+                    <Box sx={{ display:'flex', alignItems:'center', gap:1, mb:0.8 }}>
+                      <ReceiptIcon sx={{ fontSize:12, color:'#6a1b9a' }}/>
+                      <Typography variant="caption" sx={{ color:'#6a1b9a', fontWeight:800, fontSize:'0.62rem', textTransform:'uppercase', letterSpacing:0.4, flex:1 }}>
+                        Historial facturación
+                      </Typography>
+                      {facturas.length > 0 && (
+                        <Chip
+                          size="small"
+                          label={`${facturas.length} cuota${facturas.length>1?'s':''}`}
+                          onClick={() => setExpandedOC(p=>({...p,[histKey]:!p[histKey]}))}
+                          icon={<ExpandMoreIcon sx={{ fontSize:'11px !important', transform: histOpen ? 'rotate(180deg)' : 'none', transition:'transform .2s' }}/>}
+                          sx={{ height:17, fontSize:'0.6rem', fontWeight:700, cursor:'pointer',
+                            bgcolor: histOpen ? alpha('#6a1b9a',0.12) : alpha('#6a1b9a',0.06),
+                            color:'#6a1b9a', border:`1px solid ${alpha('#6a1b9a', histOpen ? 0.35 : 0.18)}`,
+                            '& .MuiChip-icon':{ ml:'4px' },
+                          }}
+                        />
+                      )}
+                    </Box>
+
+                    {/* Barra de progreso — siempre visible */}
+                    {totOC > 0 && (
+                      <Box sx={{ mb:0.8 }}>
+                        <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.25 }}>
+                          <Box sx={{ display:'flex', gap:1.5 }}>
+                            {[{label:'Facturado',color:'#6a1b9a',v:fmtM(totFact)},{label:'Remanente',color:'#e65100',v:fmtM(totRem)}]
+                              .filter(x => x.v !== fmtM(0))
+                              .map(({label,color,v})=>(
+                              <Box key={label} sx={{ display:'flex', alignItems:'center', gap:0.3 }}>
+                                <Box sx={{ width:6,height:6,borderRadius:'50%',bgcolor:color,flexShrink:0 }}/>
+                                <Typography variant="caption" fontSize="0.58rem" color="text.secondary">
+                                  {label}: <strong style={{color}}>{v}</strong>
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                          <Typography variant="caption" fontSize="0.62rem" fontWeight={800}
+                            color={pct >= 100 ? '#2e7d32' : '#f57c00'}>{pct}%</Typography>
+                        </Box>
+                        <Box sx={{ display:'flex', height:7, borderRadius:2, overflow:'hidden', gap:'1px' }}>
+                          <Box sx={{ flex: totFact, bgcolor:'#6a1b9a', minWidth: totFact>0 ? 4 : 0 }}/>
+                          <Box sx={{ flex: totRem,  bgcolor:'#e65100', minWidth: totRem>0  ? 4 : 0 }}/>
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Remanente — siempre visible */}
+                    {remanente && (
+                      <Box sx={{ display:'flex', flexWrap:'wrap', gap:1.5, alignItems:'center',
+                        px:1.2, py:0.7, mb: facturas.length ? 0.5 : 0, borderRadius:1.5,
+                        bgcolor:alpha('#e65100',0.05), border:`1px solid ${alpha('#e65100',0.2)}` }}>
+                        <Typography variant="caption" sx={{ fontWeight:800, color:'#e65100', fontSize:'0.62rem', minWidth:52 }}>Remanente</Typography>
+                        {[
+                          { l:'Vence',  v: fmtD(remanente.fecha_vencimiento) },
+                          { l:'Plazo',  v: remanente.plazo_dias ? `${remanente.plazo_dias}d` : '–' },
+                          { l:'Neto',   v: fmtM(remanente.monto_neto) },
+                          { l:'c/IVA',  v: fmtM(remanente.monto_con_iva) },
+                        ].map(({ l, v }) => (
+                          <Box key={l}>
+                            <Typography variant="caption" color="text.disabled" display="block" fontSize="0.58rem">{l}</Typography>
+                            <Typography variant="caption" fontWeight={700} color="#e65100" fontSize="0.68rem">{v}</Typography>
+                          </Box>
+                        ))}
+                        <Chip label={remanente.estado_pago || 'Pendiente'} size="small" sx={{
+                          height:15, fontSize:'0.57rem', fontWeight:700, ml:'auto',
+                          bgcolor: remanente.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.08),
+                          color:   remanente.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
+                        }}/>
+                      </Box>
+                    )}
+
+                    {/* Cuotas / facturas — colapsadas, expandibles */}
+                    {facturas.length > 0 && (
+                      <Collapse in={histOpen} unmountOnExit>
+                        <Box sx={{ mt:0.5, display:'flex', flexDirection:'column', gap:0.4 }}>
+                          {facturas.map((f, idx) => (
+                            <Box key={f.id} sx={{ display:'flex', flexWrap:'wrap', gap:1.2, alignItems:'center',
+                              px:1.2, py:0.6, borderRadius:1.5,
+                              bgcolor:alpha('#6a1b9a',0.04), border:`1px solid ${alpha('#6a1b9a',0.12)}` }}>
+                              <Typography variant="caption" sx={{ fontWeight:800, color:'#6a1b9a', fontSize:'0.6rem', minWidth:20 }}>#{idx+1}</Typography>
+                              {[
+                                { l:'Vence',  v: fmtD(f.fecha_vencimiento) },
+                                { l:'Plazo',  v: f.plazo_dias ? `${f.plazo_dias}d` : '–' },
+                                { l:'c/IVA',  v: fmtM(f.monto_con_iva) },
+                              ].map(({ l, v }) => (
+                                <Box key={l}>
+                                  <Typography variant="caption" color="text.disabled" display="block" fontSize="0.57rem">{l}</Typography>
+                                  <Typography variant="caption" fontWeight={600} fontSize="0.67rem">{v}</Typography>
+                                </Box>
+                              ))}
+                              <Chip label={f.estado_pago || 'Pendiente'} size="small" sx={{
+                                height:14, fontSize:'0.56rem', fontWeight:700, ml:'auto',
+                                bgcolor: f.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.07),
+                                color:   f.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
+                              }}/>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Collapse>
+                    )}
+                  </Box>
+                );
+              })()}
+
+              {/* Botón desmarcar */}
+              <Box sx={{ display:'flex', justifyContent:'flex-end', mt: r.numero_orden ? 0.5 : 0 }}>
+                <Button size="small" variant="outlined" onClick={() => onDesmarcar(r)}
+                  sx={{ fontSize:'0.65rem', py:0.3, px:1, borderRadius:2,
+                    borderColor:alpha(MADRE_COLOR,0.4), color:MADRE_COLOR,
+                    '&:hover':{ bgcolor:alpha(MADRE_COLOR,0.06), borderColor:MADRE_COLOR } }}>
+                  ↩ Desmarcar madre
+                </Button>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 // ─── Tabla compras por semana de EMISIÓN ─────────────────────────────────────
 const EMIT_COLOR = '#00838f';
 const EMIT_BG    = '#e0f7fa';
@@ -1253,8 +2025,10 @@ function ProductosOCDialog({ open, onClose, numeroOrden, sucursal }) {
 }
 
 // ─── Vista árbol: Año → Semana → Día (Compras por Emisión) ────────────────────
-function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onMadre }) {
-  const [prodDialog, setProdDialog] = React.useState({ open: false, numeroOrden: '', sucursal: '' });
+function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onMadre, ofMap = {} }) {
+  const [prodDialog,  setProdDialog]  = React.useState({ open: false, numeroOrden: '', sucursal: '' });
+  const [expandedOF,  setExpandedOF]  = React.useState({});
+  const toggleOF = React.useCallback(k => setExpandedOF(p => ({ ...p, [k]: !p[k] })), []);
   const tree = React.useMemo(() => {
     const años = {};
     registros.forEach(r => {
@@ -1433,66 +2207,203 @@ function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onM
                                           <TableCell align="right">Monto Neto</TableCell>
                                           <TableCell align="right">Monto c/IVA</TableCell>
                                           <TableCell>Estado</TableCell>
+                                          <TableCell align="center">Facturas</TableCell>
                                           <TableCell/>
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
                                         {diaData.registros.map(r => {
-                                          const isEnc      = !(r.tipo_proveedor || '').toLowerCase().includes('no');
-                                          const esSosp     = sospechosasIds.has(r.id);
+                                          const isEnc   = !(r.tipo_proveedor || '').toLowerCase().includes('no');
+                                          const esSosp  = sospechosasIds.has(r.id);
+                                          const esMadre = !!r.es_madre;
+                                          const ofData  = r.numero_orden ? ofMap[r.numero_orden] : null;
+                                          const hasF    = !!(ofData && ofData.facturas.length > 0);
+                                          const ofKey   = `of-${r.id}`;
+                                          const ofOpen  = !!expandedOF[ofKey];
+                                          const fmtD    = d => d ? new Date(d+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short'}) : '–';
                                           return (
-                                            <TableRow key={r.id} sx={{
-                                              '& td':{ fontSize:'0.72rem', py:0.4 },
-                                              bgcolor: esSosp ? alpha('#f57c00', 0.07) : 'inherit',
-                                              outline: esSosp ? `1px solid ${alpha('#f57c00', 0.25)}` : 'none',
-                                            }}>
-                                              <TableCell sx={{ maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                                                <Box sx={{ display:'flex', alignItems:'center', gap:0.6 }}>
-                                                  {esSosp && (
-                                                    <Tooltip title="Posible compra madre (monto inusualmente alto)">
-                                                      <span style={{ fontSize:13, lineHeight:1 }}>⚠️</span>
+                                            <React.Fragment key={r.id}>
+                                              <TableRow sx={{
+                                                '& td':{ fontSize:'0.72rem', py:0.4 },
+                                                bgcolor: esMadre ? alpha(MADRE_COLOR,0.04) : ofOpen ? alpha('#6a1b9a',0.04) : esSosp ? alpha('#f57c00', 0.07) : 'inherit',
+                                                outline: esMadre ? `1px solid ${alpha(MADRE_COLOR,0.2)}` : esSosp ? `1px solid ${alpha('#f57c00', 0.25)}` : 'none',
+                                              }}>
+                                                <TableCell sx={{ maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                                  <Box sx={{ display:'flex', alignItems:'center', gap:0.6 }}>
+                                                    {esMadre && (
+                                                      <Tooltip title="Orden madre — excluida del resumen semanal">
+                                                        <BookmarkIcon sx={{ fontSize:13, color: MADRE_COLOR, flexShrink:0 }}/>
+                                                      </Tooltip>
+                                                    )}
+                                                    {esSosp && (
+                                                      <Tooltip title="Posible compra madre (monto inusualmente alto)">
+                                                        <WarningIcon sx={{ fontSize:13, color:'#f57c00' }}/>
+                                                      </Tooltip>
+                                                    )}
+                                                    {r.proveedor || '–'}
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell>
+                                                  {r.numero_orden
+                                                    ? <Chip label={r.numero_orden} size="small" clickable
+                                                        onClick={() => setProdDialog({ open:true, numeroOrden: String(r.numero_orden), sucursal: r.sucursal||'' })}
+                                                        sx={{ height:16, fontSize:'0.6rem', bgcolor:alpha(ENC_MID,0.1), color:ENC_DARK, cursor:'pointer',
+                                                              '&:hover':{ bgcolor:alpha(ENC_MID,0.25) } }}/>
+                                                    : <Typography variant="caption" color="text.disabled">–</Typography>}
+                                                </TableCell>
+                                                <TableCell sx={{ color:'text.secondary' }}>{r.sucursal || '–'}</TableCell>
+                                                <TableCell>
+                                                  <Chip label={r.tipo_proveedor || 'N/A'} size="small" sx={{
+                                                    height:16, fontSize:'0.6rem',
+                                                    bgcolor: isEnc ? alpha(ENC_BG,0.8) : alpha(NENC_BG,0.8),
+                                                    color:   isEnc ? ENC_DARK : NENC_DARK,
+                                                  }}/>
+                                                </TableCell>
+                                                <TableCell align="right" sx={{ color:'text.secondary' }}>{fmtM(r.monto_neto)}</TableCell>
+                                                <TableCell align="right" sx={{ color: esSosp ? '#f57c00' : EMIT_COLOR, fontWeight:700 }}>{fmtM(r.monto_con_iva)}</TableCell>
+                                                <TableCell>
+                                                  <Chip label={r.estado_pago || 'Pendiente'} size="small" sx={{
+                                                    height:16, fontSize:'0.6rem',
+                                                    bgcolor: r.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.08),
+                                                    color:   r.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
+                                                  }}/>
+                                                </TableCell>
+                                                {/* Columna facturas */}
+                                                <TableCell align="center" onClick={e => e.stopPropagation()}>
+                                                  {hasF ? (
+                                                    <Tooltip title={ofOpen ? 'Ocultar facturas' : `Ver ${ofData.facturas.length} factura(s)${ofData.remanente ? ' + remanente' : ''}`}>
+                                                      <Chip
+                                                        icon={<ReceiptIcon sx={{ fontSize:'11px !important' }}/>}
+                                                        label={ofData.facturas.length}
+                                                        size="small" clickable
+                                                        onClick={() => toggleOF(ofKey)}
+                                                        sx={{ height:18, fontSize:'0.6rem', fontWeight:700, cursor:'pointer',
+                                                          bgcolor: ofOpen ? alpha('#6a1b9a',0.15) : alpha('#6a1b9a',0.08),
+                                                          color: '#6a1b9a',
+                                                          border: `1px solid ${alpha('#6a1b9a', ofOpen ? 0.4 : 0.2)}`,
+                                                        }}
+                                                      />
+                                                    </Tooltip>
+                                                  ) : (
+                                                    <Typography variant="caption" sx={{ color:'text.disabled', fontSize:'0.6rem' }}>–</Typography>
+                                                  )}
+                                                </TableCell>
+                                                {/* Columna acciones */}
+                                                <TableCell align="right" onClick={e => e.stopPropagation()}>
+                                                  {onMadre && (
+                                                    <Tooltip title="Marcar como compra madre (se excluye de planificación)">
+                                                      <IconButton size="small" onClick={() => onMadre(r)}
+                                                        sx={{ opacity: esSosp ? 0.85 : 0.3, color: esSosp ? '#f57c00' : 'inherit',
+                                                              '&:hover':{ opacity:1, color:'#f57c00' } }}>
+                                                        <BookmarkIcon sx={{ fontSize:14 }}/>
+                                                      </IconButton>
                                                     </Tooltip>
                                                   )}
-                                                  {r.proveedor || '–'}
-                                                </Box>
-                                              </TableCell>
-                                              <TableCell>
-                                                {r.numero_orden
-                                                  ? <Chip label={r.numero_orden} size="small" clickable
-                                                      onClick={() => setProdDialog({ open:true, numeroOrden: String(r.numero_orden), sucursal: r.sucursal||'' })}
-                                                      sx={{ height:16, fontSize:'0.6rem', bgcolor:alpha(ENC_MID,0.1), color:ENC_DARK, cursor:'pointer',
-                                                            '&:hover':{ bgcolor:alpha(ENC_MID,0.25) } }}/>
-                                                  : <Typography variant="caption" color="text.disabled">–</Typography>}
-                                              </TableCell>
-                                              <TableCell sx={{ color:'text.secondary' }}>{r.sucursal || '–'}</TableCell>
-                                              <TableCell>
-                                                <Chip label={r.tipo_proveedor || 'N/A'} size="small" sx={{
-                                                  height:16, fontSize:'0.6rem',
-                                                  bgcolor: isEnc ? alpha(ENC_BG,0.8) : alpha(NENC_BG,0.8),
-                                                  color:   isEnc ? ENC_DARK : NENC_DARK,
-                                                }}/>
-                                              </TableCell>
-                                              <TableCell align="right" sx={{ color:'text.secondary' }}>{fmtM(r.monto_neto)}</TableCell>
-                                              <TableCell align="right" sx={{ color: esSosp ? '#f57c00' : EMIT_COLOR, fontWeight:700 }}>{fmtM(r.monto_con_iva)}</TableCell>
-                                              <TableCell>
-                                                <Chip label={r.estado_pago || 'Pendiente'} size="small" sx={{
-                                                  height:16, fontSize:'0.6rem',
-                                                  bgcolor: r.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.08),
-                                                  color:   r.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
-                                                }}/>
-                                              </TableCell>
-                                              <TableCell align="right" onClick={e => e.stopPropagation()}>
-                                                {onMadre && (
-                                                  <Tooltip title="Marcar como compra madre (se excluye de planificación)">
-                                                    <IconButton size="small" onClick={() => onMadre(r)}
-                                                      sx={{ opacity: esSosp ? 0.85 : 0.3, color: esSosp ? '#f57c00' : 'inherit',
-                                                            '&:hover':{ opacity:1, color:'#f57c00' } }}>
-                                                      <span style={{ fontSize:13 }}>🏠</span>
-                                                    </IconButton>
-                                                  </Tooltip>
-                                                )}
-                                              </TableCell>
-                                            </TableRow>
+                                                </TableCell>
+                                              </TableRow>
+
+                                              {/* ── Sub-fila: facturas + remanente ── */}
+                                              {hasF && (
+                                                <TableRow>
+                                                  <TableCell colSpan={9} sx={{ p:0, border:'none' }}>
+                                                    <Collapse in={ofOpen} unmountOnExit>
+                                                      <Box sx={{ px:3, py:1.5, bgcolor:alpha('#6a1b9a',0.03),
+                                                        borderTop:`1px dashed ${alpha('#6a1b9a',0.2)}`,
+                                                        borderBottom:`1px solid ${alpha('#6a1b9a',0.1)}` }}>
+
+                                                        {/* Facturas */}
+                                                        <Typography variant="caption" fontWeight={700}
+                                                          sx={{ color:'#6a1b9a', textTransform:'uppercase', letterSpacing:0.5, fontSize:'0.6rem', display:'block', mb:0.8 }}>
+                                                          <ReceiptIcon sx={{ fontSize:11, mr:0.5, verticalAlign:'middle' }}/>
+                                                          Facturas ({ofData.facturas.length})
+                                                        </Typography>
+                                                        <Box sx={{ display:'flex', flexDirection:'column', gap:0.6, mb: ofData.remanente ? 1.2 : 0 }}>
+                                                          {ofData.facturas.map((f, idx) => (
+                                                            <Box key={f.id} sx={{ display:'flex', flexWrap:'wrap', gap:2, alignItems:'center',
+                                                              px:1.5, py:0.8, borderRadius:1.5,
+                                                              bgcolor:alpha('#6a1b9a',0.06), border:`1px solid ${alpha('#6a1b9a',0.15)}` }}>
+                                                              <Typography variant="caption" sx={{ fontWeight:800, color:'#6a1b9a', minWidth:16 }}>#{idx+1}</Typography>
+                                                              {[
+                                                                { l:'Fecha',       v: fmtD(f.fecha_compra) },
+                                                                { l:'Vence',       v: fmtD(f.fecha_vencimiento) },
+                                                                { l:'Sem. venc.',  v: f.semana_vencimiento ? `S${f.semana_vencimiento}` : '–' },
+                                                                { l:'Plazo',       v: f.plazo_dias ? `${f.plazo_dias}d` : '–' },
+                                                                { l:'Neto',        v: fmtM(f.monto_neto) },
+                                                                { l:'c/IVA',       v: fmtM(f.monto_con_iva) },
+                                                              ].map(({ l, v }) => (
+                                                                <Box key={l}>
+                                                                  <Typography variant="caption" color="text.disabled" display="block" fontSize="0.58rem">{l}</Typography>
+                                                                  <Typography variant="caption" fontWeight={600} fontSize="0.7rem">{v}</Typography>
+                                                                </Box>
+                                                              ))}
+                                                              <Chip label={f.estado_pago || 'Pendiente'} size="small" sx={{
+                                                                height:16, fontSize:'0.58rem', fontWeight:700,
+                                                                bgcolor: f.estado_pago === 'Completo' ? alpha('#2e7d32',0.1) : alpha('#e65100',0.08),
+                                                                color:   f.estado_pago === 'Completo' ? '#2e7d32' : '#e65100',
+                                                              }}/>
+                                                            </Box>
+                                                          ))}
+                                                        </Box>
+
+                                                        {/* Remanente */}
+                                                        {ofData.remanente && (() => {
+                                                          const rem = ofData.remanente;
+                                                          const totFact = ofData.facturas.reduce((s,f) => s+(parseFloat(f.monto_con_iva)||0),0);
+                                                          const totRem  = parseFloat(rem.monto_con_iva)||0;
+                                                          const totOC   = totFact + totRem;
+                                                          const pct     = totOC > 0 ? Math.round(totFact/totOC*100) : 0;
+                                                          return (
+                                                            <Box>
+                                                              <Typography variant="caption" fontWeight={700}
+                                                                sx={{ color:'#e65100', textTransform:'uppercase', letterSpacing:0.5, fontSize:'0.6rem', display:'block', mb:0.8 }}>
+                                                                Remanente pendiente
+                                                              </Typography>
+                                                              <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, alignItems:'center',
+                                                                px:1.5, py:0.8, borderRadius:1.5,
+                                                                bgcolor:alpha('#e65100',0.06), border:`1px solid ${alpha('#e65100',0.2)}` }}>
+                                                                {[
+                                                                  { l:'Vence',      v: fmtD(rem.fecha_vencimiento) },
+                                                                  { l:'Sem. venc.', v: rem.semana_vencimiento ? `S${rem.semana_vencimiento}` : '–' },
+                                                                  { l:'Neto',       v: fmtM(rem.monto_neto) },
+                                                                  { l:'c/IVA',      v: fmtM(rem.monto_con_iva) },
+                                                                ].map(({ l, v }) => (
+                                                                  <Box key={l}>
+                                                                    <Typography variant="caption" color="text.disabled" display="block" fontSize="0.58rem">{l}</Typography>
+                                                                    <Typography variant="caption" fontWeight={700} color="#e65100" fontSize="0.7rem">{v}</Typography>
+                                                                  </Box>
+                                                                ))}
+                                                                {/* Barra progreso facturado vs remanente */}
+                                                                <Box sx={{ flex:1, minWidth:140 }}>
+                                                                  <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.3 }}>
+                                                                    <Typography variant="caption" fontSize="0.58rem" color="text.disabled">Facturado</Typography>
+                                                                    <Typography variant="caption" fontSize="0.62rem" fontWeight={700}
+                                                                      color={pct >= 100 ? '#2e7d32' : '#f57c00'}>{pct}%</Typography>
+                                                                  </Box>
+                                                                  <Box sx={{ display:'flex', height:7, borderRadius:2, overflow:'hidden', gap:'1px' }}>
+                                                                    <Box sx={{ flex:totFact, bgcolor:'#6a1b9a', minWidth:4 }}/>
+                                                                    <Box sx={{ flex:totRem,  bgcolor:'#e65100', minWidth:4 }}/>
+                                                                  </Box>
+                                                                  <Box sx={{ display:'flex', gap:1.5, mt:0.3 }}>
+                                                                    {[{label:'Fact.',color:'#6a1b9a',v:fmtM(totFact)},{label:'Rem.',color:'#e65100',v:fmtM(totRem)}].map(({label,color,v})=>(
+                                                                      <Box key={label} sx={{ display:'flex', alignItems:'center', gap:0.3 }}>
+                                                                        <Box sx={{ width:7,height:7,borderRadius:'50%',bgcolor:color }}/>
+                                                                        <Typography variant="caption" fontSize="0.58rem" color="text.secondary">
+                                                                          {label}: <strong style={{color}}>{v}</strong>
+                                                                        </Typography>
+                                                                      </Box>
+                                                                    ))}
+                                                                  </Box>
+                                                                </Box>
+                                                              </Box>
+                                                            </Box>
+                                                          );
+                                                        })()}
+                                                      </Box>
+                                                    </Collapse>
+                                                  </TableCell>
+                                                </TableRow>
+                                              )}
+                                            </React.Fragment>
                                           );
                                         })}
                                       </TableBody>
@@ -2468,6 +3379,10 @@ const PlanificacionPage = () => {
   const [detalleEmision,       setDetalleEmision]       = useState([]);
   const [loadingDetalleEmision,setLoadingDetalleEmision]= useState(false);
   const [ultimasCargas,        setUltimasCargas]        = useState({});
+  const [ordenesMadre,         setOrdenesMadre]         = useState([]);
+  const [loadingMadre,         setLoadingMadre]         = useState(false);
+  const [ordenFactura,         setOrdenFactura]         = useState([]);
+  const [loadingOrdenFactura,  setLoadingOrdenFactura]  = useState(false);
   // Compras madre (dialog para selección manual desde tab Encadenados)
   const [dialogMadreOpen,        setDialogMadreOpen]        = useState(false);
   const [comprasMadrePendientes, setComprasMadrePendientes] = useState([]);
@@ -2763,6 +3678,24 @@ const PlanificacionPage = () => {
     finally { setLoadingDetalleEmision(false); }
   }, [year]);
 
+  const loadOrdenesMadre = useCallback(async () => {
+    setLoadingMadre(true);
+    try {
+      const r = await api.get('/planificacion/ordenes-madre');
+      setOrdenesMadre(r.data?.registros || []);
+    } catch { setOrdenesMadre([]); }
+    finally { setLoadingMadre(false); }
+  }, []);
+
+  const loadOrdenFactura = useCallback(async () => {
+    setLoadingOrdenFactura(true);
+    try {
+      const r = await api.get('/planificacion/orden-factura', { params: { año: year } });
+      setOrdenFactura(r.data?.registros || []);
+    } catch { setOrdenFactura([]); }
+    finally { setLoadingOrdenFactura(false); }
+  }, [year]);
+
   useEffect(() => { loadWeeks(); api.get(`/planificacion/resumen-anual?año=${year}`).then(r => setStatsAnuales(r.data)).catch(() => {}); }, [loadWeeks, year]);
   // loadCompras se llama DENTRO de loadNoEncadenadosERP (finally) para evitar race condition
   // (el ERP borra e inserta datos — loadCompras separado leería BD vacía entre medio)
@@ -2770,6 +3703,8 @@ const PlanificacionPage = () => {
   useEffect(() => { loadCompras(); }, [loadCompras]);
   useEffect(() => { loadComprasPorEmision(); }, [loadComprasPorEmision]);
   useEffect(() => { loadDetalleEmision(); }, [loadDetalleEmision]);
+  useEffect(() => { loadOrdenesMadre(); }, [loadOrdenesMadre]);
+  useEffect(() => { loadOrdenFactura(); }, [loadOrdenFactura]);
 
   const handleConfirmarMadres = async () => {
     const ids = Object.entries(madreSeleccionadas).filter(([,v]) => v).map(([k]) => k);
@@ -2777,13 +3712,24 @@ const PlanificacionPage = () => {
     setDialogMadreOpen(false);
     setComprasMadrePendientes([]);
     loadCompras();
+    loadOrdenesMadre();
   };
 
   // Marcar como madre directo desde la vista de Emisión (sin dialog intermedio)
   const handleMadreDesdeEmision = useCallback(async (r) => {
     await api.put(`/planificacion/compras/${r.id}/madre`, { es_madre: true }).catch(() => {});
     loadCompras();
-  }, [loadCompras]);
+    loadOrdenesMadre();
+    loadDetalleEmision();
+  }, [loadCompras, loadOrdenesMadre, loadDetalleEmision]);
+
+  const handleDesmarcarMadre = useCallback(async (r) => {
+    await api.put(`/planificacion/compras/${r.id}/madre`, { es_madre: false }).catch(() => {});
+    loadOrdenesMadre();
+    loadCompras();
+    loadDetalleEmision();
+    loadOrdenFactura();
+  }, [loadOrdenesMadre, loadCompras, loadDetalleEmision, loadOrdenFactura]);
 
   // IDs sospechosas (5× mediana) para destacar en la vista de Emisión
   const sospechosasIdsEmision = useMemo(() => {
@@ -2793,6 +3739,19 @@ const PlanificacionPage = () => {
     const umbral  = mediana * 5;
     return new Set(detalleEmision.filter(r => (parseFloat(r.monto_con_iva) || 0) > umbral).map(r => r.id));
   }, [detalleEmision]);
+
+  // Mapa numero_orden → { facturas[], remanente } para mostrar en VistaArbolEmision
+  const ofMap = useMemo(() => {
+    const map = {};
+    ordenFactura.forEach(r => {
+      const k = r.numero_orden;
+      if (!k) return;
+      if (!map[k]) map[k] = { facturas: [], remanente: null };
+      if (r.fuente === 'FACTURA')   map[k].facturas.push(r);
+      else if (r.fuente === 'REMANENTE') map[k].remanente = r;
+    });
+    return map;
+  }, [ordenFactura]);
 
   // ─── Navegación ──────────────────────────────────────────────────────────
   const goToPrev = () => { setDirection(-1); setWeek(w=>Math.max(1,w-1)); };
@@ -3089,48 +4048,82 @@ const PlanificacionPage = () => {
             <Box sx={{position:'absolute',top:0,left:0,height:'100%',width:`${week/52*100}%`,bgcolor:'#90a4ae',borderRadius:3,transition:'width .4s ease'}}/>
           </Box>
           {/* Mini bar chart de 52 semanas */}
-          <Box sx={{ mt: 2.5, position: 'relative' }}>
-            {/* Línea de límite al 100% */}
-            <Box sx={{
-              position: 'absolute', top: 0, left: 0, right: 0,
-              height: '1px', bgcolor: alpha('#b71c1c', 0.25),
-              borderTop: '1px dashed', borderColor: alpha('#b71c1c', 0.35),
-              zIndex: 1,
-            }}/>
-            {/* Línea al 80% */}
-            <Box sx={{
-              position: 'absolute', top: `${BAR_H * 0.2}px`, left: 0, right: 0,
-              height: '1px', borderTop: '1px dashed', borderColor: alpha('#f57c00', 0.3),
-              zIndex: 1,
-            }}/>
-            {/* Barras */}
-            <Box sx={{ display: 'flex', gap: '1px', alignItems: 'flex-end', height: BAR_H + 4 }}>
-              {weeksData.map(w => (
-                <WeekMiniBar
-                  key={w.semana}
-                  w={w}
-                  isCurrent={w.semana === week}
-                  onClick={() => { setDirection(w.semana > week ? 1 : -1); setWeek(w.semana); }}
-                />
-              ))}
-            </Box>
-            {/* Etiquetas de mes */}
-            <Box sx={{ display: 'flex', mt: 0.5, position: 'relative', height: 14 }}>
-              {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => {
-                // Posición en px alineada con la barra real de esa semana (10px barra + 1px gap = 11px/semana)
-                const leftPx = Math.round(i * 52 / 12) * (10 + 1);
-                return (
-                  <Typography key={mes} variant="caption" sx={{
-                    position: 'absolute',
-                    left: `${leftPx}px`,
-                    fontSize: '0.68rem',
-                    color: 'text.secondary',
-                    userSelect: 'none',
-                  }}>{mes}</Typography>
-                );
-              })}
-            </Box>
-          </Box>
+          {(() => {
+            const miniMaxBar = Math.max(...weeksData.map(w =>
+              (parseFloat(w.encadenados)||0) + (parseFloat(w.deuda_facturada_enc)||0) + (parseFloat(w.deuda_facturada_nenc)||0)
+            ), 1);
+            const miniMaxLim = Math.max(...weeksData.map(w => parseFloat(w.limite_semanal)||100_000_000));
+            const miniMax    = Math.max(miniMaxBar, miniMaxLim) * 1.08;
+            const miniSvgW   = weeksData.length * (MINI_BAR_W + MINI_GAP);
+            const miniLimPts = weeksData.map((w, i) => {
+              const lim = parseFloat(w.limite_semanal) || 100_000_000;
+              return {
+                y:   Math.max(0, Math.min(BAR_H, BAR_H * (1 - lim / miniMax))),
+                y80: Math.max(0, Math.min(BAR_H, BAR_H * (1 - lim * 0.8 / miniMax))),
+                x1:  i * (MINI_BAR_W + MINI_GAP),
+                x2:  i * (MINI_BAR_W + MINI_GAP) + MINI_BAR_W,
+                lim,
+              };
+            });
+            const buildMiniPath = yKey => {
+              let d = `M ${miniLimPts[0].x1},${miniLimPts[0][yKey]}`;
+              for (let j = 1; j < miniLimPts.length; j++) d += ` H ${miniLimPts[j].x1} V ${miniLimPts[j][yKey]}`;
+              return d + ` H ${miniLimPts[miniLimPts.length-1].x2}`;
+            };
+            return (
+              <Box sx={{ mt: 2.5, position: 'relative', overflowX: 'auto', pb: 0.5,
+                '&::-webkit-scrollbar':{ height: 4 },
+                '&::-webkit-scrollbar-thumb':{ bgcolor: alpha('#000', 0.18), borderRadius: 2 },
+              }}>
+                <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                  {/* SVG líneas de límite variable */}
+                  <svg
+                    viewBox={`0 0 ${miniSvgW} ${BAR_H}`}
+                    style={{ position: 'absolute', top: 26, left: 0, width: miniSvgW, height: BAR_H,
+                      pointerEvents: 'none', overflow: 'visible', zIndex: 3 }}
+                  >
+                    <path d={buildMiniPath('y80')} stroke="rgba(245,124,0,0.45)" strokeWidth="1"
+                      strokeDasharray="4,2" fill="none"/>
+                    <path d={buildMiniPath('y')} stroke="rgba(183,28,28,0.75)" strokeWidth="1.5"
+                      strokeDasharray="5,3" fill="none"/>
+                    {miniLimPts.map((p, i) => {
+                      if (i === 0 || Math.abs(p.lim - miniLimPts[i-1].lim) < 100) return null;
+                      return <circle key={i} cx={p.x1} cy={p.y} r={2.5}
+                        fill="#b71c1c" stroke="white" strokeWidth={0.8}/>;
+                    })}
+                  </svg>
+
+                  {/* Barras */}
+                  <Box sx={{ display: 'flex', gap: `${MINI_GAP}px`, alignItems: 'flex-end',
+                    height: BAR_H + 26, position: 'relative', zIndex: 2 }}>
+                    {weeksData.map(w => (
+                      <WeekMiniBar
+                        key={w.semana}
+                        w={w}
+                        maxVal={miniMax}
+                        isCurrent={w.semana === week}
+                        onClick={() => { setDirection(w.semana > week ? 1 : -1); setWeek(w.semana); }}
+                      />
+                    ))}
+                  </Box>
+
+                  {/* Etiquetas de mes */}
+                  <Box sx={{ display: 'flex', mt: 0.5, position: 'relative', height: 14,
+                    width: miniSvgW }}>
+                    {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => {
+                      const leftPx = Math.round(i * 52 / 12) * (MINI_BAR_W + MINI_GAP);
+                      return (
+                        <Typography key={mes} variant="caption" sx={{
+                          position: 'absolute', left: `${leftPx}px`,
+                          fontSize: '0.68rem', color: 'text.secondary', userSelect: 'none',
+                        }}>{mes}</Typography>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })()}
         </Box>
       </Paper>
 
@@ -3187,10 +4180,10 @@ const PlanificacionPage = () => {
 
       {/* ── Tabs de vista principal ── */}
       <Box sx={{mb:2,borderBottom:'1px solid',borderColor:'divider'}}>
-        <Tabs value={tabVista} onChange={(_,v)=>setTabVista(v)} sx={{
+        <Tabs value={tabVista} onChange={(_,v)=>setTabVista(v)} variant="scrollable" scrollButtons="auto" sx={{
           '& .MuiTab-root':{textTransform:'none',fontWeight:700,minHeight:44,fontSize:'0.85rem',gap:0.5},
           '& .MuiTabs-indicator':{height:3,borderRadius:'3px 3px 0 0',
-            bgcolor:[ENC_MID,NENC_MID,'#6a1b9a','#00838f',OC_COLOR][tabVista]||ENC_MID},
+            bgcolor:[ENC_MID,NENC_MID,'#6a1b9a','#00838f',MADRE_COLOR][tabVista]||ENC_MID},
         }}>
           <Tab icon={<TrendingUpIcon sx={{fontSize:17}}/>} iconPosition="start" label="Resumen"
             sx={{'&.Mui-selected':{color:ENC_MID}}}/>
@@ -3200,6 +4193,8 @@ const PlanificacionPage = () => {
             sx={{'&.Mui-selected':{color:'#6a1b9a'}}}/>
           <Tab icon={<CalendarMonthIcon sx={{fontSize:17}}/>} iconPosition="start" label="Compras por Emisión"
             sx={{'&.Mui-selected':{color:'#00838f'}}}/>
+          <Tab icon={<BookmarkIcon sx={{fontSize:17}}/>} iconPosition="start" label="Órdenes Madre"
+            sx={{'&.Mui-selected':{color:MADRE_COLOR}}}/>
         </Tabs>
       </Box>
 
@@ -3950,9 +4945,26 @@ const PlanificacionPage = () => {
               loading={loadingDetalleEmision}
               sospechosasIds={sospechosasIdsEmision}
               onMadre={handleMadreDesdeEmision}
+              ofMap={ofMap}
             />
           </Paper>
         </Box>
+      )}
+
+      {/* ══ VISTA 4: ÓRDENES MADRE ══ */}
+      {tabVista === 4 && (
+        <Paper elevation={0} sx={{
+          border:`1.5px solid ${alpha(MADRE_COLOR, 0.25)}`,
+          borderRadius:3, overflow:'hidden', minHeight:500,
+          display:'flex', flexDirection:'column',
+        }}>
+          <PanelOrdenesMadre
+            registros={ordenesMadre}
+            loading={loadingMadre}
+            onDesmarcar={handleDesmarcarMadre}
+            ofMap={ofMap}
+          />
+        </Paper>
       )}
 
       {/* ══ Diálogos ─── */}

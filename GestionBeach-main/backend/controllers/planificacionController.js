@@ -1597,6 +1597,39 @@ exports.marcarCompraMadre = async (req, res) => {
     const { id } = req.params;
     const { es_madre } = req.body;
     const pool = await poolPromise;
+
+    if (es_madre) {
+      // Obtener la fila clickeada para ver si tiene numero_orden
+      const rowQ = await pool.request()
+        .input('id', sql.Int, parseInt(id))
+        .query('SELECT numero_orden, tipo_proveedor FROM panificacion_compras WHERE id = @id');
+      const row = rowQ.recordset[0];
+      const numeroOrden = row?.numero_orden;
+
+      if (numeroOrden) {
+        // Marcar solo OC original + REMANENTE (no las FACTURA individuales)
+        await pool.request()
+          .input('oc', sql.NVarChar, String(numeroOrden))
+          .query(`UPDATE panificacion_compras SET es_madre = 1 WHERE numero_orden = @oc AND fuente NOT IN ('FACTURA')`);
+
+        return res.json({ success: true, id_original: parseInt(id) });
+      }
+    } else {
+      // Desmarcar: obtener numero_orden y desmarcar todo el grupo
+      const rowQ = await pool.request()
+        .input('id', sql.Int, parseInt(id))
+        .query('SELECT numero_orden FROM panificacion_compras WHERE id = @id');
+      const numeroOrden = rowQ.recordset[0]?.numero_orden;
+
+      if (numeroOrden) {
+        await pool.request()
+          .input('oc', sql.NVarChar, String(numeroOrden))
+          .query(`UPDATE panificacion_compras SET es_madre = 0 WHERE numero_orden = @oc`);
+        return res.json({ success: true });
+      }
+    }
+
+    // Sin numero_orden: operar sobre el id exacto
     await pool.request()
       .input('id',       sql.Int, parseInt(id))
       .input('es_madre', sql.Bit, es_madre ? 1 : 0)
@@ -1604,6 +1637,73 @@ exports.marcarCompraMadre = async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/// ─── GET: Relación Orden→Factura→Remanente por año ────────────────────────────
+exports.getOrdenFactura = async (req, res) => {
+  try {
+    const año = parseInt(req.query.año) || new Date().getFullYear();
+    const pool = await poolPromise;
+    await asegurarTablas(pool);
+    const result = await pool.request()
+      .input('año', sql.Int, año)
+      .query(`
+        SELECT
+          id, proveedor, numero_orden,
+          CONVERT(VARCHAR(10), fecha_compra,      120) AS fecha_compra,
+          CONVERT(VARCHAR(10), fecha_vencimiento, 120) AS fecha_vencimiento,
+          semana_compra, semana_vencimiento, año,
+          monto_neto, monto_con_iva, plazo_dias,
+          tipo_proveedor, sucursal, fuente,
+          ISNULL(estado_pago, 'Pendiente') AS estado_pago,
+          ISNULL(es_madre, 0)              AS es_madre,
+          lote_carga
+        FROM panificacion_compras
+        WHERE año = @año
+          AND tipo_proveedor = 'Encadenado'
+          AND LEN(ISNULL(numero_orden, '')) > 0
+        ORDER BY numero_orden ASC,
+          CASE fuente
+            WHEN 'EXCEL'    THEN 0
+            WHEN 'MANUAL'   THEN 0
+            WHEN 'ERP'      THEN 0
+            WHEN 'FACTURA'  THEN 1
+            WHEN 'REMANENTE' THEN 2
+            ELSE 3
+          END,
+          id ASC
+      `);
+    res.json({ success: true, año, registros: result.recordset });
+  } catch (error) {
+    console.error('Error getOrdenFactura:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── GET: Órdenes marcadas como "madre" (excluidas del resumen) ───────────────
+exports.getOrdenesMadre = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    await asegurarTablas(pool);
+    const result = await pool.request().query(`
+      SELECT id, proveedor,
+             CONVERT(VARCHAR(10), fecha_compra,      120) AS fecha_compra,
+             CONVERT(VARCHAR(10), fecha_vencimiento, 120) AS fecha_vencimiento,
+             semana_compra, semana_vencimiento, año, mes,
+             numero_orden, monto_neto, monto_con_iva,
+             plazo_dias, tipo_proveedor, sucursal, fuente,
+             ISNULL(estado_pago, 'Pendiente') AS estado_pago,
+             lote_carga, fecha_carga
+      FROM panificacion_compras
+      WHERE ISNULL(es_madre, 0) = 1
+        AND fuente NOT IN ('REMANENTE', 'FACTURA')
+      ORDER BY fecha_compra DESC, id DESC
+    `);
+    res.json({ success: true, total: result.recordset.length, registros: result.recordset });
+  } catch (error) {
+    console.error('Error getOrdenesMadre:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -1634,16 +1734,24 @@ exports.getDetalleComprasPorEmision = async (req, res) => {
                   ELSE
                     CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
+              ORDER BY CASE fuente
+                WHEN 'EXCEL'     THEN 0
+                WHEN 'ERP'       THEN 1
+                WHEN 'MANUAL'    THEN 2
+                WHEN 'FACTURA'   THEN 3
+                WHEN 'REMANENTE' THEN 4
+                ELSE 5
+              END, id ASC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año AND ISNULL(es_madre, 0) = 0
+          WHERE año = @año
         )
         SELECT id, proveedor,
                CONVERT(VARCHAR(10), fecha_compra, 120) AS fecha_compra,
                semana_compra, numero_orden,
                monto_neto, monto_con_iva, tipo_proveedor,
-               sucursal, fuente, estado_pago
+               sucursal, fuente, estado_pago,
+               ISNULL(es_madre, 0) AS es_madre
         FROM dedup
         WHERE _rn = 1 AND semana_compra IS NOT NULL AND semana_compra > 0
         ORDER BY fecha_compra ASC, id ASC
@@ -1834,11 +1942,12 @@ exports.cargarNoEncadenadosERP = async (req, res) => {
     let { fechaInicio, fechaFin, semana, año } = req.body;
 
     if (semana && año) {
-      const payRange = getWeekDateRange(parseInt(semana), parseInt(año));
-      const inicio   = new Date(payRange.fechaInicio);
+      const payRange    = getWeekDateRange(parseInt(semana), parseInt(año));
+      const inicio      = new Date(payRange.fechaInicio);
       inicio.setDate(inicio.getDate() - 150);
       fechaInicio = inicio.toISOString().split('T')[0];
-      fechaFin    = payRange.fechaFin;
+      // Extender hasta fin de año para capturar OCs con plazos largos que vencen en semanas futuras
+      fechaFin    = getWeekDateRange(52, parseInt(año)).fechaFin;
     }
 
     if (!fechaInicio || !fechaFin) {
@@ -1956,7 +2065,8 @@ exports.recargarSucursalERP = async (req, res) => {
     const inicio    = new Date(payRange.fechaInicio);
     inicio.setDate(inicio.getDate() - 150);
     const fechaInicio = inicio.toISOString().split('T')[0];
-    const fechaFin    = payRange.fechaFin;
+    // Extender hasta fin de año para capturar OCs con plazos largos que vencen en semanas futuras
+    const fechaFin    = getWeekDateRange(52, parseInt(año)).fechaFin;
 
     const pool = await poolPromise;
     await asegurarTablas(pool);
@@ -2199,16 +2309,17 @@ exports.uploadFacturasPBI = async (req, res) => {
           await pool.request()
             .input('oc', sql.NVarChar, oc)
             .query(`DELETE FROM panificacion_compras WHERE numero_orden = @oc AND fuente != 'REMANENTE'`);
-          const semanaCompra  = getWeekNumber(new Date());
           // Usar plazo original de la OC; si no existía, calcular desde fecha_compra original o desde hoy
           const plazoMod = plazoOriginal
             ? plazoOriginal
             : redondearPlazo(fechaCompraOrig
                 ? Math.round((fechaVenc - new Date(fechaCompraOrig)) / 86400000)
                 : Math.round((fechaVenc - new Date()) / 86400000));
+          const fechaCompraEstMod = new Date(fechaVenc.getTime() - plazoMod * 86400000);
+          const semanaCompra  = getWeekNumber(fechaCompraEstMod);
           await insertarCompra(pool, {
             proveedor,
-            fecha_compra:       hoy,
+            fecha_compra:       formatDate(fechaCompraEstMod),
             semana_compra:      semanaCompra,
             año,
             mes:                getMesNombre(fechaVenc),
@@ -2432,11 +2543,13 @@ exports.uploadFacturasPBI = async (req, res) => {
 
         // Si no había OC coincidente, insertar como nuevo con plazo por defecto 30 días
         if (!actualizado) {
-          const semanaCompra = getWeekNumber(hoyDate);
           const plazoNuevo = redondearPlazo(Math.round((fechaVenc - hoyDate) / 86400000));
+          // Retroceder desde la fecha de vencimiento para estimar la fecha de emisión real
+          const fechaCompraEst = new Date(fechaVenc.getTime() - plazoNuevo * 86400000);
+          const semanaCompra = getWeekNumber(fechaCompraEst);
           await insertarCompra(pool, {
             proveedor,
-            fecha_compra:       hoy,
+            fecha_compra:       formatDate(fechaCompraEst),
             semana_compra:      semanaCompra,
             año,
             mes:                getMesNombre(fechaVenc),
@@ -2845,6 +2958,8 @@ exports.getProductosOC = async (req, res) => {
       return res.json({ success: true, productos: [], mensaje: 'Sin conexiones ERP disponibles' });
     }
 
+    const errores = [];
+
     // Intentar cada candidata hasta encontrar resultados
     for (const suc of candidatas) {
       try {
@@ -2863,14 +2978,47 @@ exports.getProductosOC = async (req, res) => {
             total: result.recordset.length,
           });
         }
+
+        // Buscar con el número sin espacios extra por si acaso
+        const QUERY_LIKE = `
+          SELECT
+            MP_CODIGO_PRODUCTO       AS codigo_producto,
+            DOC_DESCRIPCION_PRODUCTO AS descripcion,
+            DOC_CANTIDAD             AS cantidad,
+            DOC_PRECIO_FINAL         AS precio_unitario,
+            DOC_TOTAL                AS total
+          FROM ERP_OP_DET_ORDEN_COMPRA
+          WHERE ROC_NUMERO_ORDEN LIKE @numero_orden
+          ORDER BY MP_CODIGO_PRODUCTO
+        `;
+        const r2 = await pool.request()
+          .input('numero_orden', sql.NVarChar(50), `%${oc}%`)
+          .query(QUERY_LIKE);
+        if (r2.recordset.length > 0) {
+          console.log(`   → ${suc.nombre}: ${r2.recordset.length} productos (LIKE match)`);
+          return res.json({ success: true, productos: r2.recordset, sucursal: suc.nombre, total: r2.recordset.length });
+        }
+
+        // Diagnóstico: listar tablas del ERP que coincidan con "DET" u "ORDEN"
+        const tablasDiag = await pool.request().query(`
+          SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+          WHERE TABLE_NAME LIKE '%DET%ORDEN%' OR TABLE_NAME LIKE '%ORDEN%DET%'
+          OR TABLE_NAME LIKE '%LINEA%ORDEN%' OR TABLE_NAME LIKE '%ITEM%ORDEN%'
+          ORDER BY TABLE_NAME
+        `);
+        const tablas = tablasDiag.recordset.map(t => t.TABLE_NAME);
+        console.log(`   → ${suc.nombre}: 0 productos. Tablas candidatas: [${tablas.join(', ')}]`);
+        errores.push({ sucursal: suc.nombre, tablasCandidatas: tablas, mensaje: '0 productos con exact match y LIKE' });
+
       } catch (erpErr) {
-        console.warn(`   ⚠️ ${suc.nombre}: ${erpErr.message}`);
+        console.error(`   ⚠️ ${suc.nombre}: ${erpErr.message}`);
+        errores.push({ sucursal: suc.nombre, error: erpErr.message });
       }
     }
 
     // Ninguna sucursal retornó resultados
-    console.warn(`[ProductosOC] OC "${oc}" no encontrada en ninguna sucursal ERP`);
-    res.json({ success: true, productos: [], mensaje: `OC ${oc} no tiene detalle de productos en el ERP` });
+    console.warn(`[ProductosOC] OC "${oc}" no encontrada. Diagnóstico:`, JSON.stringify(errores, null, 2));
+    res.json({ success: true, productos: [], mensaje: `OC ${oc} sin detalle`, diagnostico: errores });
 
   } catch (error) {
     console.error('[ProductosOC] Error:', error.message);

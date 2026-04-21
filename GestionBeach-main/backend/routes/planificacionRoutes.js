@@ -32,6 +32,12 @@ const uploadDir = path.join(__dirname, '../uploads/planificacion');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 try { fs.chmodSync(uploadDir, 0o777); } catch {}
 
+// Evita que Chrome y otros browsers cacheen respuestas de esta API
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // Rutas
 router.get('/control-semanal',    authMiddleware, ctrl.getControlSemanal);
 router.get('/compras',            authMiddleware, ctrl.getCompras);
@@ -55,6 +61,8 @@ router.post('/deduplicar',           authMiddleware, ctrl.deduplicarCompras);
 router.post('/descargar-pbi-auto',   authMiddleware, ctrl.descargarFacturasPBIAuto);
 router.delete('/compras/:id', authMiddleware, ctrl.eliminarCompra);
 router.put('/compras/:id/madre', authMiddleware, ctrl.marcarCompraMadre);
+router.get('/ordenes-madre',    authMiddleware, ctrl.getOrdenesMadre);
+router.get('/orden-factura',    authMiddleware, ctrl.getOrdenFactura);
 
 router.get('/alertas',         authMiddleware, ctrl.getAlertasSemanas);
 router.get('/estado-sync-pbi', authMiddleware, ctrl.getEstadoSyncPBI);
