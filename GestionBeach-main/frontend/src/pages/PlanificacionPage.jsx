@@ -47,6 +47,89 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
 
+// ─── Hook: Número animado (cuenta de old → new en ~600ms) ──────────────────
+function useAnimatedNumber(value, duration = 550) {
+  const [displayed, setDisplayed] = React.useState(value);
+  const prevRef = React.useRef(value);
+  const rafRef  = React.useRef(null);
+  React.useEffect(() => {
+    const start = prevRef.current;
+    const end   = value;
+    if (start === end) return;
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      const e = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      setDisplayed(Math.round(start + (end - start) * e));
+      if (p < 1) rafRef.current = requestAnimationFrame(tick);
+      else prevRef.current = end;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+  }, [value, duration]);
+  return displayed;
+}
+
+// ─── Componente: Gauge radial SVG ─────────────────────────────────────────────
+function RadialGauge({ pct = 0, color = '#3949ab', size = 110, label = '', sublabel = '' }) {
+  const r    = (size - 16) / 2;
+  const circ = 2 * Math.PI * r;
+  const clamped = Math.min(Math.max(pct, 0), 100);
+  const dash = circ * clamped / 100;
+  const cx   = size / 2;
+  const cy   = size / 2;
+  const isOver = pct > 100;
+  const arcColor = isOver ? '#b71c1c' : pct >= 80 ? '#e65100' : color;
+  return (
+    <Box sx={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform:'rotate(-90deg)' }}>
+        {/* Track */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={10} strokeLinecap="round"/>
+        {/* Progress */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={arcColor} strokeWidth={10} strokeLinecap="round"
+          strokeDasharray={`${dash} ${circ}`}
+          style={{ transition:'stroke-dasharray 0.8s cubic-bezier(.4,0,.2,1), stroke 0.3s' }}/>
+        {/* Over-limit arc overlay */}
+        {isOver && (
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={alpha('#b71c1c',0.25)} strokeWidth={12} strokeLinecap="round"
+            strokeDasharray={`${circ} 0`}/>
+        )}
+      </svg>
+      <Box sx={{
+        position:'absolute', inset:0, display:'flex', flexDirection:'column',
+        alignItems:'center', justifyContent:'center',
+      }}>
+        <Typography sx={{ fontSize:'1.15rem', fontWeight:900, lineHeight:1, color: arcColor }}>
+          {label}
+        </Typography>
+        {sublabel && (
+          <Typography sx={{ fontSize:'0.6rem', color:'text.secondary', fontWeight:600, mt:0.2 }}>
+            {sublabel}
+          </Typography>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+// ─── Componente: Anillo de progreso anual (SVG, rodea el nº de semana) ─────────
+function YearProgressRing({ week, size = 200, color = '#3949ab' }) {
+  const r    = size / 2 - 6;
+  const circ = 2 * Math.PI * r;
+  const pct  = week / 52;
+  const dash = circ * pct;
+  return (
+    <Box sx={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform:'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={alpha(color,0.1)} strokeWidth={5} strokeLinecap="round"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={alpha(color,0.55)} strokeWidth={5} strokeLinecap="round"
+          strokeDasharray={`${dash} ${circ}`}
+          style={{ transition:'stroke-dasharray 0.6s cubic-bezier(.4,0,.2,1)' }}/>
+      </svg>
+    </Box>
+  );
+}
+
 // ─── Paleta ─────────────────────────────────────────────────────────────────
 const ENC_DARK  = '#1a237e';
 const ENC_MID   = '#3949ab';
@@ -120,8 +203,10 @@ function WeekCalendar({ week, year, compras }) {
   return (
     <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, p:2, mb:2 }}>
       <Box sx={{ display:'flex', alignItems:'center', gap:1, mb:1.5 }}>
-        <CalendarIcon sx={{ fontSize:16, color:'text.secondary' }}/>
-        <Typography variant="caption" fontWeight={700} color="text.secondary" letterSpacing={1} textTransform="uppercase">
+        <Box sx={{ width:24, height:24, borderRadius:1.5, bgcolor:alpha(ENC_MID,.1), display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <CalendarIcon sx={{ fontSize:14, color:ENC_MID }}/>
+        </Box>
+        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ letterSpacing:1, textTransform:'uppercase' }}>
           Vencimientos Semana {week}
         </Typography>
       </Box>
@@ -137,29 +222,35 @@ function WeekCalendar({ week, year, compras }) {
           return (
             <Grid item xs key={key}>
               <Box sx={{
-                borderRadius: 2,
+                borderRadius: 2.5,
                 border: '1.5px solid',
-                borderColor: hasPay ? payColor : isToday ? ENC_MID : 'divider',
+                borderColor: hasPay ? alpha(payColor,0.5) : isToday ? alpha(ENC_MID,0.5) : alpha('#000',0.08),
                 bgcolor: hasPay
-                  ? alpha(payColor, 0.08)
-                  : isToday ? alpha(ENC_MID, 0.08) : isWeekend ? alpha('#000', 0.02) : 'background.paper',
+                  ? alpha(payColor, 0.06)
+                  : isToday ? alpha(ENC_MID, 0.06) : isWeekend ? alpha('#000', 0.02) : 'background.paper',
                 p: 1,
                 textAlign: 'center',
                 position: 'relative',
                 overflow: 'hidden',
                 minHeight: 80,
-                boxShadow: hasPay ? `0 0 0 2px ${alpha(payColor, 0.15)}` : 'none',
+                transition: 'transform .12s, box-shadow .12s',
+                '&:hover': hasPay ? { transform:'translateY(-2px)', boxShadow:`0 4px 12px ${alpha(payColor,0.25)}` } : {},
+                boxShadow: hasPay ? `0 2px 8px ${alpha(payColor, 0.12)}` : isToday ? `0 2px 8px ${alpha(ENC_MID,0.12)}` : 'none',
               }}>
                 {/* Barra de monto al fondo */}
                 {hasPay && (
                   <Box sx={{
                     position: 'absolute', bottom:0, left:0, right:0,
-                    height: `${Math.max(pct * 100, 12)}%`,
-                    bgcolor: alpha(payColor, 0.18),
-                    transition: 'height .5s ease',
+                    height: `${Math.max(pct * 100, 10)}%`,
+                    background: `linear-gradient(180deg, ${alpha(payColor, 0.05)}, ${alpha(payColor, 0.22)})`,
+                    transition: 'height .6s cubic-bezier(.4,0,.2,1)',
                   }}/>
                 )}
-                <Typography variant="caption" color={isWeekend && !hasPay ? 'text.disabled' : hasPay ? payColor : 'text.secondary'}
+                {/* Dot de hoy */}
+                {isToday && (
+                  <Box sx={{ position:'absolute', top:5, right:5, width:5, height:5, borderRadius:'50%', bgcolor: hasPay ? payColor : ENC_MID }}/>
+                )}
+                <Typography variant="caption" color={isWeekend && !hasPay ? 'text.disabled' : hasPay ? payColor : isToday ? ENC_MID : 'text.secondary'}
                   fontWeight={hasPay || isToday ? 700 : 400} fontSize="0.65rem">
                   {DIAS[i]}
                 </Typography>
@@ -168,13 +259,10 @@ function WeekCalendar({ week, year, compras }) {
                   sx={{ my: 0.3 }}>
                   {d.getDate()}
                 </Typography>
-                <Typography variant="caption" fontSize="0.6rem"
-                  color={hasPay ? payColor : 'text.disabled'} fontWeight={hasPay ? 800 : 400}>
+                <Typography variant="caption" fontSize="0.58rem"
+                  color={hasPay ? payColor : 'text.disabled'} fontWeight={hasPay ? 800 : 400} display="block" lineHeight={1.2}>
                   {hasPay ? fmtM(monto) : '–'}
                 </Typography>
-                {isToday && (
-                  <Box sx={{ width:5, height:5, borderRadius:'50%', bgcolor: hasPay ? payColor : ENC_MID, mx:'auto', mt:0.3 }}/>
-                )}
               </Box>
             </Grid>
           );
@@ -204,40 +292,59 @@ function AlertasCriticas({ weeksData, currentWeek, onJump }) {
   return (
     <Paper elevation={0} sx={{
       border: '1.5px solid',
-      borderColor: colorPanel,
+      borderColor: alpha(colorPanel, 0.4),
       borderRadius: 3,
-      p: 1.5,
       mb: 2,
-      bgcolor: `${colorPanel}0a`,
+      overflow: 'hidden',
+      boxShadow: `0 2px 12px ${alpha(colorPanel, 0.12)}`,
     }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-        <WarningIcon sx={{ fontSize: 16, color: colorPanel }}/>
-        <Typography variant="caption" fontWeight={800} letterSpacing={1} textTransform="uppercase" color={colorPanel}>
-          {alertas.length} semana{alertas.length !== 1 ? 's' : ''} requieren atención en las próximas 6 semanas
-        </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        {alertas.map(w => {
-          const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
-          const IconComp = sc.Icon;
-          return (
-            <Chip
-              key={w.numero_semana || w.semana}
-              label={`S${w.numero_semana || w.semana} · ${sc.label}`}
-              size="small"
-              icon={<IconComp sx={{ fontSize: '13px !important', color: 'white !important' }}/>}
-              onClick={() => onJump(w.numero_semana || w.semana)}
-              sx={{
-                bgcolor: sc.color,
-                color: 'white',
-                fontWeight: 700,
-                fontSize: '0.68rem',
-                cursor: 'pointer',
-                '&:hover': { opacity: 0.85 },
-              }}
-            />
-          );
-        })}
+      {/* Barra de acento superior */}
+      <Box sx={{ height: 3, background: `linear-gradient(90deg, ${colorPanel}, ${alpha(colorPanel,0.4)})` }}/>
+      <Box sx={{ p: 1.5, bgcolor: alpha(colorPanel, 0.04) }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Box sx={{
+            display:'flex', alignItems:'center', justifyContent:'center',
+            width:28, height:28, borderRadius:1.5,
+            bgcolor: alpha(colorPanel, 0.12),
+            ...(tieneExcedido && {
+              animation: 'pulseAlerta 1.8s ease-in-out infinite',
+              '@keyframes pulseAlerta': {
+                '0%,100%': { boxShadow: `0 0 0 0 ${alpha(colorPanel,0.4)}` },
+                '50%': { boxShadow: `0 0 0 6px ${alpha(colorPanel,0)}` },
+              },
+            }),
+          }}>
+            <WarningIcon sx={{ fontSize: 15, color: colorPanel }}/>
+          </Box>
+          <Typography variant="caption" fontWeight={800} letterSpacing={0.8} textTransform="uppercase" color={colorPanel} sx={{ fontSize:'0.72rem' }}>
+            {alertas.length} semana{alertas.length !== 1 ? 's' : ''} requieren atención · próximas 6 semanas
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 0.8, flexWrap: 'wrap' }}>
+          {alertas.map(w => {
+            const sc = STATUS_MAP[w.estado] || STATUS_MAP.OK;
+            const IconComp = sc.Icon;
+            return (
+              <Chip
+                key={w.numero_semana || w.semana}
+                label={`S${w.numero_semana || w.semana} · ${sc.label}`}
+                size="small"
+                icon={<IconComp sx={{ fontSize: '13px !important', color: 'white !important' }}/>}
+                onClick={() => onJump(w.numero_semana || w.semana)}
+                sx={{
+                  bgcolor: sc.color,
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: '0.68rem',
+                  cursor: 'pointer',
+                  boxShadow: `0 2px 6px ${alpha(sc.color,0.35)}`,
+                  '&:hover': { opacity: 0.85, transform:'translateY(-1px)', boxShadow: `0 4px 10px ${alpha(sc.color,0.4)}` },
+                  transition: 'all .15s',
+                }}
+              />
+            );
+          })}
+        </Box>
       </Box>
     </Paper>
   );
@@ -921,7 +1028,7 @@ function TablaAnual({ weeksData, año, currentWeek, onJump }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {weeksData.map(w => {
+              {weeksData.map((w, idx) => {
                 const enc        = parseFloat(w.encadenados)           || 0;
                 const factEnc    = parseFloat(w.deuda_facturada_enc)   || 0;
                 const factNenc   = parseFloat(w.deuda_facturada_nenc)  || 0;
@@ -936,9 +1043,12 @@ function TablaAnual({ weeksData, año, currentWeek, onJump }) {
                 return (
                   <TableRow key={w.semana} onClick={() => onJump(w.semana)}
                     sx={{ cursor:'pointer',
-                      bgcolor: esCurrent ? alpha(ENC_MID, 0.08) : 'transparent',
-                      '&:hover':{ bgcolor: alpha('#000', 0.03) },
+                      bgcolor: esCurrent
+                        ? alpha(ENC_MID, 0.09)
+                        : idx % 2 === 0 ? 'transparent' : alpha('#000', 0.018),
+                      '&:hover':{ bgcolor: alpha(ENC_MID, 0.05) },
                       '& td':{ py:0.5, fontSize:'0.72rem' },
+                      borderLeft: esCurrent ? `3px solid ${ENC_MID}` : '3px solid transparent',
                     }}>
                     <TableCell>
                       <Box sx={{ display:'flex', alignItems:'center', gap:0.8 }}>
@@ -1023,7 +1133,8 @@ function TablaAnual({ weeksData, año, currentWeek, onJump }) {
                         return (
                           <Tooltip title={estadoTooltip} arrow placement="left">
                             <Chip label={sc.label} size="small"
-                              sx={{ bgcolor: sc.color, color:'white', fontWeight:700, fontSize:'0.6rem', height:18, cursor:'help' }}/>
+                              sx={{ bgcolor: sc.color, color:'white', fontWeight:700, fontSize:'0.6rem', height:18, cursor:'help',
+                                boxShadow:`0 2px 6px ${alpha(sc.color,0.4)}` }}/>
                           </Tooltip>
                         );
                       })() : <Typography variant="caption" color="text.disabled">–</Typography>}
@@ -1054,10 +1165,17 @@ function StatsAnuales({ stats }) {
   return (
     <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, mb:2, overflow:'hidden' }}>
       <Box sx={{ display:'flex', alignItems:'center', justifyContent:'space-between', px:2, py:1.2,
-        cursor:'pointer', '&:hover':{ bgcolor:'action.hover' } }} onClick={() => setOpen(v=>!v)}>
-        <Typography variant="caption" fontWeight={700} color="text.secondary" letterSpacing={1} textTransform="uppercase">
-          Resumen anual {stats.año} · {fmtM(stats.totalAnual)}
-        </Typography>
+        cursor:'pointer', '&:hover':{ bgcolor:'action.hover' },
+        background:`linear-gradient(90deg,${alpha('#1a237e',0.03)} 0%,transparent 60%)`,
+      }} onClick={() => setOpen(v=>!v)}>
+        <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+          <TrendingUpIcon sx={{ fontSize:15, color:'text.disabled' }}/>
+          <Typography variant="caption" fontWeight={700} color="text.secondary" letterSpacing={1} textTransform="uppercase">
+            Resumen anual {stats.año}
+          </Typography>
+          <Chip label={fmtM(stats.totalAnual)} size="small"
+            sx={{ height:18, fontSize:'0.65rem', fontWeight:800, bgcolor:alpha(ENC_MID,0.1), color:ENC_MID }}/>
+        </Box>
         <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
           <Typography variant="caption" color="text.disabled" fontSize="0.68rem">{open ? 'Ocultar' : 'Ver resumen'}</Typography>
           {open ? <ExpandLessIcon fontSize="small" sx={{ color:'text.disabled', fontSize:16 }}/> : <ExpandMoreIcon fontSize="small" sx={{ color:'text.disabled', fontSize:16 }}/>}
@@ -1069,14 +1187,19 @@ function StatsAnuales({ stats }) {
           <Grid container spacing={1}>
             {items.map(({ label, value, color, icon: Icon }) => (
               <Grid item xs={6} sm={4} md={2} key={label}>
-                <Box sx={{ display:'flex', alignItems:'center', gap:1, p:1, borderRadius:2,
-                  bgcolor: alpha(color, 0.06), border:'1px solid', borderColor: alpha(color, 0.15) }}>
-                  <Avatar sx={{ width:28, height:28, bgcolor: alpha(color, 0.15), color }}>
-                    <Icon sx={{ fontSize:14 }}/>
+                <Box sx={{
+                  display:'flex', alignItems:'center', gap:1, p:1.2, borderRadius:2,
+                  background:`linear-gradient(135deg,${alpha(color,0.08)} 0%,${alpha(color,0.03)} 100%)`,
+                  border:'1px solid', borderColor: alpha(color, 0.18),
+                  transition:'transform .12s,box-shadow .12s',
+                  '&:hover':{ transform:'translateY(-1px)', boxShadow:`0 4px 12px ${alpha(color,0.15)}` },
+                }}>
+                  <Avatar sx={{ width:30, height:30, bgcolor: alpha(color, 0.15), color, boxShadow:`0 2px 8px ${alpha(color,0.2)}` }}>
+                    <Icon sx={{ fontSize:15 }}/>
                   </Avatar>
                   <Box>
-                    <Typography variant="caption" color="text.secondary" fontSize="0.62rem" display="block">{label}</Typography>
-                    <Typography variant="body2" fontWeight={700} color={color} lineHeight={1}>{value}</Typography>
+                    <Typography variant="caption" color="text.secondary" fontSize="0.6rem" display="block">{label}</Typography>
+                    <Typography variant="body2" fontWeight={800} color={color} lineHeight={1}>{value}</Typography>
                   </Box>
                 </Box>
               </Grid>
@@ -1093,11 +1216,27 @@ const OF_COLOR  = '#e65100';
 const OF_BG     = '#fff3e0';
 
 const FUENTE_META = {
-  EXCEL:     { label:'Excel OC',   color:'#1565c0', bg:'#e3f2fd' },
-  MANUAL:    { label:'Manual',     color:'#1565c0', bg:'#e3f2fd' },
-  ERP:       { label:'ERP',        color:'#2e7d32', bg:'#e8f5e9' },
-  FACTURA:   { label:'Factura',    color:'#6a1b9a', bg:'#f3e5f5' },
-  REMANENTE: { label:'Remanente',  color:'#e65100', bg:'#fff3e0' },
+  EXCEL:     { label:'Excel OC',   color:'#1565c0', bg:'#e3f2fd', dot:'#1565c0' },
+  MANUAL:    { label:'Manual',     color:'#1565c0', bg:'#e3f2fd', dot:'#1565c0' },
+  ERP:       { label:'ERP',        color:'#2e7d32', bg:'#e8f5e9', dot:'#2e7d32' },
+  FACTURA:   { label:'Factura',    color:'#6a1b9a', bg:'#f3e5f5', dot:'#6a1b9a' },
+  REMANENTE: { label:'Remanente',  color:'#e65100', bg:'#fff3e0', dot:'#e65100' },
+};
+
+// Chip de fuente con dot de color vivo
+const FuenteChip = ({ fuente, size = 'small' }) => {
+  const m = FUENTE_META[fuente] || { label: fuente, color:'#546e7a', bg:'#eceff1', dot:'#546e7a' };
+  return (
+    <Box sx={{ display:'inline-flex', alignItems:'center', gap:0.5,
+      px:0.9, py:0.25, borderRadius:10,
+      bgcolor: m.bg, border:`1px solid ${alpha(m.color,0.25)}`,
+    }}>
+      <Box sx={{ width:5, height:5, borderRadius:'50%', bgcolor:m.dot, flexShrink:0 }}/>
+      <Typography sx={{ fontSize:'0.6rem', fontWeight:700, color:m.color, lineHeight:1.2 }}>
+        {m.label}
+      </Typography>
+    </Box>
+  );
 };
 
 function VistaOrdenFactura({ registros, loading, año, onRefresh }) {
@@ -1759,6 +1898,12 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
                               px:1.2, py:0.6, borderRadius:1.5,
                               bgcolor:alpha('#6a1b9a',0.04), border:`1px solid ${alpha('#6a1b9a',0.12)}` }}>
                               <Typography variant="caption" sx={{ fontWeight:800, color:'#6a1b9a', fontSize:'0.6rem', minWidth:20 }}>#{idx+1}</Typography>
+                              {f.numero_factura && (
+                                <Box>
+                                  <Typography variant="caption" color="text.disabled" display="block" fontSize="0.57rem">N° Factura</Typography>
+                                  <Typography variant="caption" fontWeight={800} fontSize="0.67rem" color="#6a1b9a">{f.numero_factura}</Typography>
+                                </Box>
+                              )}
                               {[
                                 { l:'Vence',  v: fmtD(f.fecha_vencimiento) },
                                 { l:'Plazo',  v: f.plazo_dias ? `${f.plazo_dias}d` : '–' },
@@ -2323,6 +2468,12 @@ function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onM
                                                               px:1.5, py:0.8, borderRadius:1.5,
                                                               bgcolor:alpha('#6a1b9a',0.06), border:`1px solid ${alpha('#6a1b9a',0.15)}` }}>
                                                               <Typography variant="caption" sx={{ fontWeight:800, color:'#6a1b9a', minWidth:16 }}>#{idx+1}</Typography>
+                                                              {f.numero_factura && (
+                                                                <Box>
+                                                                  <Typography variant="caption" color="text.disabled" display="block" fontSize="0.58rem">N° Factura</Typography>
+                                                                  <Typography variant="caption" fontWeight={800} fontSize="0.7rem" color="#6a1b9a">{f.numero_factura}</Typography>
+                                                                </Box>
+                                                              )}
                                                               {[
                                                                 { l:'Fecha',       v: fmtD(f.fecha_compra) },
                                                                 { l:'Vence',       v: fmtD(f.fecha_vencimiento) },
@@ -2589,32 +2740,208 @@ function DesgloseSucursal({ semana, year, autoOpen = false }) {
   );
 }
 
+// ─── Card de Presupuesto Semanal con RadialGauge + counters animados ──────────
+function PresupuestoCard({ enc, nenc, total, disponible, limite, week, statusCfg, weeksData, onEditLimite, notaLocal, onNotaChange, onNotaBlur }) {
+  const pctUso   = limite > 0 ? Math.round((total / limite) * 100) : 0;
+  const animEnc  = useAnimatedNumber(enc);
+  const animNenc = useAnimatedNumber(nenc);
+  const animTot  = useAnimatedNumber(total);
+  const animDisp = useAnimatedNumber(disponible);
+  const prevW    = weeksData.find(w => w.semana === week - 1);
+  const trend = (curr, prevVal) => {
+    if (!prevW || prevVal === 0 || curr === 0) return null;
+    const d = ((curr - prevVal) / prevVal) * 100;
+    return { d, up: d > 0 };
+  };
+  const trendEnc  = trend(enc,  parseFloat(prevW?.encadenados)         || 0);
+  const trendNenc = trend(nenc, parseFloat(prevW?.deuda_facturada_nenc) || 0);
+  const StatusIcon = statusCfg.Icon;
+  return (
+    <Paper elevation={0} sx={{
+      border:`1.5px solid ${alpha(statusCfg.color,.35)}`,
+      borderRadius:3, mb:2, overflow:'hidden',
+      boxShadow:`0 4px 24px ${alpha(statusCfg.color,.12)}`,
+    }}>
+      {/* Header */}
+      <Box sx={{
+        px:3, py:2,
+        background:`linear-gradient(135deg,${alpha(statusCfg.color,.12)} 0%,${alpha(statusCfg.color,.04)} 60%,transparent 100%)`,
+        display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:1,
+        borderBottom:`1px solid ${alpha(statusCfg.color,.1)}`,
+      }}>
+        <Box sx={{display:'flex',alignItems:'center',gap:1.5}}>
+          <Box sx={{
+            width:42, height:42, borderRadius:2.5,
+            bgcolor:statusCfg.color, display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:`0 4px 12px ${alpha(statusCfg.color,.4)}`,
+          }}>
+            <StatusIcon sx={{fontSize:20,color:'white'}}/>
+          </Box>
+          <Box>
+            <Typography variant="overline" color="text.secondary" fontSize="0.6rem" letterSpacing={1.5} display="block">
+              Control Pagos — Semana {week} de Vencimiento
+            </Typography>
+            <Box sx={{ display:'flex', alignItems:'baseline', gap:1 }}>
+              <Typography variant="h6" fontWeight={900} lineHeight={1} color="text.primary">
+                {fmtFull(limite)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">límite semanal</Typography>
+            </Box>
+          </Box>
+        </Box>
+        <Tooltip title="Editar límite semanal">
+          <IconButton size="small" onClick={onEditLimite}
+            sx={{ bgcolor:alpha(statusCfg.color,.08), '&:hover':{ bgcolor:alpha(statusCfg.color,.16) }, color:statusCfg.color }}>
+            <EditIcon fontSize="small"/>
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      <Box sx={{ px:3, py:2 }}>
+        {/* Gauge + BudgetBar */}
+        <Box sx={{ display:'flex', gap:3, alignItems:'center', flexWrap:'wrap' }}>
+          <RadialGauge pct={pctUso} color={statusCfg.color} size={110} label={`${pctUso}%`} sublabel="del límite"/>
+          <Box sx={{ flex:1, minWidth:180 }}>
+            <BudgetBar enc={enc} nenc={nenc} limite={limite}/>
+          </Box>
+        </Box>
+
+        {/* KPI cards con animated counters + trend */}
+        <Grid container spacing={1.5} sx={{mt:1.5}}>
+          {[
+            { label:'Encadenados',    val:animEnc,  color:ENC_DARK,              bg:ENC_BG,                       desc:'OC+Facturas',  trend:trendEnc  },
+            { label:'No Encadenados', val:animNenc, color:NENC_DARK,             bg:NENC_BG,                      desc:'ERP directo',  trend:trendNenc },
+            { label:'Total semana',   val:animTot,  color:statusCfg.color,       bg:alpha(statusCfg.color,.06),   desc:'Enc. + No Enc.', trend:null    },
+            { label:'Disponible',     val:animDisp, color:disponible>=0?'#1b5e20':'#b71c1c', bg:disponible>=0?'#f1f8e9':'#ffebee', desc:'Límite − Total', trend:null },
+          ].map(({label,val,color,bg,desc,trend:t})=>(
+            <Grid item xs={6} sm={3} key={label}>
+              <Box sx={{
+                p:1.5, borderRadius:2.5, textAlign:'center',
+                background:`linear-gradient(145deg,${bg} 0%,${alpha(color,.03)} 100%)`,
+                border:`1px solid ${alpha(color,.15)}`,
+                transition:'transform .12s, box-shadow .12s',
+                '&:hover':{ transform:'translateY(-2px)', boxShadow:`0 6px 18px ${alpha(color,.2)}` },
+                position:'relative', overflow:'hidden',
+              }}>
+                <Box sx={{ position:'absolute', top:0, left:0, right:0, height:2, background:`linear-gradient(90deg,transparent,${alpha(color,.5)},transparent)` }}/>
+                <Typography variant="caption" color="text.secondary" fontSize="0.62rem" display="block" fontWeight={500}>{label}</Typography>
+                <Typography variant="h6" fontWeight={900} color={color} lineHeight={1.15} sx={{ my:0.3, fontVariantNumeric:'tabular-nums' }}>
+                  {fmtM(val)}
+                </Typography>
+                <Typography variant="caption" color="text.disabled" fontSize="0.58rem">{desc}</Typography>
+                {t && (
+                  <Box sx={{ mt:0.4, display:'flex', alignItems:'center', justifyContent:'center', gap:0.3 }}>
+                    {t.up ? <TrendingUpIcon sx={{fontSize:11,color:'#b71c1c'}}/> : <TrendingDownIcon sx={{fontSize:11,color:'#2e7d32'}}/>}
+                    <Typography sx={{ fontSize:'0.58rem', fontWeight:700, color:t.up?'#b71c1c':'#2e7d32' }}>
+                      {t.up?'+':''}{t.d.toFixed(1)}%
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Nota semanal */}
+        <Box sx={{ mt:2, display:'flex', alignItems:'flex-start', gap:1 }}>
+          <NotesIcon sx={{ fontSize:18, color:'text.disabled', mt:1 }}/>
+          <TextField size="small" fullWidth multiline minRows={1} maxRows={4}
+            placeholder="Agregar nota para esta semana…"
+            value={notaLocal} onChange={onNotaChange} onBlur={onNotaBlur}
+            InputProps={{ sx:{ borderRadius:2, fontSize:'0.82rem', bgcolor:'background.paper' } }}
+            sx={{ '& .MuiOutlinedInput-root':{ borderRadius:2 } }}/>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
+
 // ─── Barra segmentada ────────────────────────────────────────────────────────
 function BudgetBar({ enc, nenc, limite }) {
   const total  = enc + nenc;
   const pEnc   = limite>0 ? Math.min(enc/limite*100,100)  : 0;
   const pNenc  = limite>0 ? Math.min(nenc/limite*100,100) : 0;
   const pLibre = Math.max(100-pEnc-pNenc, 0);
+  const pTotal = limite>0 ? Math.min(total/limite*100,100) : 0;
+  const isOver = total > limite;
+  const isAlert = pTotal >= 80;
   return (
     <Box>
-      <Box sx={{display:'flex',height:20,borderRadius:2,overflow:'hidden',gap:'2px',bgcolor:'#e0e0e0'}}>
-        {pEnc>0   && <Tooltip title={`Encadenados: ${fmtFull(enc)}`}><Box sx={{width:`${pEnc}%`,background:`linear-gradient(90deg,${ENC_DARK},${ENC_MID})`,transition:'width .7s ease',cursor:'default'}}/></Tooltip>}
-        {pNenc>0  && <Tooltip title={`No Encadenados: ${fmtFull(nenc)}`}><Box sx={{width:`${pNenc}%`,background:`linear-gradient(90deg,${NENC_DARK},${NENC_MID})`,transition:'width .7s ease',cursor:'default'}}/></Tooltip>}
-        {pLibre>0 && <Box sx={{flex:1,bgcolor:'#e0e0e0'}}/>}
-      </Box>
-      <Box sx={{display:'flex',justifyContent:'space-between',mt:0.5}}>
-        <Box sx={{display:'flex',gap:2}}>
-          {[{c:ENC_MID,l:'Encadenados'},{c:NENC_MID,l:'No Encadenados'},{c:'#bdbdbd',l:'Disponible'}]
-            .map(({c,l})=>(
-              <Box key={l} sx={{display:'flex',alignItems:'center',gap:0.5}}>
-                <Box sx={{width:8,height:8,borderRadius:'50%',bgcolor:c}}/>
-                <Typography variant="caption" color="text.secondary" fontSize="0.68rem">{l}</Typography>
+      {/* Barra de fondo con track */}
+      <Box sx={{ position:'relative', height:28, borderRadius:2.5, bgcolor:alpha('#000',0.06), overflow:'hidden' }}>
+        {/* Track de segmentos */}
+        <Box sx={{ display:'flex', height:'100%', gap:'2px' }}>
+          {pEnc>0 && (
+            <Tooltip title={`Encadenados OC: ${fmtFull(enc)}`}>
+              <Box sx={{
+                width:`${pEnc}%`, height:'100%',
+                background:`linear-gradient(90deg,${ENC_DARK},${ENC_MID})`,
+                transition:'width .8s cubic-bezier(.4,0,.2,1)',
+                display:'flex', alignItems:'center', justifyContent:'center', cursor:'default',
+              }}>
+                {pEnc > 12 && (
+                  <Typography sx={{ color:'white', fontSize:'0.6rem', fontWeight:800, letterSpacing:0.3 }}>
+                    {pEnc.toFixed(0)}%
+                  </Typography>
+                )}
               </Box>
-            ))}
+            </Tooltip>
+          )}
+          {pNenc>0 && (
+            <Tooltip title={`No Encadenados: ${fmtFull(nenc)}`}>
+              <Box sx={{
+                width:`${pNenc}%`, height:'100%',
+                background:`linear-gradient(90deg,${NENC_DARK},${NENC_MID})`,
+                transition:'width .8s cubic-bezier(.4,0,.2,1)',
+                display:'flex', alignItems:'center', justifyContent:'center', cursor:'default',
+              }}>
+                {pNenc > 10 && (
+                  <Typography sx={{ color:'white', fontSize:'0.6rem', fontWeight:800, letterSpacing:0.3 }}>
+                    {pNenc.toFixed(0)}%
+                  </Typography>
+                )}
+              </Box>
+            </Tooltip>
+          )}
         </Box>
-        <Typography variant="caption" fontWeight={600} fontSize="0.68rem" color="text.secondary">
-          {limite>0 ? `${(total/limite*100).toFixed(1)}% utilizado` : '–'}
-        </Typography>
+        {/* Marcador 80% */}
+        {limite > 0 && (
+          <Box sx={{
+            position:'absolute', top:0, bottom:0, left:'80%',
+            width:'2px', bgcolor: isAlert ? alpha('#e65100',0.8) : alpha('#e65100',0.4),
+            zIndex:2,
+          }}>
+            <Typography sx={{
+              position:'absolute', top:-14, left:2, fontSize:'0.55rem',
+              color:'#e65100', fontWeight:700, whiteSpace:'nowrap',
+            }}>80%</Typography>
+          </Box>
+        )}
+      </Box>
+      <Box sx={{display:'flex',justifyContent:'space-between',mt:0.8,alignItems:'center'}}>
+        <Box sx={{display:'flex',gap:2,flexWrap:'wrap'}}>
+          {[
+            {c:ENC_MID,   bg:ENC_BG,   l:'Encadenados',     v: fmtM(enc)},
+            {c:NENC_MID,  bg:NENC_BG,  l:'No Encadenados',  v: fmtM(nenc)},
+            {c:'#9e9e9e', bg:'#f5f5f5',l:'Disponible',       v: fmtM(Math.max(limite-total,0))},
+          ].map(({c,bg,l,v})=>(
+            <Box key={l} sx={{display:'flex',alignItems:'center',gap:0.5}}>
+              <Box sx={{width:8,height:8,borderRadius:'50%',bgcolor:c}}/>
+              <Typography variant="caption" color="text.secondary" fontSize="0.67rem">{l}</Typography>
+              <Typography variant="caption" fontWeight={700} color={c} fontSize="0.67rem">{v}</Typography>
+            </Box>
+          ))}
+        </Box>
+        <Chip
+          size="small"
+          label={`${pTotal.toFixed(1)}% utilizado`}
+          sx={{
+            fontSize:'0.68rem', height:20, fontWeight:800,
+            bgcolor: isOver ? alpha('#b71c1c',0.1) : isAlert ? alpha('#e65100',0.1) : alpha('#2e7d32',0.08),
+            color:   isOver ? '#b71c1c'            : isAlert ? '#e65100'            : '#2e7d32',
+            border: `1px solid ${isOver ? alpha('#b71c1c',0.3) : isAlert ? alpha('#e65100',0.3) : alpha('#2e7d32',0.2)}`,
+          }}
+        />
       </Box>
     </Box>
   );
@@ -3934,9 +4261,13 @@ const PlanificacionPage = () => {
   };
 
   if (loadingWeeks) return (
-    <Box sx={{ minHeight:'80vh', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:2 }}>
-      <CircularProgress size={36} sx={{ color: ENC_DARK }}/>
-      <Typography variant="body2" color="text.secondary">Cargando semanas…</Typography>
+    <Box sx={{ p:{xs:2,md:3}, maxWidth:1600, mx:'auto' }}>
+      <Skeleton variant="rounded" height={72} sx={{ mb:2, borderRadius:3 }}/>
+      <Skeleton variant="rounded" height={180} sx={{ mb:2, borderRadius:3 }}/>
+      <Skeleton variant="rounded" height={46} sx={{ mb:2, borderRadius:3 }}/>
+      <Grid container spacing={2}>
+        {[1,2,3,4].map(i => <Grid item xs={6} sm={3} key={i}><Skeleton variant="rounded" height={80} sx={{ borderRadius:2.5 }}/></Grid>)}
+      </Grid>
     </Box>
   );
 
@@ -3944,16 +4275,49 @@ const PlanificacionPage = () => {
   return (
     <Box sx={{p:{xs:2,md:3},maxWidth:1600,mx:'auto'}}>
 
-      {/* ── Header estático ── */}
-      <Box sx={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',mb:2}}>
-        <Box>
-          <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>Planificación · Pagos</Typography>
-          <Typography variant="body2" color="text.secondary">Control semanal de compromisos</Typography>
+      {/* ── Header ── */}
+      <Paper elevation={0} sx={{
+        mb:2, borderRadius:3, overflow:'hidden',
+        background:`linear-gradient(135deg, ${ENC_DARK} 0%, #283593 55%, #1565c0 100%)`,
+        boxShadow:'0 4px 24px rgba(26,35,126,0.18)',
+      }}>
+        <Box sx={{ px:{xs:2,md:3}, py:2, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:1.5 }}>
+          <Box sx={{ display:'flex', alignItems:'center', gap:2 }}>
+            <Box sx={{ p:1, bgcolor:'rgba(255,255,255,0.12)', borderRadius:2, display:'flex', backdropFilter:'blur(4px)' }}>
+              <TrendingUpIcon sx={{ color:'white', fontSize:24 }}/>
+            </Box>
+            <Box>
+              <Typography variant="h6" fontWeight={900} color="white" letterSpacing={-0.5} lineHeight={1.1}>
+                Planificación · Pagos
+              </Typography>
+              <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.6)', letterSpacing:0.8 }}>
+                Control semanal de compromisos · Año {year}
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display:'flex', alignItems:'center', gap:1.5, flexWrap:'wrap' }}>
+            {[
+              { label:'Semana actual', val:`S${week}`, accent:'rgba(255,255,255,0.2)' },
+              { label:'Estado', val: weekData.estado || 'SIN DATOS', accent: alpha(statusCfg.color, 0.35) },
+              { label:'Total semana', val: fmtM((weekData.encadenados||0)+(weekData.deuda_facturada_nenc||0)), accent:'rgba(255,255,255,0.12)' },
+            ].map(({label, val, accent}) => (
+              <Box key={label} sx={{ px:1.5, py:0.7, borderRadius:2, bgcolor:accent, border:'1px solid rgba(255,255,255,0.15)', backdropFilter:'blur(4px)' }}>
+                <Typography variant="caption" sx={{ color:'rgba(255,255,255,0.5)', fontSize:'0.6rem', display:'block', letterSpacing:0.5 }}>{label}</Typography>
+                <Typography variant="caption" sx={{ color:'white', fontWeight:800, fontSize:'0.78rem' }}>{val}</Typography>
+              </Box>
+            ))}
+            <Select value={year} onChange={e=>setYear(e.target.value)} size="small"
+              sx={{ minWidth:90, borderRadius:2, color:'white', fontWeight:700,
+                '& .MuiOutlinedInput-notchedOutline':{ borderColor:'rgba(255,255,255,0.25)' },
+                '& .MuiSvgIcon-root':{ color:'rgba(255,255,255,0.7)' },
+                '& .MuiSelect-select':{ py:0.8 },
+                bgcolor:'rgba(255,255,255,0.1)',
+              }}>
+              {[2023,2024,2025,2026].map(y=><MenuItem key={y} value={y}>{y}</MenuItem>)}
+            </Select>
+          </Box>
         </Box>
-        <Select value={year} onChange={e=>setYear(e.target.value)} size="small" sx={{minWidth:90,borderRadius:2}}>
-          {[2023,2024,2025,2026].map(y=><MenuItem key={y} value={y}>{y}</MenuItem>)}
-        </Select>
-      </Box>
+      </Paper>
 
 
       {/* ── Panel de Alertas Críticas ── */}
@@ -3964,30 +4328,58 @@ const PlanificacionPage = () => {
       />
 
       {/* ── Navegador (estático, siempre visible) ── */}
-      <Paper elevation={0} sx={{border:'1px solid',borderColor:'divider',borderRadius:3,p:2.5,mb:2,
-        background:`linear-gradient(135deg,${alpha(statusCfg.color,.04)} 0%,transparent 70%)`}}>
-        <Box sx={{display:'flex',alignItems:'center',justifyContent:'center',gap:3}}>
+      <Paper elevation={0} sx={{
+        border:'1.5px solid', borderColor: alpha(statusCfg.color, 0.25),
+        borderRadius:3, p:2.5, mb:2,
+        background:`linear-gradient(160deg, ${alpha(statusCfg.color,.06)} 0%, ${alpha(statusCfg.color,.02)} 50%, transparent 100%)`,
+        position:'relative', overflow:'hidden',
+      }}>
+        {/* Acento lateral de estado */}
+        <Box sx={{
+          position:'absolute', left:0, top:0, bottom:0, width:4,
+          background:`linear-gradient(180deg, ${statusCfg.color}, ${alpha(statusCfg.color,0.3)})`,
+          borderRadius:'3px 0 0 3px',
+        }}/>
+        <Box sx={{display:'flex',alignItems:'center',justifyContent:'center',gap:{xs:2,sm:3}}}>
           <IconButton onClick={goToPrev} disabled={week===1}
-            sx={{bgcolor:alpha('#000',.05),'&:hover':{bgcolor:alpha('#000',.1)},'&.Mui-disabled':{opacity:.25}}}>
-            <PrevIcon/>
+            sx={{
+              bgcolor: alpha(statusCfg.color,.1),
+              color: statusCfg.color,
+              border:`1px solid ${alpha(statusCfg.color,.2)}`,
+              '&:hover':{ bgcolor: alpha(statusCfg.color,.2) },
+              '&.Mui-disabled':{ opacity:.25 },
+            }}>
+            <PrevIcon fontSize="small"/>
           </IconButton>
 
-          <Box sx={{textAlign:'center',minWidth:220}}>
-            <Typography variant="overline" color="text.secondary" fontSize="0.62rem" letterSpacing={1.5}>
+          <Box sx={{textAlign:'center',minWidth:{xs:160,sm:220}}}>
+            <Typography variant="overline" color="text.secondary" fontSize="0.62rem" letterSpacing={2}>
               SEMANA
             </Typography>
-            <Typography variant="h1" fontWeight={900} lineHeight={0.85} sx={{fontSize:{xs:'4rem',md:'5.5rem'},my:0.5}}>
-              {String(week).padStart(2,'0')}
-            </Typography>
+            {/* Número de semana con anillo de progreso anual */}
+            <Box sx={{ position:'relative', display:'inline-flex', alignItems:'center', justifyContent:'center', width:{xs:100,md:140}, height:{xs:100,md:140}, my:0.5 }}>
+              <YearProgressRing week={week} size={140} color={statusCfg.color}/>
+              <Box sx={{ display:'flex', flexDirection:'column', alignItems:'center', zIndex:1 }}>
+                <Typography fontWeight={900} lineHeight={0.9}
+                  sx={{ fontSize:{xs:'3.2rem',md:'4.2rem'}, color: statusCfg.color,
+                    textShadow:`0 2px 16px ${alpha(statusCfg.color,0.25)}` }}>
+                  {String(week).padStart(2,'0')}
+                </Typography>
+                <Typography sx={{ fontSize:'0.55rem', color:'text.disabled', fontWeight:600, mt:0.3 }}>
+                  de 52
+                </Typography>
+              </Box>
+            </Box>
             <Typography variant="body2" color="text.secondary" fontWeight={500}>
               {weekData.fecha_inicio ? `${fmtDate(weekData.fecha_inicio)} — ${fmtDate(weekData.fecha_fin)} · ${year}` : `Año ${year}`}
             </Typography>
             <Box sx={{display:'flex',justifyContent:'center',gap:1,mt:1}}>
               <Chip icon={<statusCfg.Icon sx={{fontSize:'13px !important'}}/>} label={weekData.estado||'OK'} size="small"
-                sx={{bgcolor:statusCfg.color,color:'white',fontWeight:700}}/>
+                sx={{bgcolor:statusCfg.color,color:'white',fontWeight:700,boxShadow:`0 2px 8px ${alpha(statusCfg.color,0.4)}`}}/>
               <Chip label={fmtFull(limite)} size="small" variant="outlined" fontWeight={600}
                 onClick={()=>{setNuevoLimite(String(limite));setEditLimOpen(true);}}
-                icon={<EditIcon sx={{fontSize:'13px !important'}}/>} sx={{cursor:'pointer'}}/>
+                icon={<EditIcon sx={{fontSize:'13px !important'}}/>}
+                sx={{cursor:'pointer', borderColor:alpha(statusCfg.color,.3), color:statusCfg.color}}/>
             </Box>
             {/* Indicador de tendencia vs semana anterior */}
             {(() => {
@@ -4020,8 +4412,14 @@ const PlanificacionPage = () => {
           </Box>
 
           <IconButton onClick={goToNext} disabled={week===52}
-            sx={{bgcolor:alpha('#000',.05),'&:hover':{bgcolor:alpha('#000',.1)},'&.Mui-disabled':{opacity:.25}}}>
-            <NextIcon/>
+            sx={{
+              bgcolor: alpha(statusCfg.color,.1),
+              color: statusCfg.color,
+              border:`1px solid ${alpha(statusCfg.color,.2)}`,
+              '&:hover':{ bgcolor: alpha(statusCfg.color,.2) },
+              '&.Mui-disabled':{ opacity:.25 },
+            }}>
+            <NextIcon fontSize="small"/>
           </IconButton>
         </Box>
 
@@ -4152,38 +4550,59 @@ const PlanificacionPage = () => {
           : { bg:'#fff3e0', border:'#ffcc80', color:'#e65100', icon:'⚠️', texto:'Debes sincronizar las facturas PBI esta semana', sub: ultima ? `Última sync: ${ultima}` : 'Sin sync registrada esta semana.' };
 
         return (
-          <Box sx={{
-            mb:2, px:2, py:1.2, borderRadius:2,
-            bgcolor: cfgBanner.bg, border:`1.5px solid ${cfgBanner.border}`,
-            display:'flex', alignItems:'center', gap:1.5, flexWrap:'wrap',
+          <Paper elevation={0} sx={{
+            mb:2, borderRadius:2.5, overflow:'hidden',
+            border:`1.5px solid ${cfgBanner.border}`,
+            boxShadow:`0 2px 8px ${alpha(cfgBanner.color, 0.08)}`,
           }}>
-            <span style={{fontSize:18}}>{cfgBanner.icon}</span>
-            <Box sx={{flex:1, minWidth:0}}>
-              <Typography variant="body2" fontWeight={700} color={cfgBanner.color}>
-                {cfgBanner.texto}
-              </Typography>
-              {cfgBanner.sub && (
-                <Typography variant="caption" color="text.secondary">{cfgBanner.sub}</Typography>
+            <Box sx={{ height:2.5, bgcolor: cfgBanner.color, opacity:0.6 }}/>
+            <Box sx={{
+              px:2, py:1.2, bgcolor: cfgBanner.bg,
+              display:'flex', alignItems:'center', gap:1.5, flexWrap:'wrap',
+            }}>
+              <span style={{fontSize:17}}>{cfgBanner.icon}</span>
+              <Box sx={{flex:1, minWidth:0}}>
+                <Typography variant="body2" fontWeight={700} color={cfgBanner.color} fontSize="0.82rem">
+                  {cfgBanner.texto}
+                </Typography>
+                {cfgBanner.sub && (
+                  <Typography variant="caption" color="text.secondary">{cfgBanner.sub}</Typography>
+                )}
+              </Box>
+              {!ok && (
+                <Button size="small" variant="contained"
+                  onClick={()=>{ setTabVista(2); setTimeout(()=>{ handleDescargarPBIAuto(); }, 150); }}
+                  startIcon={<SyncIcon sx={{fontSize:15}}/>}
+                  sx={{ borderRadius:2, bgcolor:'#e65100', '&:hover':{ bgcolor:'#bf360c' }, fontWeight:700,
+                    fontSize:'0.75rem', whiteSpace:'nowrap', boxShadow:`0 2px 8px ${alpha('#e65100',0.4)}` }}>
+                  Sincronizar ahora
+                </Button>
               )}
             </Box>
-            {!ok && (
-              <Button size="small" variant="contained"
-                onClick={()=>{ setTabVista(2); setTimeout(()=>{ handleDescargarPBIAuto(); }, 150); }}
-                startIcon={<SyncIcon sx={{fontSize:15}}/>}
-                sx={{borderRadius:2,bgcolor:'#e65100','&:hover':{bgcolor:'#bf360c'},fontWeight:700,fontSize:'0.75rem',whiteSpace:'nowrap'}}>
-                Sincronizar ahora
-              </Button>
-            )}
-          </Box>
+          </Paper>
         );
       })()}
 
       {/* ── Tabs de vista principal ── */}
-      <Box sx={{mb:2,borderBottom:'1px solid',borderColor:'divider'}}>
+      <Paper elevation={0} sx={{
+        mb:2, borderRadius:3, border:'1px solid', borderColor:'divider',
+        bgcolor:'background.paper', overflow:'hidden',
+      }}>
         <Tabs value={tabVista} onChange={(_,v)=>setTabVista(v)} variant="scrollable" scrollButtons="auto" sx={{
-          '& .MuiTab-root':{textTransform:'none',fontWeight:700,minHeight:44,fontSize:'0.85rem',gap:0.5},
-          '& .MuiTabs-indicator':{height:3,borderRadius:'3px 3px 0 0',
-            bgcolor:[ENC_MID,NENC_MID,'#6a1b9a','#00838f',MADRE_COLOR][tabVista]||ENC_MID},
+          px:1, pt:0.5,
+          '& .MuiTab-root':{
+            textTransform:'none', fontWeight:700, minHeight:46, fontSize:'0.83rem',
+            gap:0.6, borderRadius:2, mx:0.3, my:0.4,
+            transition:'background .15s, color .15s',
+          },
+          '& .MuiTab-root:not(.Mui-selected)':{ color:'text.secondary', '&:hover':{ bgcolor:'action.hover' } },
+          '& .MuiTabs-indicator':{
+            height:3, borderRadius:'3px 3px 0 0',
+            bgcolor:[ENC_MID,NENC_MID,'#6a1b9a','#00838f',MADRE_COLOR][tabVista]||ENC_MID,
+          },
+          '& .Mui-selected':{
+            bgcolor:[alpha(ENC_MID,.08),alpha(NENC_MID,.08),alpha('#6a1b9a',.08),alpha('#00838f',.08),alpha(MADRE_COLOR||'#e65100',.08)][tabVista]||alpha(ENC_MID,.08),
+          },
         }}>
           <Tab icon={<TrendingUpIcon sx={{fontSize:17}}/>} iconPosition="start" label="Resumen"
             sx={{'&.Mui-selected':{color:ENC_MID}}}/>
@@ -4196,7 +4615,7 @@ const PlanificacionPage = () => {
           <Tab icon={<BookmarkIcon sx={{fontSize:17}}/>} iconPosition="start" label="Órdenes Madre"
             sx={{'&.Mui-selected':{color:MADRE_COLOR}}}/>
         </Tabs>
-      </Box>
+      </Paper>
 
       {/* ══ VISTA 0: RESUMEN ══ */}
       {tabVista === 0 && (
@@ -4247,52 +4666,12 @@ const PlanificacionPage = () => {
               })()}
 
               {/* Presupuesto Semanal */}
-              <Paper elevation={0} sx={{border:`2px solid ${alpha(statusCfg.color,.5)}`,borderRadius:3,p:3,mb:2,bgcolor:statusCfg.bg}}>
-                <Box sx={{display:'flex',alignItems:'center',justifyContent:'space-between',mb:2.5}}>
-                  <Box sx={{display:'flex',alignItems:'center',gap:1.5}}>
-                    <Avatar sx={{bgcolor:statusCfg.color,width:40,height:40}}>
-                      <statusCfg.Icon sx={{fontSize:20}}/>
-                    </Avatar>
-                    <Box>
-                      <Typography variant="overline" color="text.secondary" fontSize="0.62rem" letterSpacing={1.5}>
-                        Control Pagos — por semana de vencimiento
-                      </Typography>
-                      <Typography variant="h6" fontWeight={800} lineHeight={1}>{fmtFull(limite)}</Typography>
-                    </Box>
-                  </Box>
-                  <Tooltip title="Editar límite">
-                    <IconButton size="small" onClick={()=>{setNuevoLimite(String(limite));setEditLimOpen(true);}}>
-                      <EditIcon fontSize="small"/>
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <BudgetBar enc={montoEnc} nenc={montoNenc} limite={limite}/>
-                <Grid container spacing={1.5} sx={{mt:1.5}}>
-                  {[
-                    { label:'Encadenados (venc.)',   value:montoEnc,   color:ENC_DARK,  bg:ENC_BG,   desc:'OC+Facturas · por vencimiento' },
-                    { label:'No Encadenados (venc.)',value:montoNenc,  color:NENC_DARK, bg:NENC_BG,  desc:'ERP · por fecha vencimiento' },
-                    { label:'Total',                value:total,      color:statusCfg.color, bg:statusCfg.bg, desc:'Enc. + No Enc. esta semana' },
-                    { label:'Capacidad Disponible', value:disponible, color:disponible>=0?'#1b5e20':'#b71c1c', bg:disponible>=0?'#f1f8e9':'#ffebee', desc:'Límite − Encadenados' },
-                  ].map(({label,value,color,bg,desc})=>(
-                    <Grid item xs={6} sm={3} key={label}>
-                      <Box sx={{p:1.5,borderRadius:2.5,bgcolor:bg,textAlign:'center'}}>
-                        <Typography variant="caption" color="text.secondary" fontSize="0.65rem" display="block">{label}</Typography>
-                        <Typography variant="h6" fontWeight={800} color={color} lineHeight={1.2}>{fmtM(value)}</Typography>
-                        <Typography variant="caption" color="text.disabled" fontSize="0.62rem">{desc}</Typography>
-                      </Box>
-                    </Grid>
-                  ))}
-                </Grid>
-                {/* Nota semanal */}
-                <Box sx={{ mt:2, display:'flex', alignItems:'flex-start', gap:1 }}>
-                  <NotesIcon sx={{ fontSize:18, color:'text.disabled', mt:1 }}/>
-                  <TextField size="small" fullWidth multiline minRows={1} maxRows={4}
-                    placeholder="Agregar nota para esta semana…"
-                    value={notaLocal} onChange={e => setNotaLocal(e.target.value)} onBlur={handleSaveNota}
-                    InputProps={{ sx:{ borderRadius:2, fontSize:'0.82rem', bgcolor:'background.paper' } }}
-                    sx={{ '& .MuiOutlinedInput-root':{ borderRadius:2 } }}/>
-                </Box>
-              </Paper>
+              <PresupuestoCard
+                enc={montoEnc} nenc={montoNenc} total={total} disponible={disponible}
+                limite={limite} week={week} statusCfg={statusCfg} weeksData={weeksData}
+                onEditLimite={()=>{setNuevoLimite(String(limite));setEditLimOpen(true);}}
+                notaLocal={notaLocal} onNotaChange={e=>setNotaLocal(e.target.value)} onNotaBlur={handleSaveNota}
+              />
             </motion.div>
           </AnimatePresence>
         </>
@@ -4320,6 +4699,7 @@ const PlanificacionPage = () => {
           <Paper elevation={0} sx={{border:'1px solid',borderColor:'divider',borderRadius:3,overflow:'hidden'}}>
             <Box sx={{borderBottom:'1px solid',borderColor:'divider',px:1,pt:1,pb:1.5}}>
               <Tabs value={tabDetalle} onChange={(_,v)=>setTabDetalle(v)}
+                variant="scrollable" scrollButtons="auto"
                 sx={{minHeight:40,
                   '& .MuiTab-root':{minHeight:40,textTransform:'none',fontWeight:600,fontSize:'0.78rem',minWidth:0,px:1.5},
                   '& .MuiTabs-indicator':{bgcolor:[ENC_MID,NENC_MID,'#1a237e',OC_COLOR][tabDetalle]||ENC_MID},
@@ -4414,7 +4794,7 @@ const PlanificacionPage = () => {
                     </Grid>
                   </Box>
                 )}
-                <Box sx={{maxHeight:420,overflowY:'auto'}}>
+                <Box sx={{maxHeight:420,overflowY:'auto',overflowX:'auto'}}>
                   {loadingCompras
                     ?<Box sx={{p:4,textAlign:'center'}}><CircularProgress size={24} sx={{color:ENC_MID}}/></Box>
                     :encadenados.length===0
@@ -4519,7 +4899,7 @@ const PlanificacionPage = () => {
                           </Grid>
                         </Box>
                       )}
-                      <Box sx={{maxHeight:420,overflowY:'auto'}}>
+                      <Box sx={{maxHeight:420,overflowY:'auto',overflowX:'auto'}}>
                         {cargando
                           ? <Box sx={{p:4,textAlign:'center'}}>
                               <CircularProgress size={28} sx={{color:NENC_MID}}/>
@@ -4674,7 +5054,7 @@ const PlanificacionPage = () => {
                     </Grid>
                   </Box>
 
-                  <Box sx={{maxHeight:400,overflowY:'auto'}}>
+                  <Box sx={{maxHeight:400,overflowY:'auto',overflowX:'auto'}}>
                     {loadingOC
                       ? <Box sx={{p:4,textAlign:'center'}}><CircularProgress size={24} sx={{color:OC_COLOR}}/></Box>
                       : agruparEncadenados(comprasOC).length === 0
@@ -4939,7 +5319,7 @@ const PlanificacionPage = () => {
           })()}
 
           {/* Árbol: Año → Semana → Día → OC */}
-          <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, overflow:'hidden' }}>
+          <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, overflowX:'auto' }}>
             <VistaArbolEmision
               registros={detalleEmision}
               loading={loadingDetalleEmision}
@@ -4955,7 +5335,7 @@ const PlanificacionPage = () => {
       {tabVista === 4 && (
         <Paper elevation={0} sx={{
           border:`1.5px solid ${alpha(MADRE_COLOR, 0.25)}`,
-          borderRadius:3, overflow:'hidden', minHeight:500,
+          borderRadius:3, overflowX:'auto', minHeight:500,
           display:'flex', flexDirection:'column',
         }}>
           <PanelOrdenesMadre

@@ -231,6 +231,10 @@ const asegurarTablas = async (pool) => {
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='id_oc_ref' AND Object_ID=Object_ID('panificacion_compras'))
       ALTER TABLE panificacion_compras ADD id_oc_ref INT NULL
   `);
+  await pool.request().query(`
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name='numero_factura' AND Object_ID=Object_ID('panificacion_compras'))
+      ALTER TABLE panificacion_compras ADD numero_factura NVARCHAR(50) NULL
+  `);
   // Índices de rendimiento (se crean solo si no existen)
   await pool.request().query(`
     IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='idx_planif_año_semana' AND object_id=OBJECT_ID('panificacion_compras'))
@@ -727,15 +731,16 @@ const insertarCompra = async (pool, data, lote, fuente = 'EXCEL') => {
     .input('lote_carga',        sql.NVarChar,    lote)
     .input('fecha_carga',       sql.DateTime,    data.fecha_carga || new Date())
     .input('id_oc_ref',         sql.Int,         data.id_oc_ref || null)
+    .input('numero_factura',    sql.NVarChar,    data.numero_factura || null)
     .query(`
       INSERT INTO panificacion_compras
         (proveedor, fecha_compra, semana_compra, año, mes, numero_orden,
          monto_neto, monto_con_iva, plazo_dias, fecha_vencimiento,
-         semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga, fecha_carga, id_oc_ref)
+         semana_vencimiento, tipo_proveedor, sucursal, fuente, lote_carga, fecha_carga, id_oc_ref, numero_factura)
       VALUES
         (@proveedor, @fecha_compra, @semana_compra, @año, @mes, @numero_orden,
          @monto_neto, @monto_con_iva, @plazo_dias, @fecha_vencimiento,
-         @semana_vencimiento, @tipo_proveedor, @sucursal, @fuente, @lote_carga, @fecha_carga, @id_oc_ref)
+         @semana_vencimiento, @tipo_proveedor, @sucursal, @fuente, @lote_carga, @fecha_carga, @id_oc_ref, @numero_factura)
     `);
 };
 
@@ -1658,7 +1663,7 @@ exports.getOrdenFactura = async (req, res) => {
           tipo_proveedor, sucursal, fuente,
           ISNULL(estado_pago, 'Pendiente') AS estado_pago,
           ISNULL(es_madre, 0)              AS es_madre,
-          lote_carga
+          lote_carga, numero_factura
         FROM panificacion_compras
         WHERE año = @año
           AND tipo_proveedor = 'Encadenado'
@@ -1687,6 +1692,16 @@ exports.getOrdenesMadre = async (req, res) => {
     const pool = await poolPromise;
     await asegurarTablas(pool);
     const result = await pool.request().query(`
+      WITH ranked AS (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY ISNULL(numero_orden, CAST(id AS NVARCHAR(20)))
+            ORDER BY monto_con_iva DESC, id ASC
+          ) AS _rn
+        FROM panificacion_compras
+        WHERE ISNULL(es_madre, 0) = 1
+          AND fuente NOT IN ('REMANENTE', 'FACTURA')
+      )
       SELECT id, proveedor,
              CONVERT(VARCHAR(10), fecha_compra,      120) AS fecha_compra,
              CONVERT(VARCHAR(10), fecha_vencimiento, 120) AS fecha_vencimiento,
@@ -1695,9 +1710,8 @@ exports.getOrdenesMadre = async (req, res) => {
              plazo_dias, tipo_proveedor, sucursal, fuente,
              ISNULL(estado_pago, 'Pendiente') AS estado_pago,
              lote_carga, fecha_carga
-      FROM panificacion_compras
-      WHERE ISNULL(es_madre, 0) = 1
-        AND fuente NOT IN ('REMANENTE', 'FACTURA')
+      FROM ranked
+      WHERE _rn = 1
       ORDER BY fecha_compra DESC, id DESC
     `);
     res.json({ success: true, total: result.recordset.length, registros: result.recordset });
@@ -2331,6 +2345,7 @@ exports.uploadFacturasPBI = async (req, res) => {
             semana_vencimiento: semanaVenc,
             tipo_proveedor:     'Encadenado',
             sucursal:           '',
+            numero_factura:     numDoc || null,
           }, lote, 'FACTURA'); // Estado Modificado → fuente=FACTURA
           insertados++;
           continue;
@@ -2372,6 +2387,7 @@ exports.uploadFacturasPBI = async (req, res) => {
                 .input('año',                sql.Int,           año)
                 .input('mes',                sql.NVarChar,      getMesNombre(fechaVenc))
                 .input('fuente',             sql.NVarChar,      'FACTURA')
+                .input('numero_factura',     sql.NVarChar,      numDoc || null)
                 .query(`
                   UPDATE panificacion_compras SET
                     estado_pago = 'Facturado',
@@ -2382,7 +2398,8 @@ exports.uploadFacturasPBI = async (req, res) => {
                     fecha_vencimiento = @fecha_vencimiento,
                     semana_vencimiento = @semana_vencimiento,
                     año = @año,
-                    mes = @mes
+                    mes = @mes,
+                    numero_factura = @numero_factura
                   WHERE id = @id
                 `);
             } else {
@@ -2397,6 +2414,7 @@ exports.uploadFacturasPBI = async (req, res) => {
                 .input('semana_vencimiento', sql.Int,           semanaVenc)
                 .input('año',                sql.Int,           año)
                 .input('mes',                sql.NVarChar,      getMesNombre(fechaVenc))
+                .input('numero_factura',     sql.NVarChar,      numDoc || null)
                 .query(`
                   UPDATE panificacion_compras SET
                     monto_con_iva = @monto_con_iva,
@@ -2406,7 +2424,8 @@ exports.uploadFacturasPBI = async (req, res) => {
                     fecha_vencimiento = @fecha_vencimiento,
                     semana_vencimiento = @semana_vencimiento,
                     año = @año,
-                    mes = @mes
+                    mes = @mes,
+                    numero_factura = @numero_factura
                   WHERE id = @id
                 `);
 
@@ -2478,7 +2497,8 @@ exports.uploadFacturasPBI = async (req, res) => {
                 tipo_proveedor:     'Encadenado',
                 sucursal:           refRow.sucursal || '',
                 fecha_carga:        refRow.fecha_carga,
-                id_oc_ref:          refRow.id, // FK directa al EXCEL original
+                id_oc_ref:          refRow.id,
+                numero_factura:     numDoc || null,
               }, lote, 'FACTURA');
 
               // Actualizar estado de esta cuota individual primero
@@ -2561,6 +2581,7 @@ exports.uploadFacturasPBI = async (req, res) => {
             semana_vencimiento: semanaVenc,
             tipo_proveedor:     'Encadenado',
             sucursal:           '',
+            numero_factura:     numDoc || null,
           }, lote, 'FACTURA'); // fuente=FACTURA: no vino del Excel OC
           insertados++;
         }
