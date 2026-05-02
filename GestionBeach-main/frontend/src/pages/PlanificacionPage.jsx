@@ -5198,10 +5198,10 @@ const PlanificacionPage = () => {
             >
           {/* Vista unificada: Enc / No Enc / Por Sucursal / OC */}
           <Paper elevation={0} sx={{border:'1px solid',borderColor:'divider',borderRadius:3,overflow:'hidden'}}>
-            <Box sx={{borderBottom:'1px solid',borderColor:'divider',px:1,pt:1,pb:1.5}}>
+            <Box sx={{borderBottom:'1px solid',borderColor:'divider',px:1,pt:1,pb:1.5,display:'flex',alignItems:'center',gap:1}}>
               <Tabs value={tabDetalle} onChange={(_,v)=>setTabDetalle(v)}
                 variant="scrollable" scrollButtons="auto"
-                sx={{minHeight:40,
+                sx={{flex:1, minHeight:40,
                   '& .MuiTab-root':{minHeight:40,textTransform:'none',fontWeight:600,fontSize:'0.78rem',minWidth:0,px:1.5},
                   '& .MuiTabs-indicator':{bgcolor:[ENC_MID,NENC_MID,'#1a237e',OC_COLOR][tabDetalle]||ENC_MID},
                 }}>
@@ -5230,6 +5230,51 @@ const PlanificacionPage = () => {
                       sx={{height:16,fontSize:'0.6rem',bgcolor:alpha(OC_COLOR,.1),color:OC_COLOR}}/>
                   </Box>} sx={{'&.Mui-selected':{color:OC_COLOR}}}/>
               </Tabs>
+              {/* Botones exportar — visibles según sub-tab activo */}
+              {tabDetalle === 0 && encAgrupados.length > 0 && (
+                <Box sx={{display:'flex',gap:0.8,flexShrink:0}}>
+                  <Tooltip title={`Exportar Encadenados a Excel${filterEncDesde||filterEncHasta?' (con filtro de fecha activo)':''}`}>
+                    <Button size="small" variant="outlined"
+                      startIcon={exportingEncXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
+                      disabled={exportingEncXlsx}
+                      onClick={async()=>{ setExportingEncXlsx(true); try{ await exportarDetalleXLSX(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta); }finally{ setExportingEncXlsx(false); } }}
+                      sx={{textTransform:'none',fontSize:'0.72rem',borderRadius:2,borderColor:ENC_MID,color:ENC_DARK,'&:hover':{bgcolor:alpha(ENC_DARK,.06)},height:32}}>
+                      {exportingEncXlsx ? '…' : 'Excel'}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={`Exportar Encadenados a PDF${filterEncDesde||filterEncHasta?' (con filtro de fecha activo)':''}`}>
+                    <Button size="small" variant="outlined"
+                      startIcon={exportingEncPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
+                      disabled={exportingEncPdf}
+                      onClick={async()=>{ setExportingEncPdf(true); try{ await exportarDetallePDF(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta,true); }finally{ setExportingEncPdf(false); } }}
+                      sx={{textTransform:'none',fontSize:'0.72rem',borderRadius:2,borderColor:'#c62828',color:'#c62828','&:hover':{bgcolor:'rgba(198,40,40,0.06)'},height:32}}>
+                      {exportingEncPdf ? '…' : 'PDF'}
+                    </Button>
+                  </Tooltip>
+                </Box>
+              )}
+              {tabDetalle === 1 && nencAgrupados.length > 0 && (
+                <Box sx={{display:'flex',gap:0.8,flexShrink:0}}>
+                  <Tooltip title={`Exportar No Encadenados a Excel${filterNencDesde||filterNencHasta?' (con filtro de fecha activo)':''}`}>
+                    <Button size="small" variant="outlined"
+                      startIcon={exportingNencXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
+                      disabled={exportingNencXlsx}
+                      onClick={async()=>{ setExportingNencXlsx(true); try{ await exportarDetalleXLSX(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta); }finally{ setExportingNencXlsx(false); } }}
+                      sx={{textTransform:'none',fontSize:'0.72rem',borderRadius:2,borderColor:NENC_MID,color:NENC_DARK,'&:hover':{bgcolor:alpha(NENC_DARK,.06)},height:32}}>
+                      {exportingNencXlsx ? '…' : 'Excel'}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={`Exportar No Encadenados a PDF${filterNencDesde||filterNencHasta?' (con filtro de fecha activo)':''}`}>
+                    <Button size="small" variant="outlined"
+                      startIcon={exportingNencPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
+                      disabled={exportingNencPdf}
+                      onClick={async()=>{ setExportingNencPdf(true); try{ await exportarDetallePDF(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta,false); }finally{ setExportingNencPdf(false); } }}
+                      sx={{textTransform:'none',fontSize:'0.72rem',borderRadius:2,borderColor:'#c62828',color:'#c62828','&:hover':{bgcolor:'rgba(198,40,40,0.06)'},height:32}}>
+                      {exportingNencPdf ? '…' : 'PDF'}
+                    </Button>
+                  </Tooltip>
+                </Box>
+              )}
             </Box>
 
             {/* ─ TAB 0: Encadenados ─ */}
@@ -5247,26 +5292,6 @@ const PlanificacionPage = () => {
                       </Typography>
                     )}
                   </Typography>
-                  {encFiltrados.length > 0 && (
-                    <>
-                      <Tooltip title="Exportar a Excel (respeta filtros de fecha activos)">
-                        <Button size="small" variant="outlined" startIcon={exportingEncXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
-                          disabled={exportingEncXlsx}
-                          onClick={async () => { setExportingEncXlsx(true); try { await exportarDetalleXLSX(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta); } finally { setExportingEncXlsx(false); } }}
-                          sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:ENC_MID, color:ENC_DARK, '&:hover':{bgcolor:alpha(ENC_DARK,.06)} }}>
-                          {exportingEncXlsx ? 'Exportando…' : 'Excel'}
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title="Exportar a PDF (respeta filtros de fecha activos)">
-                        <Button size="small" variant="outlined" startIcon={exportingEncPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
-                          disabled={exportingEncPdf}
-                          onClick={async () => { setExportingEncPdf(true); try { await exportarDetallePDF(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta,true); } finally { setExportingEncPdf(false); } }}
-                          sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:'#b71c1c', color:'#b71c1c', '&:hover':{bgcolor:'rgba(183,28,28,0.06)'} }}>
-                          {exportingEncPdf ? 'Exportando…' : 'PDF'}
-                        </Button>
-                      </Tooltip>
-                    </>
-                  )}
                 </Box>
                   );
                 })()}
@@ -5378,26 +5403,6 @@ const PlanificacionPage = () => {
                             </>
                           )}
                         </Typography>
-                        {!cargando && nencFiltrados.length > 0 && (
-                          <>
-                            <Tooltip title="Exportar a Excel (respeta filtros de fecha activos)">
-                              <Button size="small" variant="outlined" startIcon={exportingNencXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
-                                disabled={exportingNencXlsx}
-                                onClick={async () => { setExportingNencXlsx(true); try { await exportarDetalleXLSX(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta); } finally { setExportingNencXlsx(false); } }}
-                                sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:NENC_MID, color:NENC_DARK, '&:hover':{bgcolor:alpha(NENC_DARK,.06)} }}>
-                                {exportingNencXlsx ? 'Exportando…' : 'Excel'}
-                              </Button>
-                            </Tooltip>
-                            <Tooltip title="Exportar a PDF (respeta filtros de fecha activos)">
-                              <Button size="small" variant="outlined" startIcon={exportingNencPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
-                                disabled={exportingNencPdf}
-                                onClick={async () => { setExportingNencPdf(true); try { await exportarDetallePDF(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta,false); } finally { setExportingNencPdf(false); } }}
-                                sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:'#b71c1c', color:'#b71c1c', '&:hover':{bgcolor:'rgba(183,28,28,0.06)'} }}>
-                                {exportingNencPdf ? 'Exportando…' : 'PDF'}
-                              </Button>
-                            </Tooltip>
-                          </>
-                        )}
                       </Box>
                       {!cargando && nencAgrupados.length > 0 && (
                         <Box sx={{px:2,py:1,borderBottom:'1px solid',borderColor:'divider'}}>
