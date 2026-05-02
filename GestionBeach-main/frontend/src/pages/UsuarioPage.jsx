@@ -26,18 +26,33 @@ import {
   Stack,
   CircularProgress
 } from '@mui/material';
-import { 
+import {
   Add as AddIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  ElectricBolt as ElectricIcon,
+  Computer as ComputerIcon,
+  Build as BuildIcon,
+  People as PeopleIcon,
+  AccountBalance as FinanzasIcon,
 } from '@mui/icons-material';
+import Chip from '@mui/material/Chip';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
+
+const DEPARTAMENTOS = [
+  { id: 1, nombre: 'Electricidad',       color: '#FF9800', icon: <ElectricIcon sx={{ fontSize: 14 }} /> },
+  { id: 2, nombre: 'Informática',        color: '#2196F3', icon: <ComputerIcon sx={{ fontSize: 14 }} /> },
+  { id: 3, nombre: 'Mantenciones',       color: '#4CAF50', icon: <BuildIcon    sx={{ fontSize: 14 }} /> },
+  { id: 4, nombre: 'Recursos Humanos',   color: '#9C27B0', icon: <PeopleIcon   sx={{ fontSize: 14 }} /> },
+  { id: 5, nombre: 'Finanzas',           color: '#F44336', icon: <FinanzasIcon sx={{ fontSize: 14 }} /> },
+];
 
 export default function UsuarioPage() {
   const emptyUsuario = { id: null, username: '', nombre_completo: '', password: '', perfil_id: '' };
   const [usuarios, setUsuarios] = useState([]);
   const [perfiles, setPerfiles] = useState([]);
+  const [deptSeleccionados, setDeptSeleccionados] = useState([]);
   const formDialog   = useDialog({ data: emptyUsuario });  // diálogo crear/editar
   const deleteDialog = useDialog();                         // diálogo confirmar eliminar
   const [loading, setLoading] = useState(false);
@@ -82,8 +97,35 @@ const fetchPerfiles = async () => {
   }
 };
 
-  const handleOpenDialog = (usuario = null) => {
+  const handleOpenDialog = async (usuario = null) => {
     formDialog.openDialog(usuario ? { ...usuario, password: '' } : emptyUsuario);
+    // Cargar departamentos actuales del usuario si existe
+    if (usuario?.id) {
+      try {
+        const r = await api.get(`/tickets/dept/${usuario.id}/check`).catch(() => null);
+        // Obtenemos sus departamentos actuales
+        const r2 = await api.get('/tickets/mis-departamentos', {
+          headers: { 'x-usuario-override': usuario.id }
+        }).catch(() => null);
+        // Fallback: cargar via endpoint de usuarios del dept
+        const deptsActuales = [];
+        for (const d of DEPARTAMENTOS) {
+          const res = await api.get(`/tickets/dept/${d.id}/usuarios`).catch(() => null);
+          if (res?.data?.usuarios?.some(u => u.id === usuario.id)) {
+            deptsActuales.push(d.id);
+          }
+        }
+        setDeptSeleccionados(deptsActuales);
+      } catch { setDeptSeleccionados([]); }
+    } else {
+      setDeptSeleccionados([]);
+    }
+  };
+
+  const toggleDept = (id) => {
+    setDeptSeleccionados(prev =>
+      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+    );
   };
 
   const handleCloseDialog = () => {
@@ -116,16 +158,34 @@ const fetchPerfiles = async () => {
 
     try {
       setLoading(true);
+      let targetId = usuario.id || null;
+
       if (usuario.id) {
         const datosActualizados = { ...usuario };
         if (!datosActualizados.password) delete datosActualizados.password;
         await api.put(`/usuarios/${usuario.id}`, datosActualizados);
         enqueueSnackbar('Usuario actualizado correctamente', { variant: 'success' });
       } else {
-        await api.post('/usuarios', usuario);
+        const resp = await api.post('/usuarios', usuario);
+        targetId = resp.data?.id || null;
         enqueueSnackbar('Usuario creado correctamente', { variant: 'success' });
       }
       fetchUsuarios();
+
+      // Guardar departamentos del usuario
+      if (targetId) {
+        for (const d of DEPARTAMENTOS) {
+          await api.post('/tickets/dept/asignar-usuario', {
+            usuario_id: targetId, departamento_id: d.id, accion: 'quitar'
+          }).catch(() => {});
+        }
+        for (const dId of deptSeleccionados) {
+          await api.post('/tickets/dept/asignar-usuario', {
+            usuario_id: targetId, departamento_id: dId, accion: 'agregar'
+          }).catch(() => {});
+        }
+      }
+
       handleCloseDialog();
     } catch (error) {
       enqueueSnackbar('Error al guardar usuario: ' + (error.response?.data?.message || 'Error del servidor'), { variant: 'error' });
@@ -179,6 +239,7 @@ const fetchPerfiles = async () => {
               <TableCell>Username</TableCell>
               <TableCell>Nombre</TableCell>
               <TableCell>Perfil</TableCell>
+              <TableCell>Departamentos</TableCell>
               <TableCell>Acciones</TableCell>
             </TableRow>
           </TableHead>
@@ -195,6 +256,17 @@ const fetchPerfiles = async () => {
                   }
                 </TableCell>
                 <TableCell>
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                    {(usuario.departamentos || []).map(d => {
+                      const dept = DEPARTAMENTOS.find(dep => dep.id === d.id || dep.nombre === d.nombre);
+                      return (
+                        <Chip key={d.id || d.nombre} label={d.nombre || dept?.nombre} size="small"
+                          sx={{ bgcolor: dept?.color || '#666', color: 'white', fontSize: '0.65rem' }} />
+                      );
+                    })}
+                  </Stack>
+                </TableCell>
+                <TableCell>
                   <IconButton color="primary" onClick={() => handleOpenDialog(usuario)}>
                     <EditIcon />
                   </IconButton>
@@ -206,7 +278,7 @@ const fetchPerfiles = async () => {
             ))}
             {(!Array.isArray(usuarios) || usuarios.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} align="center">No hay usuarios disponibles</TableCell>
+                <TableCell colSpan={6} align="center">No hay usuarios disponibles</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -264,6 +336,35 @@ const fetchPerfiles = async () => {
                 ))}
               </Select>
             </FormControl>
+
+            {/* Selector de departamentos */}
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Departamentos asignados <em>(opcional — solo para técnicos)</em>
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+                {DEPARTAMENTOS.map(d => {
+                  const sel = deptSeleccionados.includes(d.id);
+                  return (
+                    <Chip
+                      key={d.id}
+                      icon={d.icon}
+                      label={d.nombre}
+                      onClick={() => toggleDept(d.id)}
+                      variant={sel ? 'filled' : 'outlined'}
+                      sx={{
+                        bgcolor: sel ? d.color : 'transparent',
+                        color: sel ? 'white' : d.color,
+                        borderColor: d.color,
+                        fontWeight: sel ? 700 : 400,
+                        cursor: 'pointer',
+                        '& .MuiChip-icon': { color: sel ? 'white' : d.color },
+                      }}
+                    />
+                  );
+                })}
+              </Stack>
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>

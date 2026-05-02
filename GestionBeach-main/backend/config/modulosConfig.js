@@ -52,6 +52,7 @@ module.exports = [
   { nombre: 'Sorteo Concurso',       claves: ['sorteo-concurso'] },
   { nombre: 'Códigos de Descuento',  claves: ['codigos-descuento'] },
   { nombre: 'Mis Tickets',           claves: ['mis-tickets'] },
+  { nombre: 'Mantenciones',          claves: ['mantenciones'] },
   { nombre: 'Usuarios',              claves: ['usuarios'] },
   { nombre: 'Perfiles',              claves: ['perfiles'] },
   { nombre: 'Módulos',               claves: ['modulos'] },
@@ -65,4 +66,5 @@ module.exports = [
   { nombre: 'Organigrama',          claves: ['organigrama'] },
   { nombre: 'Kanban',               claves: ['kanban'] },
   { nombre: 'Cotizaciones',         claves: ['cotizaciones'] },
+  { nombre: 'Los Más Vendidos',     claves: ['los-mas-vendidos'] },
 ];

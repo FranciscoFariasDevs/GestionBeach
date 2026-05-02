@@ -7,24 +7,49 @@ exports.getAllUsuarios = async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request()
       .query(`
-        SELECT 
-          u.id, 
-          u.username, 
-          u.nombre_completo as nombre, 
-          u.email, 
+        SELECT
+          u.id,
+          u.username,
+          u.nombre_completo as nombre,
+          u.email,
           u.perfil_id as perfilId,
           p.nombre as perfil
         FROM usuarios u
         LEFT JOIN perfiles p ON u.perfil_id = p.id
         ORDER BY u.id
       `);
-    
-    res.status(200).json(result.recordset);
+
+    // Agregar departamentos a cada usuario
+    const DEPT_MAP = {
+      1: { id: 1, nombre: 'Electricidad' },
+      2: { id: 2, nombre: 'Informática' },
+      3: { id: 3, nombre: 'Mantenciones' },
+      4: { id: 4, nombre: 'Recursos Humanos' },
+      5: { id: 5, nombre: 'Finanzas' },
+    };
+
+    const deptsResult = await pool.request().query(
+      `SELECT usuario_id, departamento_id FROM usuario_departamentos`
+    );
+
+    const deptsPorUsuario = {};
+    for (const row of deptsResult.recordset) {
+      if (!deptsPorUsuario[row.usuario_id]) deptsPorUsuario[row.usuario_id] = [];
+      if (DEPT_MAP[row.departamento_id]) deptsPorUsuario[row.usuario_id].push(DEPT_MAP[row.departamento_id]);
+    }
+
+    const usuarios = result.recordset.map(u => ({
+      ...u,
+      nombre_completo: u.nombre,
+      departamentos: deptsPorUsuario[u.id] || []
+    }));
+
+    res.status(200).json(usuarios);
   } catch (error) {
     console.error('Error al obtener usuarios:', error);
-    res.status(500).json({ 
-      message: 'Error al obtener usuarios', 
-      error: error.message 
+    res.status(500).json({
+      message: 'Error al obtener usuarios',
+      error: error.message
     });
   }
 };
@@ -67,12 +92,14 @@ exports.getUsuarioById = async (req, res) => {
 // Crear un nuevo usuario
 exports.createUsuario = async (req, res) => {
   try {
-    const { username, password, nombre, email, perfilId } = req.body;
-    
+    const { username, password, email } = req.body;
+    const nombre   = req.body.nombre   || req.body.nombre_completo;
+    const perfilId = req.body.perfilId || req.body.perfil_id;
+
     // Validar datos requeridos
     if (!username || !password || !nombre || !perfilId) {
-      return res.status(400).json({ 
-        message: 'Se requieren los campos: username, password, nombre y perfilId' 
+      return res.status(400).json({
+        message: 'Se requieren los campos: username, password, nombre y perfilId'
       });
     }
     
@@ -142,12 +169,14 @@ exports.createUsuario = async (req, res) => {
 exports.updateUsuario = async (req, res) => {
   try {
     const { id } = req.params;
-    const { username, password, nombre, email, perfilId } = req.body;
-    
+    const { username, password, email } = req.body;
+    const nombre   = req.body.nombre   || req.body.nombre_completo;
+    const perfilId = req.body.perfilId || req.body.perfil_id;
+
     // Validar datos requeridos
     if (!username || !nombre || !perfilId) {
-      return res.status(400).json({ 
-        message: 'Se requieren los campos: username, nombre y perfilId' 
+      return res.status(400).json({
+        message: 'Se requieren los campos: username, nombre y perfilId'
       });
     }
     

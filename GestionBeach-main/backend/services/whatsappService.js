@@ -424,6 +424,24 @@ class WhatsAppService {
     return whatsappRegex.test(number);
   }
 
+  // Enviar mensaje al número por defecto (alias simple)
+  async sendMessage(message) {
+    return this.sendViaTwilio(message);
+  }
+
+  // Enviar mensaje a un número específico
+  async sendMessageTo(message, toNumber) {
+    if (!this.client) throw new Error('Cliente Twilio no inicializado');
+    const to = toNumber.startsWith('whatsapp:') ? toNumber : `whatsapp:${toNumber}`;
+    const result = await this.client.messages.create({
+      body: message,
+      from: this.fromWhatsApp,
+      to,
+    });
+    console.log(`✅ Mensaje enviado a ${to} · SID: ${result.sid}`);
+    return result;
+  }
+
   // Formatear número a formato Twilio
   formatToTwilioWhatsApp(phoneNumber) {
     // Remover espacios, guiones y caracteres especiales

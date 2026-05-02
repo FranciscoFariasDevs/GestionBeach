@@ -23,6 +23,8 @@ import {
   ListAlt as ListAltIcon,
   ArrowUpward as ArrowUpIcon,
   ArrowDownward as ArrowDownIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon,
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import { Tabs, Tab } from '@mui/material';
@@ -450,6 +452,7 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
   const [historicoLoading, setHistoricoLoading] = useState(false);
   const [tarjeta, setTarjeta] = useState(null);
   const [tarjetaLoading, setTarjetaLoading] = useState(false);
+  const [tarjetaMaximizada, setTarjetaMaximizada] = useState(false);
   // Filtros de fecha para Historico - por defecto 1 enero del año actual hasta hoy
   const anioActual = new Date().getFullYear();
   const [histFechaDesde, setHistFechaDesde] = useState(`${anioActual}-01-01`);
@@ -496,7 +499,7 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
   }, [cargarHistorico, historico]);
 
   // Reset al cambiar producto
-  React.useEffect(() => { setHistorico(null); setTarjeta(null); setTab(0); }, [producto?.codigo]);
+  React.useEffect(() => { setHistorico(null); setTarjeta(null); setTab(0); setTarjetaMaximizada(false); }, [producto?.codigo]);
 
   if (!producto) return null;
 
@@ -504,7 +507,11 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth
-      PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', maxHeight: '92vh', width: '95vw' } }}>
+      fullScreen={tarjetaMaximizada}
+      PaperProps={{ sx: tarjetaMaximizada
+        ? { borderRadius: 0, overflow: 'hidden' }
+        : { borderRadius: 3, overflow: 'hidden', maxHeight: '92vh', width: '95vw' }
+      }}>
       <Box sx={{
         background: 'linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%)',
         color: 'white', px: 3, pt: 2.5, pb: 0, position: 'relative'
@@ -701,7 +708,7 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
         {/* TAB 2: TARJETA EXISTENCIA */}
         {tab === 2 && (
           <Box sx={{ p: 2 }}>
-            {/* Filtros de fecha */}
+            {/* Filtros de fecha + botón maximizar */}
             <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
               <TextField type="date" size="small" label="Desde" value={tarjFechaDesde}
                 onChange={(e) => setTarjFechaDesde(e.target.value)}
@@ -716,6 +723,26 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
                 sx={{ borderRadius: 2, textTransform: 'none', bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' } }}>
                 <SearchIcon sx={{ fontSize: 18, mr: 0.5 }} /> Buscar
               </Button>
+              <IconButton
+                onClick={() => setTarjetaMaximizada(v => !v)}
+                size="small"
+                sx={{
+                  ml: 'auto',
+                  bgcolor: tarjetaMaximizada ? '#1a237e' : 'rgba(26,35,126,0.08)',
+                  color:   tarjetaMaximizada ? 'white'   : '#1a237e',
+                  borderRadius: 1.5,
+                  px: 1.5, py: 0.5,
+                  gap: 0.5,
+                  '&:hover': { bgcolor: tarjetaMaximizada ? '#283593' : 'rgba(26,35,126,0.15)' },
+                  display: 'flex', alignItems: 'center',
+                }}
+                title={tarjetaMaximizada ? 'Minimizar' : 'Maximizar tabla'}
+              >
+                {tarjetaMaximizada
+                  ? <><FullscreenExitIcon sx={{ fontSize: 19 }} /><Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.72rem' }}>Minimizar</Typography></>
+                  : <><FullscreenIcon    sx={{ fontSize: 19 }} /><Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.72rem' }}>Maximizar</Typography></>
+                }
+              </IconButton>
             </Box>
             {tarjetaLoading && (
               <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress sx={{ color: '#FF9800' }} /></Box>
@@ -728,7 +755,7 @@ const DetalleProductoModal = memo(({ open, onClose, producto, detalle, loading, 
                   <Chip label={`Total Ingreso: ${fmtDec(tarjeta.total_entradas ?? 0)}`} size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 700 }} />
                   <Chip label={`Total Egreso: ${fmtDec(tarjeta.total_salidas ?? 0)}`} size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontWeight: 700 }} />
                 </Box>
-                <TableContainer sx={{ maxHeight: 440 }}>
+                <TableContainer sx={{ maxHeight: tarjetaMaximizada ? 'calc(100vh - 260px)' : 440 }}>
                   <Table size="small" stickyHeader sx={{ minWidth: 900 }}>
                     <TableHead>
                       <TableRow>

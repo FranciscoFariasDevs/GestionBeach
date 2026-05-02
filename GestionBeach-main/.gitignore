@@ -36,13 +36,29 @@ desktop.ini
 *.swo
 *~
 
-# Uploads - Imágenes del concurso de piscinas (datos sensibles)
+# Uploads - archivos subidos por usuarios (datos sensibles / binarios grandes)
 backend/uploads/concurso-piscinas/
-backend/uploads/concurso-piscinas/*
+backend/uploads/tickets/
+backend/uploads/planificacion/
+backend/uploads/pbi_screenshots/
+backend/uploads/organigrama/
 
-#reportes
+# Caché de modelos de IA
+backend/model-cache/
+
+# Reportes generados
 backend/public/reports/
 backend/public/
+
+# Archivos de datos / análisis locales
+*.xlsx
+*.jpeg
+
+# Video local
+frontend/src/video.mp4
+
+# Claude Code settings locales
+.claude/
 
 # Sistema viejo (VB)
 SISTEMAVIEJO/

@@ -62,6 +62,7 @@ import PlanificacionPage from './pages/PlanificacionPage';
 import InventarioPage from './pages/InventarioPage';
 import CodigosDescuentoPage from './pages/CodigosDescuentoPage'; // 🎫 CÓDIGOS DE DESCUENTO
 import MisTicketsPage from './pages/MisTicketsPage'; // 🎫 SISTEMA DE TICKETS
+import MantencionesDashboard from './pages/MantencionesDashboard'; // 🔧 MANTENCIONES
 import BoletasFoliosPage from './pages/BoletasFoliosPage';
 import ResumenEjecutivoPage from './pages/ResumenEjecutivoPage';
 import ConsultarProductoPage from './pages/ConsultarProductoPage';
@@ -312,6 +313,15 @@ function App() {
                     path="/productos"
                     element={
                       <ProtectedRoute requiredRoute="/productos">
+                        <SupermercadosPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/los-mas-vendidos"
+                    element={
+                      <ProtectedRoute requiredRoute="/los-mas-vendidos">
                         <SupermercadosPage />
                       </ProtectedRoute>
                     }
@@ -622,6 +632,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/mis-tickets">
                         <MisTicketsPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* MÓDULO MANTENCIONES */}
+                  <Route
+                    path="/mantenciones"
+                    element={
+                      <ProtectedRoute requiredRoute="/mantenciones">
+                        <MantencionesDashboard />
                       </ProtectedRoute>
                     }
                   />

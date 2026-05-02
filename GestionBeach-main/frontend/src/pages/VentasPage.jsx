@@ -1,6 +1,6 @@
 // VentasPage.jsx - Con cálculos en NETO (sin IVA)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useDialog } from '../hooks/useDialog';
 import {
   Box, Container, Grid, Card, CardContent, CardHeader, TextField,
@@ -26,6 +26,10 @@ import BusinessIcon from '@mui/icons-material/Business';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import ClearIcon from '@mui/icons-material/Clear';
 import DownloadIcon from '@mui/icons-material/Download';
+import WhatshotIcon from '@mui/icons-material/Whatshot';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import api, { authUtils } from '../api/api';
@@ -64,6 +68,36 @@ const VentasPage = () => {
   });
 
   const { enqueueSnackbar } = useSnackbar();
+  const peakScrollRef = useRef(null);
+
+  const peakHoursByDay = useMemo(() => {
+    if (!ventasOriginales.length) return [];
+
+    const dayMap = {};
+    ventasOriginales.forEach((venta, i) => {
+      if (!venta.Fecha) return;
+      const d = new Date(venta.Fecha);
+      const dateKey = format(d, 'yyyy-MM-dd');
+      const hour = (d.getHours() + 4) % 24;
+      if (!dayMap[dateKey]) dayMap[dateKey] = {};
+      dayMap[dateKey][hour] = (dayMap[dateKey][hour] || 0) + 1;
+    });
+
+    const endDateKey = format(endDate, 'yyyy-MM-dd');
+
+    return Object.entries(dayMap)
+      .map(([date, hours]) => {
+        const sorted = Object.entries(hours)
+          .map(([h, count]) => ({ hour: parseInt(h), count }))
+          .sort((a, b) => b.count - a.count);
+        const peak1 = sorted[0] ?? { hour: null, count: 0 };
+        const peak2 = sorted[1] ?? { hour: null, count: 0 };
+        const totalDay = Object.values(hours).reduce((s, c) => s + c, 0);
+        const isLastDay = date === endDateKey;
+        return { date, peak1, peak2, totalDay, isLastDay };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [ventasOriginales, endDate]);
 
   const formatCurrency = (value) => new Intl.NumberFormat('es-CL', {
     style: 'currency',
@@ -552,6 +586,198 @@ const VentasPage = () => {
           </Fade>
         )}
 
+        {peakHoursByDay.length > 0 && (() => {
+          const validDays = peakHoursByDay.filter(d => d.peak1.hour !== null);
+          const avgPeakHour = validDays.length
+            ? Math.round(validDays.reduce((s, d) => s + d.peak1.hour, 0) / validDays.length)
+            : null;
+          const avgPeakLabel = avgPeakHour !== null ? `${String(avgPeakHour).padStart(2,'0')}:00` : '--:--';
+          const validDays2 = peakHoursByDay.filter(d => d.peak2.hour !== null);
+          const avgPeak2Hour = validDays2.length
+            ? Math.round(validDays2.reduce((s, d) => s + d.peak2.hour, 0) / validDays2.length)
+            : null;
+          const avgPeak2Label = avgPeak2Hour !== null ? `${String(avgPeak2Hour).padStart(2,'0')}:00` : '--:--';
+
+          return (
+            <Fade in timeout={1000}>
+              <Card sx={{ mb: 3, borderRadius: 3, overflow: 'hidden' }} elevation={4}>
+                <CardHeader
+                  title={
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <WhatshotIcon sx={{ color: 'white' }} />
+                      <Typography variant="h6" component="span" sx={{ fontWeight: 'bold' }}>
+                        Hora Pick de Ventas por Día
+                      </Typography>
+                      <Chip
+                        label={`${peakHoursByDay.length} días`}
+                        size="small"
+                        sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold' }}
+                      />
+                    </Box>
+                  }
+                  sx={{ bgcolor: 'warning.dark', color: 'white', pb: 1 }}
+                />
+                <CardContent sx={{ p: 2, bgcolor: 'warning.50' }}>
+
+                  {/* Card pick promedio general */}
+                  <Box
+                    sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      bgcolor: 'white',
+                      border: 2,
+                      borderColor: 'warning.dark',
+                      borderRadius: 2,
+                      px: 2,
+                      py: 1,
+                      mb: 2,
+                      boxShadow: '0 2px 8px rgba(237,108,2,0.2)'
+                    }}
+                  >
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1 }}>días</Typography>
+                      <Typography sx={{ fontWeight: 'bold', fontSize: '0.95rem', color: 'text.primary', lineHeight: 1.3 }}>
+                        {validDays.length}
+                      </Typography>
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mb: 0.2 }}>
+                        <WhatshotIcon sx={{ color: 'warning.dark', fontSize: 16 }} />
+                        <Typography sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>Pick 1 promedio</Typography>
+                      </Box>
+                      <Typography sx={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'warning.dark', fontFamily: 'monospace', lineHeight: 1 }}>
+                        {avgPeakLabel}
+                      </Typography>
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mb: 0.2 }}>
+                        <WhatshotIcon sx={{ color: 'warning.light', fontSize: 13 }} />
+                        <Typography sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>Pick 2 promedio</Typography>
+                      </Box>
+                      <Typography sx={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'warning.main', fontFamily: 'monospace', lineHeight: 1 }}>
+                        {avgPeak2Label}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Strip de días con scroll y flechas */}
+                  <Box sx={{ position: 'relative' }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => peakScrollRef.current?.scrollBy({ left: -200, behavior: 'smooth' })}
+                      sx={{
+                        position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+                        zIndex: 2, bgcolor: 'warning.dark', color: 'white',
+                        width: 24, height: 24,
+                        '&:hover': { bgcolor: 'warning.main' },
+                        boxShadow: 2
+                      }}
+                    >
+                      <ChevronLeftIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+
+                    <Box
+                      ref={peakScrollRef}
+                      sx={{
+                        display: 'flex',
+                        gap: 1,
+                        overflowX: 'auto',
+                        px: 3.5,
+                        pb: 0.5,
+                        scrollBehavior: 'smooth',
+                        '&::-webkit-scrollbar': { height: 4 },
+                        '&::-webkit-scrollbar-track': { bgcolor: 'warning.100', borderRadius: 2 },
+                        '&::-webkit-scrollbar-thumb': { bgcolor: 'warning.400', borderRadius: 2 },
+                      }}
+                    >
+                      {peakHoursByDay.map(({ date, peak1, peak2, totalDay, isLastDay }) => {
+                        const [, mm, dd] = date.split('-');
+                        const displayDate = `${dd}/${mm}`;
+                        const label1 = peak1.hour !== null ? `${String(peak1.hour).padStart(2,'0')}:00` : '--:--';
+                        const label2 = peak2.hour !== null ? `${String(peak2.hour).padStart(2,'0')}:00` : '--:--';
+                        const fg = isLastDay ? 'white' : 'warning.dark';
+                        const fgSub = isLastDay ? 'rgba(255,255,255,0.8)' : 'text.disabled';
+                        return (
+                          <Box
+                            key={date}
+                            sx={{
+                              minWidth: 70,
+                              flexShrink: 0,
+                              bgcolor: isLastDay ? 'warning.main' : 'white',
+                              border: 1.5,
+                              borderColor: isLastDay ? 'warning.dark' : 'warning.200',
+                              borderRadius: 1.5,
+                              p: 0.7,
+                              textAlign: 'center',
+                              position: 'relative',
+                              boxShadow: isLastDay ? '0 2px 6px rgba(237,108,2,0.3)' : 0,
+                            }}
+                          >
+                            {isLastDay && (
+                              <Chip label="hasta aquí" size="small" sx={{
+                                position: 'absolute', top: -9, left: '50%',
+                                transform: 'translateX(-50%)',
+                                fontSize: '0.55rem', height: 14,
+                                bgcolor: 'warning.dark', color: 'white', fontWeight: 'bold',
+                                '& .MuiChip-label': { px: 0.6 }
+                              }} />
+                            )}
+                            <Typography sx={{ display: 'block', fontWeight: 'bold', color: isLastDay ? 'white' : 'text.secondary', fontSize: '0.62rem', lineHeight: 1.2, mb: 0.4 }}>
+                              {displayDate}
+                            </Typography>
+                            {/* Pick 1 */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.2 }}>
+                              <WhatshotIcon sx={{ fontSize: 10, color: isLastDay ? 'white' : 'warning.main' }} />
+                              <Typography sx={{ fontWeight: 'bold', fontSize: '0.75rem', color: fg, fontFamily: 'monospace', lineHeight: 1 }}>
+                                {label1}
+                              </Typography>
+                            </Box>
+                            <Typography sx={{ color: fgSub, fontSize: '0.56rem', lineHeight: 1.3, mb: 0.3 }}>
+                              {peak1.count}v
+                            </Typography>
+                            {/* Pick 2 */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.2 }}>
+                              <WhatshotIcon sx={{ fontSize: 9, color: isLastDay ? 'rgba(255,255,255,0.6)' : 'warning.200' }} />
+                              <Typography sx={{ fontWeight: 'medium', fontSize: '0.68rem', color: isLastDay ? 'rgba(255,255,255,0.85)' : 'text.secondary', fontFamily: 'monospace', lineHeight: 1 }}>
+                                {label2}
+                              </Typography>
+                            </Box>
+                            <Typography sx={{ color: fgSub, fontSize: '0.56rem', lineHeight: 1.3, mb: 0.2 }}>
+                              {peak2.count}v
+                            </Typography>
+                            <Divider sx={{ my: 0.3, borderColor: isLastDay ? 'rgba(255,255,255,0.3)' : 'warning.100' }} />
+                            <Typography sx={{ color: fgSub, fontSize: '0.56rem', lineHeight: 1.2 }}>
+                              total {totalDay}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+
+                    <IconButton
+                      size="small"
+                      onClick={() => peakScrollRef.current?.scrollBy({ left: 200, behavior: 'smooth' })}
+                      sx={{
+                        position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)',
+                        zIndex: 2, bgcolor: 'warning.dark', color: 'white',
+                        width: 24, height: 24,
+                        '&:hover': { bgcolor: 'warning.main' },
+                        boxShadow: 2
+                      }}
+                    >
+                      <ChevronRightIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Box>
+
+                </CardContent>
+              </Card>
+            </Fade>
+          );
+        })()}
+
         <Card sx={{ borderRadius: 3, overflow: 'hidden' }} elevation={4}>
           <CardHeader
             title={
@@ -696,7 +922,12 @@ const VentasPage = () => {
                           />
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                          {venta.Fecha ? format(new Date(venta.Fecha), 'dd/MM/yyyy HH:mm') : 'N/A'}
+                          {venta.Fecha ? (() => {
+                            const d = new Date(venta.Fecha);
+                            const h = String((d.getHours() + 4) % 24).padStart(2, '0');
+                            const m = String(d.getMinutes()).padStart(2, '0');
+                            return `${format(d, 'dd/MM/yyyy')} ${h}:${m}`;
+                          })() : 'N/A'}
                         </TableCell>
                       </TableRow>
                     ))

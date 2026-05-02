@@ -58,6 +58,16 @@ import {
   Schedule as ScheduleIcon,
   Search as SearchIcon,
   FilterList as FilterListIcon,
+  MergeType as MixtoIcon,
+  CheckCircleOutline as EntregarIcon,
+  Dashboard as DashboardIcon,
+  ElectricBolt as ElectricIcon,
+  Computer as ComputerIcon,
+  Build as BuildIcon,
+  People as PeopleIcon,
+  AccountBalance as FinanzasIcon,
+  BarChart as BarChartIcon,
+  CalendarToday as CalendarIcon,
 } from '@mui/icons-material';
 import Timeline from '@mui/lab/Timeline';
 import TimelineItem from '@mui/lab/TimelineItem';
@@ -71,6 +81,47 @@ import { keyframes } from '@mui/system';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
 
+const DEPT_COLORS = {
+  'Electricidad':     '#FF9800',
+  'Informática':      '#2196F3',
+  'Mantenciones':     '#4CAF50',
+  'Recursos Humanos': '#9C27B0',
+  'Finanzas':         '#F44336',
+};
+
+// Barra visual del flujo de departamentos para tickets mixtos
+const DeptFlujo = ({ asignaciones, onEntregar, misDeptIds, esAdmin }) => {
+  if (!asignaciones || asignaciones.length === 0) return null;
+  return (
+    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" sx={{ mt: 1 }}>
+      {asignaciones.map((a, i) => {
+        const color = DEPT_COLORS[a.departamento_nombre] || '#666';
+        const puedeEntregar = (esAdmin || (misDeptIds || []).includes(a.departamento_id)) && a.estado === 'pendiente';
+        return (
+          <React.Fragment key={a.id}>
+            {i > 0 && <Box sx={{ color: '#bbb', fontSize: 14 }}>→</Box>}
+            <Chip
+              size="small"
+              label={a.departamento_nombre}
+              icon={a.estado === 'entregado' ? <CheckIcon style={{ color: 'white' }} /> : undefined}
+              onClick={puedeEntregar ? () => onEntregar(a) : undefined}
+              sx={{
+                bgcolor: a.estado === 'entregado' ? color : a.estado === 'pendiente' ? color : '#e0e0e0',
+                color: a.estado === 'bloqueado' ? '#999' : 'white',
+                fontWeight: 600,
+                fontSize: '0.7rem',
+                cursor: puedeEntregar ? 'pointer' : 'default',
+                opacity: a.estado === 'bloqueado' ? 0.5 : 1,
+                border: puedeEntregar ? `2px solid ${color}` : 'none',
+                '&:hover': puedeEntregar ? { opacity: 0.85, transform: 'scale(1.05)' } : {},
+              }}
+            />
+          </React.Fragment>
+        );
+      })}
+    </Stack>
+  );
+};
 // Animaciones
 const pulse = keyframes`
   0%, 100% { transform: scale(1); }
@@ -91,6 +142,7 @@ const slideUp = keyframes`
 const MisTicketsPage = () => {
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useAuth();
+  const API_BASE = api.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
 
   // Estados
   const [tabActual, setTabActual] = useState(0);
@@ -107,9 +159,26 @@ const MisTicketsPage = () => {
   const [previewImagen, setPreviewImagen] = useState(null);
   const [busquedaTickets, setBusquedaTickets] = useState('');
   const [filtroPrioridad, setFiltroPrioridad] = useState('');
+  const [misDeptIds, setMisDeptIds] = useState([]);
+  const [tableroGerencia, setTableroGerencia] = useState(null);
+  const [entregandoDept, setEntregandoDept] = useState(false);
+
+  const esAdmin = user?.perfilId === 1 ||
+    (user?.perfil || '').toLowerCase().includes('superadmin') ||
+    (user?.perfil || '').toLowerCase().includes('administrador');
+
+  const esGerencia = esAdmin ||
+    (user?.perfil || '').toLowerCase().includes('gerencia');
 
   useEffect(() => {
     cargarDatos();
+    api.get('/tickets/mis-departamentos').then(r => {
+      if (r.data.success) setMisDeptIds(r.data.departamentos.map(d => d.id));
+    }).catch(() => {});
+  }, [tabActual]);
+
+  useEffect(() => {
+    if (esGerencia && tabActual === 5) cargarTableroGerencia();
   }, [tabActual]);
 
   const cargarDatos = async () => {
@@ -145,11 +214,31 @@ const MisTicketsPage = () => {
   const cargarEstadisticas = async () => {
     try {
       const response = await api.get('/tickets/admin/estadisticas');
-      if (response.data.success) {
-        setEstadisticas(response.data.estadisticas);
-      }
+      if (response.data.success) setEstadisticas(response.data.estadisticas);
     } catch (error) {
       console.error('Error al cargar estadísticas:', error);
+    }
+  };
+
+  const cargarTableroGerencia = async () => {
+    try {
+      const r = await api.get('/tickets/gerencia/tablero', { params: { dias: 30 } });
+      if (r.data.success) setTableroGerencia(r.data);
+    } catch (error) {
+      console.error('Error al cargar tablero gerencia:', error);
+    }
+  };
+
+  const handleEntregarDept = async (asignacion) => {
+    setEntregandoDept(true);
+    try {
+      await api.put(`/tickets/${asignacion.ticket_id}/dept/${asignacion.departamento_id}/entregar`);
+      enqueueSnackbar('Parte entregada correctamente', { variant: 'success' });
+      await cargarTickets();
+    } catch (error) {
+      enqueueSnackbar('Error al entregar', { variant: 'error' });
+    } finally {
+      setEntregandoDept(false);
     }
   };
 
@@ -303,61 +392,34 @@ const MisTicketsPage = () => {
   const ticketsFiltrados = tickets.filter(t => {
     const term = busquedaTickets.toLowerCase();
     const matchText = !term ||
-      t.titulo?.toLowerCase().includes(term) ||
-      t.descripcion?.toLowerCase().includes(term) ||
-      t.creador_nombre?.toLowerCase().includes(term) ||
-      t.asignado_nombre?.toLowerCase().includes(term);
+      t.asunto?.toLowerCase().includes(term) ||
+      t.mensaje?.toLowerCase().includes(term) ||
+      t.reportante_nombre?.toLowerCase().includes(term) ||
+      t.asignado_nombre?.toLowerCase().includes(term) ||
+      t.numero_ticket?.toLowerCase().includes(term);
     const matchPrio = !filtroPrioridad || t.prioridad === filtroPrioridad;
     return matchText && matchPrio;
   });
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        py: 4,
-      }}
-    >
+    <Box sx={{ minHeight: '100vh', bgcolor: '#f4f6f9', py: 4 }}>
       <Container maxWidth="xl">
         {/* Header */}
         <Fade in timeout={600}>
-          <Box sx={{ mb: 4, textAlign: 'center' }}>
-            <Avatar
-              sx={{
-                width: 70,
-                height: 70,
-                bgcolor: 'white',
-                color: '#667eea',
-                mx: 'auto',
-                mb: 2,
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
-              }}
-            >
-              <AssignmentIcon sx={{ fontSize: 35 }} />
-            </Avatar>
-
-            <Typography
-              variant="h3"
-              sx={{
-                fontWeight: 900,
-                color: 'white',
-                mb: 1,
-                textShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-              }}
-            >
-              Mis Tickets
-            </Typography>
-
-            <Typography
-              variant="h6"
-              sx={{
-                color: 'rgba(255, 255, 255, 0.9)',
-                fontWeight: 400,
-              }}
-            >
-              Gestiona tus solicitudes de soporte
-            </Typography>
+          <Box sx={{ mb: 4 }}>
+            <Stack direction="row" alignItems="center" spacing={2} mb={0.5}>
+              <Avatar sx={{ width: 48, height: 48, bgcolor: '#1976d220', color: '#1976d2' }}>
+                <AssignmentIcon sx={{ fontSize: 26 }} />
+              </Avatar>
+              <Box>
+                <Typography variant="h4" fontWeight={900} color="text.primary" lineHeight={1.1}>
+                  Mis Tickets
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Gestiona tus solicitudes de soporte
+                </Typography>
+              </Box>
+            </Stack>
           </Box>
         </Fade>
 
@@ -365,114 +427,23 @@ const MisTicketsPage = () => {
         {estadisticas && (
           <Fade in timeout={800}>
             <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: '#2196F3',
-                    color: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {estadisticas.activos || 0}
-                    </Typography>
-                    <Typography variant="caption">Activos</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: '#FF9800',
-                    color: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {estadisticas.en_proceso || 0}
-                    </Typography>
-                    <Typography variant="caption">En Proceso</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: '#4CAF50',
-                    color: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {estadisticas.resueltos || 0}
-                    </Typography>
-                    <Typography variant="caption">Resueltos</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: '#9E9E9E',
-                    color: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {estadisticas.cancelados || 0}
-                    </Typography>
-                    <Typography variant="caption">Cancelados</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: '#F44336',
-                    color: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {estadisticas.vencidos || 0}
-                    </Typography>
-                    <Typography variant="caption">Vencidos</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              <Grid item xs={6} sm={4} md={2}>
-                <Card
-                  sx={{
-                    bgcolor: 'white',
-                    textAlign: 'center',
-                    boxShadow: 3,
-                  }}
-                >
-                  <CardContent sx={{ py: 2 }}>
-                    <Typography variant="h4" fontWeight="bold" color="primary">
-                      {estadisticas.total || 0}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Total
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
+              {[
+                { label: 'Activos',     value: estadisticas.activos    || 0, color: '#2196F3' },
+                { label: 'En Proceso',  value: estadisticas.en_proceso || 0, color: '#FF9800' },
+                { label: 'Resueltos',   value: estadisticas.resueltos  || 0, color: '#4CAF50' },
+                { label: 'Cancelados',  value: estadisticas.cancelados || 0, color: '#9E9E9E' },
+                { label: 'Vencidos',    value: estadisticas.vencidos   || 0, color: '#F44336' },
+                { label: 'Total',       value: estadisticas.total      || 0, color: '#1976d2' },
+              ].map(({ label, value, color }) => (
+                <Grid item xs={6} sm={4} md={2} key={label}>
+                  <Card elevation={0} sx={{ border: '1px solid #e0e0e0', borderTop: `3px solid ${color}`, bgcolor: 'white' }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center', '&:last-child': { pb: 1.5 } }}>
+                      <Typography variant="h4" fontWeight={900} sx={{ color }}>{value}</Typography>
+                      <Typography variant="caption" color="text.secondary" fontWeight={600}>{label}</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
             </Grid>
           </Fade>
         )}
@@ -496,17 +467,17 @@ const MisTicketsPage = () => {
               icon={<Badge badgeContent={estadisticas?.activos || 0} color="primary"><ActiveIcon /></Badge>}
               iconPosition="start"
             />
-            <Tab
-              label="Resueltos"
-              icon={<CheckIcon />}
-              iconPosition="start"
-            />
+            <Tab label="Resueltos" icon={<CheckIcon />} iconPosition="start" />
             <Tab label="Cancelados" icon={<CancelIcon />} iconPosition="start" />
             <Tab
               label="Vencidos"
               icon={<Badge badgeContent={estadisticas?.vencidos || 0} color="error"><WarningIcon /></Badge>}
               iconPosition="start"
             />
+            {esGerencia && (
+              <Tab label="Tablero Gerencia" icon={<DashboardIcon />} iconPosition="start"
+                sx={{ fontWeight: 700, color: '#9C27B0' }} />
+            )}
           </Tabs>
 
           {/* Barra de búsqueda y filtros */}
@@ -536,7 +507,85 @@ const MisTicketsPage = () => {
             )}
           </Box>
 
-          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+          {/* ── TABLERO GERENCIA (tab 5) ── */}
+          {esGerencia && tabActual === 5 && (
+            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+              <Typography variant="h5" fontWeight="bold" gutterBottom>
+                Tablero de Mantenciones — Últimos 30 días
+              </Typography>
+              {!tableroGerencia ? (
+                <LinearProgress />
+              ) : (
+                <Grid container spacing={3}>
+                  {/* Resumen por departamento */}
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Por Departamento</Typography>
+                    <Stack spacing={1}>
+                      {(tableroGerencia.por_departamento || []).map(d => (
+                        <Paper key={d.departamento_nombre} sx={{ p: 2, borderLeft: `4px solid ${DEPT_COLORS[d.departamento_nombre] || '#666'}` }}>
+                          <Typography variant="subtitle2" fontWeight="bold">{d.departamento_nombre}</Typography>
+                          <Stack direction="row" spacing={2} mt={0.5}>
+                            <Typography variant="caption" color="success.main">✓ {d.entregados} entregados</Typography>
+                            <Typography variant="caption" color="warning.main">⏳ {d.pendientes} pendientes</Typography>
+                            <Typography variant="caption" color="text.disabled">🔒 {d.bloqueados} bloqueados</Typography>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Grid>
+
+                  {/* Tickets por día */}
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Tickets por Día</Typography>
+                    <Stack spacing={0.5} sx={{ maxHeight: 400, overflowY: 'auto' }}>
+                      {(tableroGerencia.por_dia || []).map(d => (
+                        <Paper key={d.fecha} sx={{ p: 1.5 }} elevation={1}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center">
+                            <Typography variant="caption" fontWeight="bold">
+                              {new Date(d.fecha).toLocaleDateString('es-CL')}
+                            </Typography>
+                            <Stack direction="row" spacing={1}>
+                              <Chip label={`Total ${d.total}`} size="small" />
+                              {d.mixtos > 0 && <Chip label={`Mixtos ${d.mixtos}`} size="small" color="warning" />}
+                            </Stack>
+                          </Stack>
+                          <Stack direction="row" spacing={0.5} mt={0.5}>
+                            {d.activos > 0     && <Chip label={`A:${d.activos}`}    size="small" sx={{ bgcolor: '#2196F3', color: 'white', fontSize: '0.65rem' }} />}
+                            {d.en_proceso > 0  && <Chip label={`P:${d.en_proceso}`} size="small" sx={{ bgcolor: '#FF9800', color: 'white', fontSize: '0.65rem' }} />}
+                            {d.resueltos > 0   && <Chip label={`R:${d.resueltos}`}  size="small" sx={{ bgcolor: '#4CAF50', color: 'white', fontSize: '0.65rem' }} />}
+                            {d.vencidos > 0    && <Chip label={`V:${d.vencidos}`}   size="small" sx={{ bgcolor: '#F44336', color: 'white', fontSize: '0.65rem' }} />}
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Grid>
+
+                  {/* Últimos tickets */}
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Últimos Tickets</Typography>
+                    <Stack spacing={1} sx={{ maxHeight: 400, overflowY: 'auto' }}>
+                      {(tableroGerencia.tickets || []).map(t => (
+                        <Paper key={t.id} sx={{ p: 1.5, borderLeft: `3px solid ${obtenerColorEstado(t.estado)}` }} elevation={1}>
+                          <Stack direction="row" justifyContent="space-between">
+                            <Typography variant="caption" fontWeight="bold" noWrap sx={{ maxWidth: '70%' }}>{t.asunto}</Typography>
+                            <Chip label={t.estado} size="small" sx={{ bgcolor: obtenerColorEstado(t.estado), color: 'white', fontSize: '0.6rem' }} />
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary" display="block">{t.sucursal_nombre}</Typography>
+                          {t.es_mixto ? <Chip icon={<MixtoIcon />} label="MIXTO" size="small" color="warning" sx={{ mt: 0.5, fontSize: '0.6rem' }} /> : null}
+                          {t.dept_asignaciones?.length > 0 && (
+                            <DeptFlujo asignaciones={t.dept_asignaciones} misDeptIds={[]} esAdmin={false} />
+                          )}
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Grid>
+                </Grid>
+              )}
+            </CardContent>
+          )}
+
+          {/* ── LISTA DE TICKETS (tabs 0-4) ── */}
+          {tabActual !== 5 && <CardContent sx={{ p: { xs: 2, md: 3 } }}>
             {loading ? (
               <Box sx={{ py: 4 }}>
                 <LinearProgress />
@@ -624,21 +673,26 @@ const MisTicketsPage = () => {
                                   }}
                                 />
 
-                                {ticket.categoria_nombre && (
-                                  <Chip
-                                    label={ticket.categoria_nombre}
-                                    size="small"
-                                    sx={{
-                                      bgcolor: ticket.categoria_color,
-                                      color: 'white',
-                                    }}
-                                  />
-                                )}
                               </Stack>
 
                               <Typography variant="body2" color="text.secondary" noWrap>
                                 {ticket.mensaje}
                               </Typography>
+
+                              {/* Flujo departamentos */}
+                              {ticket.dept_asignaciones?.length > 0 && (
+                                <Box sx={{ mt: 1 }}>
+                                  {ticket.es_mixto ? (
+                                    <Chip icon={<MixtoIcon />} label="MIXTO" size="small" color="warning" sx={{ mr: 1, fontWeight: 700, fontSize: '0.65rem' }} />
+                                  ) : null}
+                                  <DeptFlujo
+                                    asignaciones={ticket.dept_asignaciones}
+                                    onEntregar={handleEntregarDept}
+                                    misDeptIds={misDeptIds}
+                                    esAdmin={esAdmin}
+                                  />
+                                </Box>
+                              )}
                             </Box>
                           </Stack>
                         </Grid>
@@ -653,6 +707,13 @@ const MisTicketsPage = () => {
                             <Typography variant="caption" color="text.secondary" display="block">
                               <PersonIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
                               Reportado por: {ticket.usuario_id === user?.id ? 'Tú' : ticket.reportante_nombre}
+                            </Typography>
+                          )}
+
+                          {ticket.sucursal_nombre && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              <span style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>📍</span>
+                              {ticket.sucursal_nombre}
                             </Typography>
                           )}
 
@@ -696,7 +757,7 @@ const MisTicketsPage = () => {
                 ))}
               </List>
             )}
-          </CardContent>
+          </CardContent>}
         </Card>
       </Container>
 
@@ -859,7 +920,7 @@ const MisTicketsPage = () => {
                     }}>
                       <Stack direction="row" spacing={1} alignItems="center" mb={1}>
                         <Avatar sx={{ width: 24, height: 24, bgcolor: '#2196F3', fontSize: '0.75rem' }}>
-                          {ticketSeleccionado.ticket.reportante_nombre?.charAt(0) || 'U'}
+                          {String(ticketSeleccionado.ticket.reportante_nombre || 'U').charAt(0).toUpperCase()}
                         </Avatar>
                         <Typography variant="caption" fontWeight="bold" color="primary">
                           {ticketSeleccionado.ticket.reportante_nombre || 'Usuario'} (Reportante)
@@ -873,7 +934,7 @@ const MisTicketsPage = () => {
                       {ticketSeleccionado.ticket.imagen_url && (
                         <Box sx={{ mt: 2 }}>
                           <img
-                            src={`${process.env.REACT_APP_API_URL || ''}${ticketSeleccionado.ticket.imagen_url}`}
+                            src={`${API_BASE}${ticketSeleccionado.ticket.imagen_url}`}
                             alt="Adjunto del ticket"
                             style={{
                               maxWidth: '100%',
@@ -881,7 +942,7 @@ const MisTicketsPage = () => {
                               borderRadius: 8,
                               cursor: 'pointer'
                             }}
-                            onClick={() => window.open(`${process.env.REACT_APP_API_URL || ''}${ticketSeleccionado.ticket.imagen_url}`, '_blank')}
+                            onClick={() => window.open(`${API_BASE}${ticketSeleccionado.ticket.imagen_url}`, '_blank')}
                           />
                         </Box>
                       )}
@@ -916,10 +977,10 @@ const MisTicketsPage = () => {
                               bgcolor: esReportante ? '#2196F3' : '#9C27B0',
                               fontSize: '0.75rem'
                             }}>
-                              {resp.nombre_usuario?.charAt(0) || 'S'}
+                              {String(resp.nombre_real || resp.nombre_usuario || 'S').charAt(0).toUpperCase()}
                             </Avatar>
                             <Typography variant="caption" fontWeight="bold" color={esReportante ? 'primary' : 'secondary'}>
-                              {resp.nombre_usuario} {!esReportante && '(Soporte)'}
+                              {resp.nombre_real || resp.nombre_usuario || 'Usuario'} {!esReportante && '(Soporte)'}
                             </Typography>
                           </Stack>
 
@@ -933,7 +994,7 @@ const MisTicketsPage = () => {
                           {resp.imagen_url && (
                             <Box sx={{ mt: resp.mensaje ? 1.5 : 0 }}>
                               <img
-                                src={`${process.env.REACT_APP_API_URL || ''}${resp.imagen_url}`}
+                                src={`${API_BASE}${resp.imagen_url}`}
                                 alt="Imagen adjunta"
                                 style={{
                                   maxWidth: '100%',
@@ -942,7 +1003,7 @@ const MisTicketsPage = () => {
                                   cursor: 'pointer',
                                   border: '1px solid rgba(0,0,0,0.1)'
                                 }}
-                                onClick={() => window.open(`${process.env.REACT_APP_API_URL || ''}${resp.imagen_url}`, '_blank')}
+                                onClick={() => window.open(`${API_BASE}${resp.imagen_url}`, '_blank')}
                               />
                             </Box>
                           )}

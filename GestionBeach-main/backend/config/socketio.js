@@ -62,8 +62,9 @@ const setupSocketIO = (server) => {
       socket.userId = id;
       socket.userName = nombre;
 
-      // Unir a sala general
+      // Unir a sala general y sala personal de notificaciones
       socket.join('general');
+      socket.join(`user_${id}`);
 
       // Unir automáticamente a sus grupos
       try {

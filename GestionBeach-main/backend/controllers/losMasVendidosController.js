@@ -73,6 +73,30 @@ const getSucursalConfig = async (sucursal_id) => {
   }
 };
 
+// Cache de esquema por sucursal_id ('ERP_STD' | 'ERP_ALT' | 'TB')
+const schemaCache = new Map();
+
+const detectSchema = async (config, sucursalId) => {
+  if (schemaCache.has(sucursalId)) return schemaCache.get(sucursalId);
+  let pool = null;
+  try {
+    pool = await new sql.ConnectionPool(config).connect();
+    const r = await pool.request().query(`
+      SELECT
+        CASE WHEN OBJECT_ID('ERP_MAESTRO_FAMILIAS')    IS NOT NULL THEN 1 ELSE 0 END AS tieneSTD,
+        CASE WHEN OBJECT_ID('ERP_FAMILIAS_PRODUCTOS')  IS NOT NULL THEN 1 ELSE 0 END AS tieneALT,
+        CASE WHEN OBJECT_ID('tb_documentos_encabezado') IS NOT NULL THEN 1 ELSE 0 END AS tieneTB
+    `);
+    const row = r.recordset[0];
+    const schema = row.tieneSTD ? 'ERP_STD' : row.tieneALT ? 'ERP_ALT' : row.tieneTB ? 'TB' : 'TB';
+    schemaCache.set(sucursalId, schema);
+    console.log(`🔍 Esquema detectado para sucursal ${sucursalId}: ${schema}`);
+    return schema;
+  } finally {
+    if (pool) try { await pool.close(); } catch {}
+  }
+};
+
 // ✅ Función base mejorada para ejecutar consultas
 const executeProductQuery = async (config, query, params = {}) => {
   let poolSucursal = null;
@@ -205,6 +229,7 @@ exports.getTopProducts = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
     console.log('📊 Límite de productos (más vendidos):', limitNumber);
 
@@ -214,8 +239,7 @@ exports.getTopProducts = async (req, res) => {
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
+    if (schema === 'ERP_STD') {
       query = `
         SELECT TOP ${limitNumber}
           MP.MP_NOMBRE_PRODUCTO AS Descripcion,
@@ -229,14 +253,36 @@ exports.getTopProducts = async (req, res) => {
         WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
           AND DBOL.DBOL_CANTIDAD > 0
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
+      `;
+    } else if (schema === 'ERP_ALT') {
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_DESCRIPCION_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          PF.FP_CODIGO AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta'
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+      if (familia && familia !== 'all') {
+        query += ` AND PF.FP_CODIGO = @familia`;
+        params.familia = { value: familia, type: sql.NVarChar };
+      }
+      query += `
+        GROUP BY MP.MP_DESCRIPCION_PRODUCTO, MP.MP_CODIGO_PRODUCTO, PF.FP_CODIGO
         HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
         ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
       `;
@@ -304,29 +350,18 @@ exports.getFamilias = async (req, res) => {
     }
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
+    const schema = await detectSchema(config, sucursal_id);
 
-    let query;
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      query = `
-        SELECT DISTINCT
-          FAMI_ID_FAMILIA AS id,
-          FAMI_NOMBRE_FAMILIA AS nombre
-        FROM ERP_MAESTRO_FAMILIAS
-        WHERE FAMI_ID_FAMILIA IS NOT NULL
-        ORDER BY FAMI_NOMBRE_FAMILIA
-      `;
+    let famQuery;
+    if (schema === 'ERP_STD') {
+      famQuery = `SELECT DISTINCT FAMI_ID_FAMILIA AS id, FAMI_NOMBRE_FAMILIA AS nombre FROM ERP_MAESTRO_FAMILIAS WHERE FAMI_ID_FAMILIA IS NOT NULL ORDER BY FAMI_NOMBRE_FAMILIA`;
+    } else if (schema === 'ERP_ALT') {
+      famQuery = `SELECT DISTINCT FP_CODIGO AS id, FP_DESCRIPCION AS nombre FROM ERP_FAMILIAS_PRODUCTOS WHERE FP_CODIGO IS NOT NULL ORDER BY FP_DESCRIPCION`;
     } else {
-      query = `
-        SELECT DISTINCT
-          fa.dn_correlativo AS id,
-          fa.dg_glosa AS nombre
-        FROM tb_familias fa
-        WHERE fa.dn_correlativo IS NOT NULL
-        ORDER BY fa.dg_glosa
-      `;
+      famQuery = `SELECT DISTINCT fa.dn_correlativo AS id, fa.dg_glosa AS nombre FROM tb_familias fa WHERE fa.dn_correlativo IS NOT NULL ORDER BY fa.dg_glosa`;
     }
 
-    const familias = await executeProductQuery(config, query, {});
+    const familias = await executeProductQuery(config, famQuery, {});
 
     res.json({
       success: true,
@@ -361,6 +396,7 @@ exports.getLeastSoldProducts = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
     console.log('📊 Límite de productos (menos vendidos):', limitNumber);
 
@@ -370,8 +406,7 @@ exports.getLeastSoldProducts = async (req, res) => {
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
+    if (schema === 'ERP_STD') {
       query = `
         SELECT TOP ${limitNumber}
           MP.MP_NOMBRE_PRODUCTO AS Descripcion,
@@ -385,19 +420,40 @@ exports.getLeastSoldProducts = async (req, res) => {
         WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
           AND DBOL.DBOL_CANTIDAD > 0
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
         HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
         ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) ASC
       `;
+    } else if (schema === 'ERP_ALT') {
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_DESCRIPCION_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          PF.FP_CODIGO AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta'
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+      if (familia && familia !== 'all') {
+        query += ` AND PF.FP_CODIGO = @familia`;
+        params.familia = { value: familia, type: sql.NVarChar };
+      }
+      query += `
+        GROUP BY MP.MP_DESCRIPCION_PRODUCTO, MP.MP_CODIGO_PRODUCTO, PF.FP_CODIGO
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) ASC
+      `;
     } else {
-      // QUERY PARA SUPERMERCADOS (mantener intacta)
       query = `
         SELECT TOP ${limitNumber}
           ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
@@ -416,12 +472,10 @@ exports.getLeastSoldProducts = async (req, res) => {
           AND tdd.dc_codigo_barra IS NOT NULL
           AND tdd.dc_codigo_barra != ''
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND fa.dn_correlativo = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
         HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS INT)) > 0
@@ -463,6 +517,7 @@ exports.getHighRotationProducts = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
     const daysDiff = Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
 
@@ -474,8 +529,7 @@ exports.getHighRotationProducts = async (req, res) => {
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
+    if (schema === 'ERP_STD') {
       query = `
         SELECT TOP ${limitNumber}
           MP.MP_NOMBRE_PRODUCTO AS Descripcion,
@@ -490,19 +544,41 @@ exports.getHighRotationProducts = async (req, res) => {
         WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
           AND DBOL.DBOL_CANTIDAD > 0
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
         HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
         ORDER BY rotation DESC
       `;
+    } else if (schema === 'ERP_ALT') {
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_DESCRIPCION_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          PF.FP_CODIGO AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+      if (familia && familia !== 'all') {
+        query += ` AND PF.FP_CODIGO = @familia`;
+        params.familia = { value: familia, type: sql.NVarChar };
+      }
+      query += `
+        GROUP BY MP.MP_DESCRIPCION_PRODUCTO, MP.MP_CODIGO_PRODUCTO, PF.FP_CODIGO
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
+        ORDER BY rotation DESC
+      `;
     } else {
-      // QUERY PARA SUPERMERCADOS (mantener intacta)
       query = `
         SELECT TOP ${limitNumber}
           ISNULL(fa.dg_glosa, 'Sin Familia') AS Familia,
@@ -522,12 +598,10 @@ exports.getHighRotationProducts = async (req, res) => {
           AND tdd.dc_codigo_barra IS NOT NULL
           AND tdd.dc_codigo_barra != ''
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND fa.dn_correlativo = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY fa.dg_glosa, tdd.dc_codigo_barra, tdd.dg_glosa_producto
         HAVING SUM(CAST(ISNULL(tdd.dn_cantidad, 0) AS FLOAT)) > 0
@@ -568,6 +642,7 @@ exports.getLowRotationProducts = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
     const daysDiff = Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)));
 
@@ -579,8 +654,7 @@ exports.getLowRotationProducts = async (req, res) => {
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
+    if (schema === 'ERP_STD') {
       query = `
         SELECT TOP ${limitNumber}
           MP.MP_NOMBRE_PRODUCTO AS Descripcion,
@@ -595,14 +669,37 @@ exports.getLowRotationProducts = async (req, res) => {
         WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
           AND DBOL.DBOL_CANTIDAD > 0
       `;
-
       if (familia && familia !== 'all') {
         query += ` AND MP.FAMI_ID_FAMILIA = @familia`;
         params.familia = { value: parseInt(familia), type: sql.Int };
       }
-
       query += `
         GROUP BY MP.MP_NOMBRE_PRODUCTO, MP.MP_CODIGO_PRODUCTO, MP.FAMI_ID_FAMILIA
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
+        ORDER BY rotation ASC
+      `;
+    } else if (schema === 'ERP_ALT') {
+      query = `
+        SELECT TOP ${limitNumber}
+          MP.MP_DESCRIPCION_PRODUCTO AS Descripcion,
+          MP.MP_CODIGO_PRODUCTO AS 'Codigo Barra',
+          PF.FP_CODIGO AS Familia,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS Cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS 'P. Venta',
+          (SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) / ${daysDiff}) AS rotation
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+      `;
+      if (familia && familia !== 'all') {
+        query += ` AND PF.FP_CODIGO = @familia`;
+        params.familia = { value: familia, type: sql.NVarChar };
+      }
+      query += `
+        GROUP BY MP.MP_DESCRIPCION_PRODUCTO, MP.MP_CODIGO_PRODUCTO, PF.FP_CODIGO
         HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) > 0
         ORDER BY rotation ASC
       `;
@@ -671,18 +768,13 @@ exports.getCategoryDistribution = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
-    let query;
-    const params = {
-      startDate: { value: startDate, type: sql.DateTime },
-      endDate: { value: endDate, type: sql.DateTime }
-    };
-
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
-      query = `
+    let distQuery;
+    if (schema === 'ERP_STD') {
+      distQuery = `
         SELECT
-          MF.FAMI_NOMBRE_FAMILIA AS categoria,
+          ISNULL(MF.FAMI_NOMBRE_FAMILIA, 'Sin Familia') AS categoria,
           COUNT(DISTINCT MP.MP_CODIGO_PRODUCTO) AS cantidad_productos,
           SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS total_vendido
         FROM ERP_FACT_RES_BOLETAS RBO
@@ -695,9 +787,25 @@ exports.getCategoryDistribution = async (req, res) => {
         HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
         ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
       `;
+    } else if (schema === 'ERP_ALT') {
+      distQuery = `
+        SELECT
+          ISNULL(F.FP_DESCRIPCION, 'Sin Familia') AS categoria,
+          COUNT(DISTINCT MP.MP_CODIGO_PRODUCTO) AS cantidad_productos,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS total_vendido
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+          LEFT JOIN ERP_FAMILIAS_PRODUCTOS F ON F.FP_CODIGO = PF.FP_CODIGO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND DBOL.DBOL_CANTIDAD > 0
+        GROUP BY F.FP_DESCRIPCION
+        HAVING SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) > 0
+        ORDER BY SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) DESC
+      `;
     } else {
-      // QUERY PARA SUPERMERCADOS (mantener intacta)
-      query = `
+      distQuery = `
         SELECT
           ISNULL(fa.dg_glosa, 'Sin Familia') AS categoria,
           COUNT(DISTINCT tdd.dc_codigo_barra) AS cantidad_productos,
@@ -717,29 +825,20 @@ exports.getCategoryDistribution = async (req, res) => {
     }
 
     let poolSucursal = null;
-
     try {
       poolSucursal = await new sql.ConnectionPool(config).connect();
       const request = poolSucursal.request();
-
       request.input('startDate', sql.DateTime, startDate);
       request.input('endDate', sql.DateTime, endDate);
-
-      const result = await request.query(query);
-
-      // Formatear datos para el frontend
+      const result = await request.query(distQuery);
       const distribution = result.recordset.map(item => ({
         name: item.categoria || 'Sin Categoría',
         value: parseInt(item.total_vendido) || 0,
         productos: parseInt(item.cantidad_productos) || 0
       }));
-
       res.json(distribution);
-
     } finally {
-      if (poolSucursal) {
-        await poolSucursal.close();
-      }
+      if (poolSucursal) await poolSucursal.close();
     }
 
   } catch (error) {
@@ -766,6 +865,7 @@ exports.getSalesTrend = async (req, res) => {
 
     const { sucursal, config } = await getSucursalConfig(sucursal_id);
     const { startDate, endDate } = calculateDates(period);
+    const schema = await detectSchema(config, sucursal_id);
 
     let query;
     const params = {
@@ -773,8 +873,7 @@ exports.getSalesTrend = async (req, res) => {
       endDate: { value: endDate, type: sql.DateTime }
     };
 
-    if (sucursal.tipo_sucursal === 'FERRETERIA' || sucursal.tipo_sucursal === 'MULTITIENDA') {
-      // QUERY PARA FERRETERÍAS
+    if (schema === 'ERP_STD') {
       query = `
         SELECT
           CONVERT(DATE, RBO.RBO_FECHA_INGRESO) AS fecha,
@@ -783,7 +882,6 @@ exports.getSalesTrend = async (req, res) => {
         FROM ERP_FACT_RES_BOLETAS RBO
           JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
       `;
-
       if (familia && familia !== 'all') {
         query += `
           JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
@@ -792,11 +890,32 @@ exports.getSalesTrend = async (req, res) => {
         `;
         params.familia = { value: parseInt(familia), type: sql.Int };
       } else {
-        query += `
-        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
-        `;
+        query += ` WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate `;
       }
-
+      query += `
+        GROUP BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)
+        ORDER BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)
+      `;
+    } else if (schema === 'ERP_ALT') {
+      query = `
+        SELECT
+          CONVERT(DATE, RBO.RBO_FECHA_INGRESO) AS fecha,
+          SUM(CAST(ISNULL(DBOL.DBOL_CANTIDAD, 0) AS INT)) AS cantidad,
+          SUM(CAST(ISNULL(DBOL.DBOL_PRECIO_LISTA * DBOL.DBOL_CANTIDAD, 0) AS FLOAT)) AS monto
+        FROM ERP_FACT_RES_BOLETAS RBO
+          JOIN ERP_FACT_DET_BOLETAS DBOL ON DBOL.RBO_NUM_INTERNO_BO = RBO.RBO_NUM_INTERNO_BO
+      `;
+      if (familia && familia !== 'all') {
+        query += `
+          JOIN ERP_MAESTRO_PRODUCTOS MP ON MP.MP_CODIGO_PRODUCTO = DBOL.MP_CODIGO_PRODUCTO
+          JOIN ERP_PRODUCTO_FAMILIA PF ON PF.MP_CODIGO_PRODUCTO = MP.MP_CODIGO_PRODUCTO
+        WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate
+          AND PF.FP_CODIGO = @familia
+        `;
+        params.familia = { value: familia, type: sql.NVarChar };
+      } else {
+        query += ` WHERE RBO.RBO_FECHA_INGRESO BETWEEN @startDate AND @endDate `;
+      }
       query += `
         GROUP BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)
         ORDER BY CONVERT(DATE, RBO.RBO_FECHA_INGRESO)

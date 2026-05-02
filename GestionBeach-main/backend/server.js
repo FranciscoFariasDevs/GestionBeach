@@ -186,6 +186,12 @@ const optionalRoutes = [
   { path: './routes/kanbanRoutes', route: '/api/kanban' },
   // 📄 COTIZACIONES — FLUJO DE APROBACIÓN
   { path: './routes/cotizacionesRoutes', route: '/api/cotizaciones' },
+  // 🔔 NOTIFICACIONES — SISTEMA GENERAL
+  { path: './routes/notificacionesRoutes', route: '/api/notificaciones' },
+  // 📲 WEB PUSH — NOTIFICACIONES NATIVAS DEL NAVEGADOR
+  { path: './routes/pushRoutes', route: '/api/push' },
+  // 🔍 BÚSQUEDA SEMÁNTICA UNIFICADA
+  { path: './routes/busquedaRoutes', route: '/api/busqueda' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -491,7 +497,7 @@ const startServer = async () => {
           'Multitiendas', 'Compras', 'Centros de Costos', 'Facturas XML',
           'Tarjeta Empleado', 'Empleados', 'Cabañas', 'Usuarios', 'Perfiles',
           'Módulos', 'Configuración', 'Correo Electrónico', 'MonitorOrdenes', 'Ajustes',
-          'Organigrama', 'Kanban'
+          'Organigrama', 'Kanban', 'Los Más Vendidos'
         ];
 
         // Verificar si modulos tiene IDENTITY
@@ -569,6 +575,31 @@ const startServer = async () => {
       }
       console.log('===========================================\n');
 
+      // 🔄 MIGRACIÓN: columnas que pueden faltar en tablas de tickets
+      try {
+        const migrationChecks = [
+          {
+            check: `SELECT COUNT(*) as c FROM sys.columns WHERE object_id = OBJECT_ID('ticket_respuestas') AND name = 'imagen_url'`,
+            alter: `ALTER TABLE ticket_respuestas ADD imagen_url VARCHAR(500) NULL`,
+            label: 'imagen_url en ticket_respuestas',
+          },
+          {
+            check: `SELECT COUNT(*) as c FROM sys.columns WHERE object_id = OBJECT_ID('tickets') AND name = 'imagen_url'`,
+            alter: `ALTER TABLE tickets ADD imagen_url VARCHAR(500) NULL`,
+            label: 'imagen_url en tickets',
+          },
+        ];
+        for (const m of migrationChecks) {
+          const r = await pool.request().query(m.check);
+          if (r.recordset[0].c === 0) {
+            await pool.request().query(m.alter);
+            console.log(`✅ Migración aplicada: ${m.label}`);
+          }
+        }
+      } catch (migErr) {
+        console.warn('⚠️ Error en migración automática de columnas:', migErr.message);
+      }
+
     } catch (dbError) {
       console.error('❌ Error de conexión a BD:', dbError.message);
       console.log('⚠️ El servidor continuará pero algunas funciones pueden fallar');
@@ -595,6 +626,16 @@ const startServer = async () => {
     }
 
     // ============================================
+    // INICIAR JOB RESUMEN EJECUTIVO DIARIO
+    // ============================================
+    try {
+      const { iniciarJobResumenEjecutivo } = require('./jobs/resumenEjecutivo');
+      iniciarJobResumenEjecutivo();
+    } catch (jobError) {
+      console.error('⚠️ Error al iniciar job Resumen Ejecutivo:', jobError.message);
+    }
+
+    // ============================================
     // INICIAR JOB DE LIMPIEZA DE ARCHIVOS ANTIGUOS
     // ============================================
     try {
@@ -614,6 +655,16 @@ const startServer = async () => {
     connectMongo().then(() => {
       const io = setupSocketIO(server);
       app.set('io', io); // Disponible en rutas si se necesita
+
+      // 🔔 Notificaciones: registrar io singleton y arrancar cron jobs
+      const ioInstance = require('./config/ioInstance');
+      ioInstance.setIO(io);
+      const { asegurarTabla } = require('./services/notificacionesService');
+      asegurarTabla().catch(e => console.warn('⚠️ Error creando tabla notificaciones:', e.message));
+      const { iniciarJob: iniciarPlanifJob } = require('./jobs/planificacionNotificaciones');
+      const { iniciarJob: iniciarKanbanJob } = require('./jobs/kanbanNotificaciones');
+      iniciarPlanifJob();
+      iniciarKanbanJob();
 
       // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
       server.listen(PORT, '0.0.0.0', () => {

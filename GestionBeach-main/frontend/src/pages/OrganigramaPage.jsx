@@ -6,6 +6,8 @@ import {
   Avatar, Tooltip, CircularProgress, Snackbar, Alert,
   Chip, Divider, Select, MenuItem, FormControl, InputLabel,
   Dialog, DialogTitle, DialogContent, DialogActions,
+  Tab, Tabs, Checkbox, List, ListItem, ListItemButton,
+  ListItemAvatar, ListItemText, InputAdornment,
 } from '@mui/material';
 import {
   AccountTree as OrgIcon,
@@ -15,6 +17,7 @@ import {
   FitScreen as FitIcon,
   Delete as DeleteIcon,
   PersonAdd as PersonAddIcon,
+  GroupAdd as GroupAddIcon,
   Add as AddIcon,
   FileDownload as DownloadIcon,
   PictureAsPdf as PdfIcon,
@@ -26,16 +29,86 @@ import {
   Undo as UndoIcon,
   Redo as RedoIcon,
   Map as MapIcon,
+  Palette as PaletteIcon,
+  Dashboard as DashboardIcon,
+  AddCircleOutline as AddBoardIcon,
+  Search as SearchIcon,
+  CheckBox as CheckBoxIcon,
+  CheckBoxOutlineBlank as CheckBoxBlankIcon,
+  ShowChart as CurvedIcon,
+  TrendingFlat as StraightIcon,
+  AccountTree as ElbowIcon,
 } from '@mui/icons-material';
 import api, { getStaticFileURL } from '../api/api';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-const NODE_W = 180;
-const NODE_H = 210;
+const NODE_W = 212;
+const NODE_H = 256;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.5;
 const SNAP_THRESHOLD = 12; // canvas pixels
+
+// ── Fondos elegantes ──────────────────────────────────────────────────────────
+const FONDOS = {
+  cream: {
+    label: 'Crema / Impresión',
+    preview: 'linear-gradient(135deg,#fefaf2,#f7eddb)',
+    canvasBg: 'linear-gradient(160deg, #fefaf3 0%, #fdf5e8 50%, #fef8f0 100%)',
+    gridColor: 'rgba(170,140,95,0.18)',
+    dark: false,
+  },
+  grid_light: {
+    label: 'Azul Corporativo',
+    preview: 'linear-gradient(135deg,#dce3f0,#e8edf5)',
+    canvasBg: 'radial-gradient(ellipse at 30% 20%, #e8edf8 0%, #dce3f0 60%, #d4dced 100%)',
+    gridColor: 'rgba(160,185,220,0.30)',
+    dark: false,
+  },
+  print_white: {
+    label: 'Blanco Puro',
+    preview: 'linear-gradient(135deg,#f8f9fc,#eef1f7)',
+    canvasBg: 'linear-gradient(160deg, #f8f9fc 0%, #eef1f7 50%, #f4f6fb 100%)',
+    gridColor: 'rgba(180,195,215,0.20)',
+    dark: false,
+  },
+  corporate_dark: {
+    label: 'Corporativo Oscuro',
+    preview: 'linear-gradient(135deg,#0a1628,#1a2f4a)',
+    canvasBg: 'linear-gradient(150deg, #080f1e 0%, #0e1f38 50%, #0a1628 100%)',
+    gridColor: 'rgba(80,130,210,0.12)',
+    dark: true,
+  },
+  executive_gold: {
+    label: 'Ejecutivo Dorado',
+    preview: 'linear-gradient(135deg,#141414,#2a1f00)',
+    canvasBg: 'linear-gradient(160deg, #0e0e0e 0%, #1c1600 50%, #111111 100%)',
+    gridColor: 'rgba(212,170,50,0.15)',
+    dark: true,
+    accent: '#d4aa32',
+  },
+  modern_slate: {
+    label: 'Slate Profesional',
+    preview: 'linear-gradient(135deg,#0f172a,#1e293b)',
+    canvasBg: 'linear-gradient(150deg, #0b1120 0%, #182032 50%, #0f1825 100%)',
+    gridColor: 'rgba(148,163,184,0.10)',
+    dark: true,
+  },
+  forest_elegant: {
+    label: 'Verde Elegante',
+    preview: 'linear-gradient(135deg,#0a1f0f,#1a3d1f)',
+    canvasBg: 'linear-gradient(150deg, #080f0a 0%, #152a18 50%, #0a1a0d 100%)',
+    gridColor: 'rgba(74,222,128,0.09)',
+    dark: true,
+  },
+  indigo_pro: {
+    label: 'Índigo Moderno',
+    preview: 'linear-gradient(135deg,#1e1b4b,#312e81)',
+    canvasBg: 'linear-gradient(150deg, #131030 0%, #1e1b4b 40%, #231f58 100%)',
+    gridColor: 'rgba(165,180,252,0.10)',
+    dark: true,
+  },
+};
 
 // Returns { snappedX, snappedY, guideX, guideY, equidistX, equidistY }
 function computeSnap(x, y, others) {
@@ -151,10 +224,10 @@ const PALETTE = [
 // Tree auto-layout
 // ─────────────────────────────────────────────
 function calculateTreeLayout(nodes) {
-  const H_GAP = 50;
-  const V_GAP = 90;
-  const START_X = 60;
-  const START_Y = 60;
+  const H_GAP = 60;
+  const V_GAP = 100;
+  const START_X = 70;
+  const START_Y = 70;
 
   const nodeMap = {};
   nodes.forEach(n => { nodeMap[n.id] = { ...n, _children: [] }; });
@@ -213,22 +286,26 @@ const CONN_HANDLES = [
   { id: 'bottom', left: NODE_W / 2 - 7,  top: NODE_H - 7,     anchorX: NODE_W / 2,  anchorY: NODE_H     },
 ];
 
-// Calcula los mejores puntos de conexión entre dos nodos según su posición relativa
+// Calcula los mejores puntos de conexión entre dos nodos según su posición relativa.
+// Para conexiones jerárquicas (padre → hijo) donde el hijo está debajo del padre,
+// siempre se usa dir:'v' (arriba/abajo) para que todas las ramas se vean uniformes,
+// sin importar cuánto se desplace el hijo horizontalmente.
 function getBestEdgePoints(parent, child) {
   const pCX = parent.pos_x + NODE_W / 2, pCY = parent.pos_y + NODE_H / 2;
   const cCX = child.pos_x  + NODE_W / 2, cCY = child.pos_y  + NODE_H / 2;
-  const dx = cCX - pCX, dy = cCY - pCY;
-  if (Math.abs(dy) >= Math.abs(dx)) {
-    // Más vertical → conectar por arriba/abajo
+  const dy = cCY - pCY;
+  // Si hay desplazamiento vertical significativo (hijo arriba o abajo del padre),
+  // usar siempre conexión vertical para consistencia entre hermanos.
+  if (Math.abs(dy) >= NODE_H * 0.3) {
     return dy >= 0
       ? { x1: pCX, y1: parent.pos_y + NODE_H, x2: cCX, y2: child.pos_y,          dir: 'v' }
       : { x1: pCX, y1: parent.pos_y,           x2: cCX, y2: child.pos_y + NODE_H, dir: 'v' };
-  } else {
-    // Más horizontal → conectar por los lados
-    return dx >= 0
-      ? { x1: parent.pos_x + NODE_W, y1: pCY, x2: child.pos_x,          y2: cCY, dir: 'h' }
-      : { x1: parent.pos_x,          y1: pCY, x2: child.pos_x + NODE_W, y2: cCY, dir: 'h' };
   }
+  // Solo usar conexión horizontal cuando los nodos están casi al mismo nivel vertical
+  const dx = cCX - pCX;
+  return dx >= 0
+    ? { x1: parent.pos_x + NODE_W, y1: pCY, x2: child.pos_x,          y2: cCY, dir: 'h' }
+    : { x1: parent.pos_x,          y1: pCY, x2: child.pos_x + NODE_W, y2: cCY, dir: 'h' };
 }
 
 function NodeCard({ node, isSelected, onMouseDown, onHoverChange, onStartConnect, isConnecting, isDropTarget }) {
@@ -236,6 +313,20 @@ function NodeCard({ node, isSelected, onMouseDown, onHoverChange, onStartConnect
   const color = node.color || '#1565c0';
   const [hovered, setHovered] = useState(false);
   const showHandles = hovered || isConnecting;
+
+  // Iniciales (2 letras máximo)
+  const initials = node.nombre
+    ? node.nombre.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+    : '?';
+
+  // Sombra editorial según estado
+  const cardShadow = isDropTarget
+    ? `0 0 0 2.5px #f57c00, 0 12px 40px #f57c0030`
+    : isSelected
+      ? `0 0 0 2px ${color}, 0 16px 48px ${color}28, 0 4px 12px rgba(0,0,0,0.12)`
+      : hovered
+        ? `0 12px 36px ${color}1a, 0 4px 16px rgba(0,0,0,0.10)`
+        : `0 4px 18px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.05)`;
 
   return (
     <Box
@@ -247,107 +338,205 @@ function NodeCard({ node, isSelected, onMouseDown, onHoverChange, onStartConnect
         left: node.pos_x,
         top: node.pos_y,
         width: NODE_W,
-        height: NODE_H + 10, // incluye zona del handle inferior
+        height: NODE_H + 10,
         userSelect: 'none',
         cursor: isConnecting ? 'crosshair' : 'grab',
         zIndex: isSelected ? 10 : 5,
         '&:active': { cursor: isConnecting ? 'crosshair' : 'grabbing' },
-        filter: isDropTarget
-          ? 'drop-shadow(0 0 14px #f57c00)'
-          : isSelected ? `drop-shadow(0 0 10px ${color}99)` : 'none',
         transition: 'filter 0.2s',
       }}
     >
-      <Paper
-        elevation={isSelected ? 10 : 3}
-        sx={{
-          borderRadius: '14px',
-          overflow: 'hidden',
-          height: NODE_H,
-          display: 'flex',
-          flexDirection: 'column',
-          border: isDropTarget
-            ? '2.5px solid #f57c00'
-            : isSelected ? `2.5px solid ${color}` : '2px solid #e0e0e0',
-          transition: 'all 0.2s',
-          background: '#ffffff',
-        }}
-      >
-        {/* Foto ocupa la mayor parte de la tarjeta */}
+      {/* ════════════════════════════════════════════
+          TARJETA ESTILO EDITORIAL DE LUJO
+          ════════════════════════════════════════════ */}
+      <Box sx={{
+        borderRadius: '14px',
+        overflow: 'hidden',
+        height: NODE_H,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: cardShadow,
+        transition: 'box-shadow 0.25s ease',
+        background: '#ffffff',
+        position: 'relative',
+      }}>
+
+        {/* ── ZONA SUPERIOR: FOTO / AVATAR ──────────── */}
         {fotoUrl ? (
-          <Box sx={{
-            width: '100%', height: 130, overflow: 'hidden',
-            position: 'relative',
-          }}>
+          <Box sx={{ position: 'relative', flexShrink: 0, height: 152, overflow: 'hidden' }}>
+            {/* Foto full-bleed */}
             <Box
               component="img"
               src={fotoUrl}
               alt={node.nombre}
               sx={{
                 width: '100%', height: '100%',
-                objectFit: 'cover', objectPosition: 'top',
+                objectFit: 'cover', objectPosition: 'top center',
                 display: 'block',
+                transform: hovered ? 'scale(1.03)' : 'scale(1)',
+                transition: 'transform 0.5s ease',
               }}
             />
-            {/* Franja de color en el borde inferior de la foto */}
-            <Box sx={{ position:'absolute', bottom:0, left:0, right:0, height:4, background: color }}/>
+            {/* Fade-to-white muy sutil al pie de la foto */}
+            <Box sx={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: 36,
+              background: 'linear-gradient(to bottom, transparent 30%, rgba(255,255,255,0.18) 70%, rgba(255,255,255,0.50) 100%)',
+              pointerEvents: 'none',
+            }}/>
           </Box>
         ) : (
+          /* ── Sin foto: fondo geométrico de lujo ── */
           <Box sx={{
-            width: '100%', height: 100,
-            background: `linear-gradient(135deg, ${color}22 0%, ${color}44 100%)`,
-            display:'flex', alignItems:'center', justifyContent:'center',
-            borderBottom: `4px solid ${color}`,
+            flexShrink: 0, height: 126, position: 'relative', overflow: 'hidden',
+            background: `linear-gradient(145deg, #f8f9fc 0%, ${color}12 50%, #f0f2f8 100%)`,
           }}>
-            <Avatar sx={{
-              width: 70, height: 70,
-              bgcolor: color, fontSize: 28, fontWeight: 'bold',
-              boxShadow: `0 4px 14px ${color}66`,
-              border: '3px solid white',
+            {/* Círculos decorativos tipo editorial */}
+            <Box sx={{
+              position: 'absolute', width: 180, height: 180,
+              borderRadius: '50%',
+              border: `1px solid ${color}18`,
+              top: -60, right: -50,
+            }}/>
+            <Box sx={{
+              position: 'absolute', width: 110, height: 110,
+              borderRadius: '50%',
+              border: `1px solid ${color}12`,
+              bottom: -40, left: -30,
+            }}/>
+            {/* Avatar editorial: círculo sólido con iniciales */}
+            <Box sx={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              {node.nombre?.[0]?.toUpperCase() || '?'}
-            </Avatar>
+              <Box sx={{
+                width: 72, height: 72, borderRadius: '50%',
+                background: `linear-gradient(145deg, ${color} 0%, ${color}bb 100%)`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 8px 28px ${color}44, inset 0 1px 1px rgba(255,255,255,0.25)`,
+              }}>
+                <Typography sx={{
+                  color: '#fff', fontSize: '1.45rem', fontWeight: 800,
+                  letterSpacing: '0.04em', lineHeight: 1,
+                }}>
+                  {initials}
+                </Typography>
+              </Box>
+            </Box>
+            {/* Fade inferior */}
+            <Box sx={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: 40,
+              background: 'linear-gradient(transparent, #ffffff)',
+            }}/>
           </Box>
         )}
 
-        {/* Texto compacto debajo */}
+        {/* ── ZONA INFO: EDITORIAL ──────────────────── */}
         <Box sx={{
-          px: 1.5, py: 0.8,
           flex: 1,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.3,
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          px: 1.5, pb: 1.2, pt: fotoUrl ? 0.5 : 0.8,
+          // Fondo: blanco puro con sutilísimo tinte del color del nodo
+          background: `linear-gradient(to bottom, #ffffff 0%, ${color}05 100%)`,
+          gap: 0.4,
         }}>
-          {/* Nombre */}
+          {/* Nombre — headline de revista */}
           <Typography
-            variant="subtitle2" fontWeight="bold" textAlign="center"
-            sx={{ lineHeight: 1.2, color: '#1a1a2e', fontSize: '0.8rem', maxWidth: '100%' }}
             title={node.nombre}
+            sx={{
+              fontSize: '0.87rem',
+              fontWeight: 800,
+              letterSpacing: '0.07em',
+              textTransform: 'uppercase',
+              color: '#0d0d1f',
+              textAlign: 'center',
+              lineHeight: 1.2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: '100%',
+            }}
           >
-            {node.nombre || 'Sin nombre'}
+            {node.nombre || 'SIN NOMBRE'}
           </Typography>
 
-          {/* Cargo */}
+          {/* Línea ornamental centrada — firma de diseño editorial */}
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 0.8, width: '100%', justifyContent: 'center',
+            my: 0.2,
+          }}>
+            <Box sx={{ flex: 1, maxWidth: 22, height: '1px', background: `${color}55` }}/>
+            <Box sx={{ width: 5, height: 5, borderRadius: '50%', background: color }}/>
+            <Box sx={{ flex: 1, maxWidth: 22, height: '1px', background: `${color}55` }}/>
+          </Box>
+
+          {/* Cargo — small caps editorial */}
           {node.cargo && (
-            <Typography variant="caption" textAlign="center"
-              sx={{ color: color, fontWeight: 700, fontSize: '0.66rem', lineHeight: 1.1 }}
+            <Typography
               title={node.cargo}
+              sx={{
+                fontSize: '0.70rem',
+                fontWeight: 600,
+                letterSpacing: '0.09em',
+                textTransform: 'uppercase',
+                color: color,
+                textAlign: 'center',
+                lineHeight: 1.2,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '100%',
+              }}
             >
               {node.cargo}
             </Typography>
           )}
 
-          {/* Departamento */}
+          {/* Departamento — caption de revista con separadores */}
           {node.departamento && (
-            <Chip label={node.departamento} size="small" sx={{
-              fontSize: '0.57rem', height: 16,
-              bgcolor: `${color}18`, color: color,
-              fontWeight: 700, maxWidth: NODE_W - 20,
-              border: `1px solid ${color}44`,
-            }}/>
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 0.6,
+              mt: 0.4,
+              px: 1.2, py: 0.35,
+              borderRadius: '20px',
+              background: `${color}0e`,
+              border: `1px solid ${color}22`,
+              maxWidth: '100%', overflow: 'hidden',
+            }}>
+              {/* Punto decorativo izquierdo */}
+              <Box sx={{ width: 4, height: 4, borderRadius: '50%', background: `${color}88`, flexShrink: 0 }}/>
+              <Typography
+                title={node.departamento}
+                sx={{
+                  fontSize: '0.64rem',
+                  fontWeight: 500,
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  color: `${color}cc`,
+                  lineHeight: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flex: 1,
+                  textAlign: 'center',
+                }}
+              >
+                {node.departamento}
+              </Typography>
+              {/* Punto decorativo derecho */}
+              <Box sx={{ width: 4, height: 4, borderRadius: '50%', background: `${color}88`, flexShrink: 0 }}/>
+            </Box>
           )}
         </Box>
-      </Paper>
 
-      {/* Handles de conexión estilo Lucidchart */}
+        {/* ── FRANJA INFERIOR — sello de identidad ── */}
+        <Box sx={{
+          height: 5, flexShrink: 0,
+          background: `linear-gradient(90deg, ${color} 0%, ${color}cc 55%, ${color}44 100%)`,
+        }}/>
+      </Box>
+
+      {/* ── Handles de conexión ─────────────────────────────── */}
       {showHandles && CONN_HANDLES.map(h => (
         <Box
           key={h.id}
@@ -378,24 +567,86 @@ function bezierMid(x1, y1, cx1, cy1, cx2, cy2, x2, y2) {
   };
 }
 
-function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClick }) {
+// ── Calcula el path SVG según el estilo de línea ──────────────────────────────
+function computeEdgePath(x1, y1, x2, y2, dir, style = 'curved') {
+  if (style === 'straight') {
+    return {
+      d: `M ${x1} ${y1} L ${x2} ${y2}`,
+      mid: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+    };
+  }
+  if (style === 'elbow') {
+    const R = 13; // radio del codo redondeado
+    let d, mid;
+    if (dir === 'v') {
+      const midY = (y1 + y2) / 2;
+      const sx = Math.sign(x2 - x1);
+      const sy = Math.sign(y2 - y1);
+      if (sx === 0) {
+        d = `M ${x1} ${y1} L ${x2} ${y2}`;
+      } else {
+        const r = Math.min(R, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 4);
+        d = `M ${x1} ${y1}` +
+            ` L ${x1} ${midY - r * sy}` +
+            ` Q ${x1} ${midY} ${x1 + sx * r} ${midY}` +
+            ` L ${x2 - sx * r} ${midY}` +
+            ` Q ${x2} ${midY} ${x2} ${midY + r * sy}` +
+            ` L ${x2} ${y2}`;
+      }
+      mid = { x: (x1 + x2) / 2, y: midY };
+    } else {
+      const midX = (x1 + x2) / 2;
+      const sx = Math.sign(x2 - x1);
+      const sy = Math.sign(y2 - y1);
+      if (sy === 0) {
+        d = `M ${x1} ${y1} L ${x2} ${y2}`;
+      } else {
+        const r = Math.min(R, Math.abs(y2 - y1) / 2, Math.abs(x2 - x1) / 4);
+        d = `M ${x1} ${y1}` +
+            ` L ${midX - sx * r} ${y1}` +
+            ` Q ${midX} ${y1} ${midX} ${y1 + sy * r}` +
+            ` L ${midX} ${y2 - sy * r}` +
+            ` Q ${midX} ${y2} ${midX + sx * r} ${y2}` +
+            ` L ${x2} ${y2}`;
+      }
+      mid = { x: midX, y: (y1 + y2) / 2 };
+    }
+    return { d, mid };
+  }
+  // 'curved' — Bezier con glow magnético (default)
+  if (dir === 'h') {
+    const dx = Math.abs(x2 - x1) * 0.5;
+    const cx1 = x1 + Math.sign(x2 - x1) * dx, cx2 = x2 - Math.sign(x2 - x1) * dx;
+    return {
+      d: `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`,
+      mid: bezierMid(x1, y1, cx1, y1, cx2, y2, x2, y2),
+    };
+  } else {
+    // Para dir:'v', blendear horizontalmente los puntos de control según el
+    // desplazamiento lateral para evitar curvas en S cuando los hijos están
+    // muy a los lados del padre. Todos los hermanos obtendrán curvas simétricas.
+    const totalDy = Math.abs(y2 - y1);
+    const totalDx = Math.abs(x2 - x1);
+    const blend = Math.min(0.45, totalDx / (totalDy + totalDx + 1) * 0.9);
+    const cp1x = x1 + (x2 - x1) * blend;
+    const cp2x = x2 - (x2 - x1) * blend;
+    const dy = totalDy * 0.45;
+    const cp1y = y1 + Math.sign(y2 - y1) * dy;
+    const cp2y = y2 - Math.sign(y2 - y1) * dy;
+    return {
+      d: `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`,
+      mid: bezierMid(x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2),
+    };
+  }
+}
+
+function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClick, lineStyle = 'curved' }) {
   const hierEdges = nodes.flatMap(node => {
     if (!node.parent_id) return [];
     const parent = nodes.find(n => n.id === node.parent_id);
     if (!parent) return [];
     const { x1, y1, x2, y2, dir } = getBestEdgePoints(parent, node);
-    let d, mid;
-    if (dir === 'h') {
-      const dx = Math.abs(x2 - x1) * 0.5;
-      const cx1 = x1 + Math.sign(x2 - x1) * dx, cx2 = x2 - Math.sign(x2 - x1) * dx;
-      d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
-      mid = bezierMid(x1, y1, cx1, y1, cx2, y2, x2, y2);
-    } else {
-      const dy = Math.abs(y2 - y1) * 0.45;
-      const cy1 = y1 + Math.sign(y2 - y1) * dy, cy2 = y2 - Math.sign(y2 - y1) * dy;
-      d = `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`;
-      mid = bezierMid(x1, y1, x1, cy1, x2, cy2, x2, y2);
-    }
+    const { d, mid } = computeEdgePath(x1, y1, x2, y2, dir, lineStyle);
     return [{
       key: `h-${parent.id}-${node.id}`,
       nodeId: node.id,
@@ -410,18 +661,16 @@ function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClic
     const b = nodes.find(n => n.id === Number(link.nodo_b));
     if (!a || !b) return [];
     const aMidY = a.pos_y + NODE_H / 2, bMidY = b.pos_y + NODE_H / 2;
-    const [x1, y1, x2, y2] = (a.pos_x + NODE_W) < b.pos_x
-      ? [a.pos_x + NODE_W, aMidY, b.pos_x, bMidY]
+    const [x1, y1, x2, y2, dir] = (a.pos_x + NODE_W) < b.pos_x
+      ? [a.pos_x + NODE_W, aMidY, b.pos_x, bMidY, 'h']
       : (b.pos_x + NODE_W) < a.pos_x
-        ? [b.pos_x + NODE_W, bMidY, a.pos_x, aMidY]
-        : [a.pos_x + NODE_W / 2, a.pos_y + NODE_H, b.pos_x + NODE_W / 2, b.pos_y + NODE_H];
-    const mx = (x1 + x2) / 2;
-    const mid = bezierMid(x1, y1, mx, y1, mx, y2, x2, y2);
+        ? [b.pos_x + NODE_W, bMidY, a.pos_x, aMidY, 'h']
+        : [a.pos_x + NODE_W / 2, a.pos_y + NODE_H, b.pos_x + NODE_W / 2, b.pos_y + NODE_H, 'v'];
+    const { d, mid } = computeEdgePath(x1, y1, x2, y2, dir, lineStyle);
     return [{
       key: `p-${link.id}`,
       linkId: link.id,
-      d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
-      mid,
+      d, mid,
       sinFlecha: !!link.sin_flecha,
     }];
   });
@@ -435,17 +684,32 @@ function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClic
       }}
     >
       <defs>
+        {/* Filtro glow para líneas jerárquicas */}
+        <filter id="line-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="2.5" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        <filter id="line-glow-strong" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="4" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
         {PALETTE.map(c => (
-          <marker key={c} id={`arr-${c.slice(1)}`} markerWidth="8" markerHeight="6"
-            refX="7" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill={c} opacity="0.7" />
+          <marker key={c} id={`arr-${c.slice(1)}`} markerWidth="11" markerHeight="8"
+            refX="10" refY="4" orient="auto">
+            <polygon points="0 0, 11 4, 0 8, 2 4" fill={c} opacity="0.92" />
           </marker>
         ))}
-        <marker id="arr-default" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#90a4ae" opacity="0.7" />
+        <marker id="arr-default" markerWidth="11" markerHeight="8" refX="10" refY="4" orient="auto">
+          <polygon points="0 0, 11 4, 0 8, 2 4" fill="#90a4ae" opacity="0.92" />
         </marker>
-        <marker id="arr-peer" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#f57c00" opacity="0.8"/>
+        <marker id="arr-peer" markerWidth="11" markerHeight="8" refX="10" refY="4" orient="auto">
+          <polygon points="0 0, 11 4, 0 8, 2 4" fill="#f57c00" opacity="0.95"/>
         </marker>
       </defs>
 
@@ -455,10 +719,18 @@ function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClic
         const markerId = PALETTE.includes(e.color) ? `arr-${e.color.slice(1)}` : 'arr-default';
         return (
           <g key={e.key}>
+            {/* Halo de glow detrás — efecto magnético */}
+            <path d={e.d} fill="none"
+              stroke={e.color}
+              strokeWidth={isSel ? 8 : 6}
+              strokeOpacity={isSel ? 0.22 : 0.14}
+              filter="url(#line-glow)"
+            />
+            {/* Línea principal */}
             <path d={e.d} fill="none"
               stroke={isSel ? '#2196f3' : e.color}
-              strokeWidth={isSel ? 3.5 : 2.5}
-              strokeOpacity={isSel ? 1 : 0.65}
+              strokeWidth={isSel ? 3.2 : 2.4}
+              strokeOpacity={isSel ? 1 : 0.90}
               markerEnd={e.sinFlecha ? undefined : `url(#${markerId})`}
             />
             {/* Área invisible de clic */}
@@ -470,15 +742,23 @@ function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClic
         );
       })}
 
-      {/* Relaciones de par (mismo nivel) — línea punteada naranja */}
+      {/* Relaciones de par (mismo nivel) — línea punteada */}
       {peerEdges.map(e => {
         const isSel = selectedEdge?.type === 'peer' && selectedEdge?.id === e.linkId;
         return (
           <g key={e.key}>
+            {/* Halo glow */}
+            <path d={e.d} fill="none"
+              stroke="#f57c00"
+              strokeWidth={isSel ? 7 : 5}
+              strokeOpacity={isSel ? 0.22 : 0.12}
+              strokeDasharray="7 4"
+              filter="url(#line-glow)"
+            />
             <path d={e.d} fill="none"
               stroke={isSel ? '#2196f3' : '#f57c00'}
-              strokeWidth={isSel ? 3 : 2}
-              strokeOpacity={isSel ? 1 : 0.8}
+              strokeWidth={isSel ? 3 : 2.2}
+              strokeOpacity={isSel ? 1 : 0.92}
               strokeDasharray="7 4"
               markerEnd={e.sinFlecha ? undefined : 'url(#arr-peer)'}
             />
@@ -507,8 +787,8 @@ function EdgesLayer({ nodes, peerLinks, connectingLine, selectedEdge, onEdgeClic
 // Photo Crop Dialog
 // ─────────────────────────────────────────────
 function PhotoCropDialog({ file, src, open, onConfirm, onCancel }) {
-  const CROP_W = NODE_W;   // 180
-  const CROP_H = 130;
+  const CROP_W = NODE_W;   // 212 — ancho del nodo
+  const CROP_H = 152;      // altura de foto visible en la tarjeta
   const DS = 2;            // escala de preview
 
   const [imgSrc, setImgSrc] = useState('');
@@ -576,17 +856,22 @@ function PhotoCropDialog({ file, src, open, onConfirm, onCancel }) {
   const handleConfirm = () => {
     const img = imgRef.current;
     if (!img) return;
+    // Exportar a 3× para máxima nitidez en pantallas Retina e impresión
+    const EXPORT = 3;
     const canvas = document.createElement('canvas');
-    canvas.width = CROP_W;
-    canvas.height = CROP_H;
+    canvas.width  = CROP_W * EXPORT;
+    canvas.height = CROP_H * EXPORT;
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.scale(EXPORT, EXPORT);
     ctx.drawImage(
       img,
       -pos.x / scale, -pos.y / scale,
       CROP_W / scale, CROP_H / scale,
       0, 0, CROP_W, CROP_H
     );
-    canvas.toBlob(blob => onConfirm(blob), 'image/jpeg', 0.93);
+    canvas.toBlob(blob => onConfirm(blob), 'image/jpeg', 0.95);
   };
 
   return (
@@ -797,6 +1082,38 @@ export default function OrganigramaPage() {
   const [containerSize, setContainerSize] = useState({ w: 1200, h: 700 });
   const [snapGuides, setSnapGuides] = useState({ guideX: null, guideY: null, equidistX: false, equidistY: false });
   const [selectedEdge, setSelectedEdge] = useState(null); // { type, id, mid, sinFlecha }
+  // ── Título del canvas ────────────────────────────────────────────────────
+  const [canvasTitle, setCanvasTitle]     = useState('ORGANIGRAMA EMPRESARIAL');
+  const [titleEditing, setTitleEditing]   = useState(false);
+  const [titleDraft, setTitleDraft]       = useState('');
+  // ── Orientación de exportación PDF ──────────────────────────────────────
+  const [exportOrientation, setExportOrientation] = useState('portrait'); // 'portrait' | 'landscape'
+  // ── Estilo de líneas de conexión ─────────────────────────────────────────
+  const [lineStyle, setLineStyle] = useState('curved'); // 'curved' | 'straight' | 'elbow'
+  // ── Importar empleados existentes ────────────────────────────────────────
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importWorkers, setImportWorkers] = useState([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importSelected, setImportSelected] = useState([]);
+  const [importSearch, setImportSearch] = useState('');
+
+  // ── Boards & Fondos ───────────────────────────────────────────────────────
+  const [boards, setBoards] = useState([]);
+  const [currentBoardId, setCurrentBoardId] = useState(null); // null = organigrama global
+  const [currentFondo, setCurrentFondo] = useState('cream');
+  const [fondoOpen, setFondoOpen] = useState(false);
+  const [boardDialogOpen, setBoardDialogOpen] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
+  const [newBoardDept, setNewBoardDept] = useState('');
+  const [newBoardFondo, setNewBoardFondo] = useState('cream');
+  const [newBoardCopiar, setNewBoardCopiar] = useState(true);
+  const [creatingBoard, setCreatingBoard] = useState(false);
+  const [deleteBoardDialog, setDeleteBoardDialog] = useState(false);
+  // Picker de trabajadores existentes
+  const [allWorkers, setAllWorkers] = useState([]);
+  const [workersLoading, setWorkersLoading] = useState(false);
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState([]);
+  const [workerSearch, setWorkerSearch] = useState('');
 
   const containerRef = useRef(null);
   const transformRef = useRef(null);
@@ -823,7 +1140,7 @@ export default function OrganigramaPage() {
   nodesRef.current = nodes;
 
   // ── Load ──────────────────────────────────
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadBoards(); loadAll(null); }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -835,12 +1152,20 @@ export default function OrganigramaPage() {
     return () => obs.disconnect();
   }, []);
 
-  const loadAll = async () => {
+  const loadBoards = async () => {
+    try {
+      const res = await api.get('/organigrama/boards');
+      if (res.data.success) setBoards(res.data.boards);
+    } catch { /* silencioso */ }
+  };
+
+  const loadAll = async (boardId) => {
     try {
       setLoading(true);
+      const params = boardId != null ? `?board_id=${boardId}` : '';
       const [resN, resR] = await Promise.all([
-        api.get('/organigrama'),
-        api.get('/organigrama/relaciones'),
+        api.get(`/organigrama${params}`),
+        api.get(`/organigrama/relaciones${params}`),
       ]);
       if (resN.data.success) setNodes(resN.data.nodos);
       if (resR.data.success) setPeerLinks(resR.data.relaciones);
@@ -853,19 +1178,181 @@ export default function OrganigramaPage() {
 
   const loadNodes = async () => {
     try {
-      const res = await api.get('/organigrama');
+      const params = currentBoardId != null ? `?board_id=${currentBoardId}` : '';
+      const res = await api.get(`/organigrama${params}`);
       if (res.data.success) setNodes(res.data.nodos);
     } catch {
       toast('Error al cargar organigrama', 'error');
     }
   };
 
+  const switchBoard = async (boardId) => {
+    setCurrentBoardId(boardId);
+    setSelected(null);
+    setSelectedEdge(null);
+    historyRef.current = { past: [], future: [] };
+    // Aplicar fondo y título del board seleccionado
+    if (boardId == null) {
+      setCurrentFondo('cream');
+      setCanvasTitle('ORGANIGRAMA EMPRESARIAL');
+    } else {
+      const b = boards.find(b => b.id === boardId);
+      if (b) {
+        setCurrentFondo(b.fondo || 'corporate_dark');
+        setCanvasTitle((b.descripcion || b.nombre || 'ORGANIGRAMA').toUpperCase());
+      }
+    }
+    await loadAll(boardId);
+    setTimeout(() => fitView(), 150);
+  };
+
+  const openBoardDialog = async () => {
+    setBoardDialogOpen(true);
+    setSelectedWorkerIds([]);
+    setWorkerSearch('');
+    try {
+      setWorkersLoading(true);
+      const res = await api.get('/organigrama/todos-trabajadores');
+      if (res.data.success) setAllWorkers(res.data.trabajadores);
+    } catch {
+      setAllWorkers([]);
+    } finally {
+      setWorkersLoading(false);
+    }
+  };
+
+  const toggleWorker = (id) => {
+    setSelectedWorkerIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleCrearBoard = async () => {
+    if (!newBoardName.trim()) return;
+    try {
+      setCreatingBoard(true);
+      const payload = {
+        nombre: newBoardName.trim(),
+        departamento: newBoardDept.trim() || null,
+        fondo: newBoardFondo,
+      };
+      if (selectedWorkerIds.length > 0) {
+        payload.trabajadoresIds = selectedWorkerIds;
+      } else {
+        payload.copiarDesdeGlobal = newBoardCopiar;
+      }
+      const res = await api.post('/organigrama/boards', payload);
+      if (res.data.success) {
+        await loadBoards();
+        setBoardDialogOpen(false);
+        setNewBoardName('');
+        setNewBoardDept('');
+        setNewBoardFondo('corporate_dark');
+        setNewBoardCopiar(true);
+        setSelectedWorkerIds([]);
+        setWorkerSearch('');
+        toast('Organigrama creado');
+        await switchBoard(res.data.board.id);
+      }
+    } catch {
+      toast('Error al crear organigrama', 'error');
+    } finally {
+      setCreatingBoard(false);
+    }
+  };
+
+  const handleEliminarBoard = async () => {
+    if (currentBoardId == null) return;
+    try {
+      await api.delete(`/organigrama/boards/${currentBoardId}`);
+      setDeleteBoardDialog(false);
+      await loadBoards();
+      await switchBoard(null);
+      toast('Organigrama eliminado');
+    } catch {
+      toast('Error al eliminar organigrama', 'error');
+    }
+  };
+
+  const handleFondoChange = async (fondoKey) => {
+    setCurrentFondo(fondoKey);
+    setFondoOpen(false);
+    if (currentBoardId != null) {
+      try {
+        await api.put(`/organigrama/boards/${currentBoardId}`, { fondo: fondoKey });
+      } catch { /* silencioso */ }
+    }
+  };
+
   const toast = (msg, sev = 'success') => setSnack({ open: true, msg, sev });
+
+  // ── Importar empleados existentes ────────────────────────────────────────
+  const openImportDialog = async () => {
+    setImportSelected([]);
+    setImportSearch('');
+    setImportDialogOpen(true);
+    try {
+      setImportLoading(true);
+      const res = await api.get('/organigrama/todos-trabajadores');
+      if (res.data.success) {
+        // Filtrar los que ya están en el board actual
+        const existingRuts = new Set(nodes.map(n => n.rut).filter(Boolean));
+        const available = res.data.trabajadores.filter(w => !existingRuts.has(w.rut));
+        setImportWorkers(available);
+      }
+    } catch {
+      setImportWorkers([]);
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleImportWorkers = () => {
+    if (importSelected.length === 0) return;
+    const selected = importWorkers.filter(w => importSelected.includes(w.rut || w.id));
+    // Calcular posición inicial: a la derecha/abajo del último nodo
+    const maxX = nodes.length > 0 ? Math.max(...nodes.map(n => n.pos_x)) + NODE_W + 40 : 80;
+    const startY = nodes.length > 0 ? Math.min(...nodes.map(n => n.pos_y)) : 80;
+    const newNodes = selected.map((w, i) => ({
+      id: `tmp-import-${Date.now()}-${i}`,
+      rut: w.rut,
+      nombre: w.nombre,
+      cargo: w.cargo,
+      departamento: w.departamento,
+      foto_url: w.foto_url || null,
+      color: PALETTE[i % PALETTE.length],
+      pos_x: maxX + (i % 3) * (NODE_W + 40),
+      pos_y: startY + Math.floor(i / 3) * (NODE_H + 60),
+      parent_id: null,
+      board_id: currentBoardId,
+      sin_flecha: false,
+    }));
+    pushHistory();
+    setNodes(prev => [...prev, ...newNodes]);
+    setImportDialogOpen(false);
+    toast(`${newNodes.length} empleado${newNodes.length !== 1 ? 's' : ''} importado${newNodes.length !== 1 ? 's' : ''}`);
+  };
+
+  // ── Título del canvas ────────────────────────────────────────────────────
+  const startTitleEdit = () => {
+    setTitleDraft(canvasTitle);
+    setTitleEditing(true);
+  };
+  const confirmTitleEdit = async () => {
+    const val = titleDraft.trim().toUpperCase() || canvasTitle;
+    setCanvasTitle(val);
+    setTitleEditing(false);
+    if (currentBoardId != null) {
+      try {
+        await api.put(`/organigrama/boards/${currentBoardId}`, { descripcion: val });
+      } catch { /* silencioso */ }
+    }
+  };
 
   // ── Peer connection helpers ────────────────
   const createPeerLink = useCallback(async (fromId, toId) => {
     try {
-      const res = await api.post('/organigrama/relaciones', { nodo_a: fromId, nodo_b: toId });
+      const res = await api.post('/organigrama/relaciones', { nodo_a: fromId, nodo_b: toId, board_id: currentBoardId });
       if (res.data.success) {
         setPeerLinks(prev => {
           const exists = prev.some(l => l.id === res.data.relacion.id);
@@ -874,7 +1361,7 @@ export default function OrganigramaPage() {
         toast('Relación creada');
       }
     } catch { toast('Error al crear relación', 'error'); }
-  }, []);
+  }, [currentBoardId]);
 
   const handleHoverChange = useCallback((nodeId) => {
     hoveredNodeRef.current = nodeId;
@@ -1190,7 +1677,7 @@ export default function OrganigramaPage() {
   const saveNodes = async () => {
     try {
       setSaving(true);
-      const res = await api.post('/organigrama/guardar', { nodos: nodes });
+      const res = await api.post('/organigrama/guardar', { nodos: nodes, board_id: currentBoardId });
       if (res.data.success) {
         setNodes(res.data.nodos);
         toast('Organigrama guardado');
@@ -1245,130 +1732,146 @@ export default function OrganigramaPage() {
     const orig = el.style.transform;
     el.style.transform = 'translate(0,0) scale(1)';
     const bounds = getCanvasBounds();
-    const PAD   = 40;
-    const OX    = bounds.minX - PAD;
-    const OY    = bounds.minY - PAD;
-    const W     = bounds.width  + NODE_W + PAD * 2;
-    const H     = bounds.height + NODE_H + PAD * 2;
-    const SCALE = 2;
+    const PAD_H  = 70;   // horizontal (izquierda/derecha)
+    const PAD_T  = 175;  // superior — incluye título + ornamento (130px) + margen (45px)
+    const PAD_B  = 70;   // inferior
+    const OX     = bounds.minX - PAD_H;
+    const OY     = bounds.minY - PAD_T;
+    const W      = bounds.width  + NODE_W + PAD_H * 2;
+    const H      = bounds.height + NODE_H + PAD_T + PAD_B;
+    const SCALE = 4; // 4× Ultra-HD para impresión A3/A4 nítida
 
-    await new Promise(r => setTimeout(r, 120));
+    await new Promise(r => setTimeout(r, 200));
 
-    // 1. Canvas final — fondo degradado sereno
+    // 1. Canvas final — fondo tipo papel premium
     const final = document.createElement('canvas');
     final.width  = W * SCALE;
     final.height = H * SCALE;
     const ctx = final.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
-    // Fondo: degradado vertical suave (azul muy claro → blanco cálido)
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, final.height);
-    bgGrad.addColorStop(0,   '#eef3fb');
-    bgGrad.addColorStop(0.5, '#f7f9fe');
-    bgGrad.addColorStop(1,   '#f0f5f0');
+    // ── Fondo crema / papel premium ──────────────────────────
+    const bgGrad = ctx.createLinearGradient(0, 0, final.width * 0.6, final.height);
+    bgGrad.addColorStop(0,   '#fefaf3');
+    bgGrad.addColorStop(0.5, '#fdf6ec');
+    bgGrad.addColorStop(1,   '#fef8f0');
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, final.width, final.height);
 
-    // Patrón de puntos sutiles (grid)
+    // Textura de puntos tipo papel japonés — muy sutil, color cálido
     ctx.save();
-    ctx.globalAlpha = 0.06;
-    for (let gx = 0; gx < final.width; gx += 28 * SCALE) {
-      for (let gy = 0; gy < final.height; gy += 28 * SCALE) {
+    ctx.globalAlpha = 0.045;
+    const DOT_GAP = 28 * SCALE;
+    for (let gx = 0; gx < final.width; gx += DOT_GAP) {
+      for (let gy = 0; gy < final.height; gy += DOT_GAP) {
         ctx.beginPath();
-        ctx.arc(gx, gy, 1.2 * SCALE, 0, Math.PI * 2);
-        ctx.fillStyle = '#4a6fa5';
+        ctx.arc(gx, gy, 1.1 * SCALE, 0, Math.PI * 2);
+        ctx.fillStyle = '#8a6a40';
         ctx.fill();
       }
     }
     ctx.restore();
 
-    // 2. Dibujar líneas elegantes en canvas
+    // 2. Dibujar líneas elegantes en canvas (respetando lineStyle)
     ctx.save();
     ctx.scale(SCALE, SCALE);
     ctx.translate(-OX, -OY);
 
-    // Punta de flecha elegante: delgada y refinada
-    const drawArrowTip = (ex, ey, cp2x, cp2y, color) => {
-      const angle = Math.atan2(ey - cp2y, ex - cp2x);
+    // Convierte un SVG path string a comandos Canvas 2D
+    const applyPath2D = (d) => {
+      const p = new Path2D(d);
+      ctx.beginPath();
+      // Path2D se puede pasar directamente a stroke/fill
+      return p;
+    };
+
+    // Punta de flecha elegante — calcula la dirección desde el penúltimo punto del path
+    const drawArrowTip = (ex, ey, fromX, fromY, clr) => {
+      const angle = Math.atan2(ey - fromY, ex - fromX);
       ctx.save();
       ctx.translate(ex, ey);
       ctx.rotate(angle - Math.PI / 2);
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.lineTo(-4, -9);
-      ctx.lineTo(0, -6);   // muesca interior → flecha tipo "chevron"
-      ctx.lineTo(4, -9);
+      ctx.lineTo(-4.5, -10);
+      ctx.lineTo(0, -7);
+      ctx.lineTo(4.5, -10);
       ctx.closePath();
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = clr;
+      ctx.globalAlpha = 0.9;
       ctx.fill();
       ctx.restore();
     };
 
-    // Dibuja una línea elegante con sombra difuminada
-    const drawElegantLine = (path, color, lineWidth, alpha, dashed = false) => {
-      // Sombra sutil
+    // Dibuja una línea elegante con sombra usando Path2D
+    const drawElegantLine = (d, clr, lineWidth, alpha, dashed = false) => {
       ctx.save();
-      ctx.shadowColor = 'rgba(30,60,120,0.10)';
-      ctx.shadowBlur  = 6;
+      ctx.shadowColor = 'rgba(30,60,120,0.12)';
+      ctx.shadowBlur  = 8;
       ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 2;
-      ctx.beginPath();
-      path();
-      ctx.strokeStyle = color;
+      ctx.shadowOffsetY = 3;
+      ctx.strokeStyle = clr;
       ctx.lineWidth   = lineWidth;
       ctx.globalAlpha = alpha;
       ctx.lineCap     = 'round';
       ctx.lineJoin    = 'round';
-      if (dashed) ctx.setLineDash([6, 5]);
-      ctx.stroke();
+      if (dashed) ctx.setLineDash([7, 5]);
+      ctx.stroke(new Path2D(d));
       ctx.setLineDash([]);
       ctx.restore();
     };
 
-    // ── Relaciones jerárquicas — usa getBestEdgePoints igual que el SVG ──
+    // Extrae el punto final de un SVG path string para orientar la punta de flecha
+    const getPathEndTangent = (d) => {
+      // Parsear últimas coordenadas del path para la dirección final
+      const tokens = d.trim().split(/[\s,]+/);
+      const n = tokens.length;
+      // Último punto es siempre los dos últimos números
+      const ex = parseFloat(tokens[n - 2]);
+      const ey = parseFloat(tokens[n - 1]);
+      // Punto previo para calcular ángulo (penúltimo par de coordenadas)
+      const fx = parseFloat(tokens[n - 4]);
+      const fy = parseFloat(tokens[n - 3]);
+      return { ex, ey, fx, fy };
+    };
+
+    // ── Relaciones jerárquicas ──
     nodes.forEach(node => {
       if (!node.parent_id) return;
       const parent = nodes.find(n => n.id === node.parent_id);
       if (!parent) return;
       const { x1, y1, x2, y2, dir } = getBestEdgePoints(parent, node);
-      const color = node.color || '#90a4ae';
+      const clr = node.color || '#90a4ae';
+      const { d } = computeEdgePath(x1, y1, x2, y2, dir, lineStyle);
 
-      let cp1x, cp1y, cp2x, cp2y;
-      if (dir === 'h') {
-        const dx = Math.abs(x2 - x1) * 0.5;
-        cp1x = x1 + Math.sign(x2 - x1) * dx; cp1y = y1;
-        cp2x = x2 - Math.sign(x2 - x1) * dx; cp2y = y2;
-      } else {
-        const dy = Math.abs(y2 - y1) * 0.45;
-        cp1x = x1; cp1y = y1 + Math.sign(y2 - y1) * dy;
-        cp2x = x2; cp2y = y2 - Math.sign(y2 - y1) * dy;
+      drawElegantLine(d, clr, 2.2, 0.78);
+
+      if (!node.sin_flecha) {
+        const { ex, ey, fx, fy } = getPathEndTangent(d);
+        drawArrowTip(ex, ey, fx, fy, clr);
       }
-
-      drawElegantLine(
-        () => { ctx.moveTo(x1, y1); ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2); },
-        color, 2, 0.7
-      );
-      if (!node.sin_flecha) drawArrowTip(x2, y2, cp2x, cp2y, color);
     });
 
-    // ── Peer links — línea punteada elegante ──
+    // ── Peer links — línea punteada ──
     (peerLinks || []).forEach(link => {
       const a = nodes.find(n => n.id === Number(link.nodo_a));
       const b = nodes.find(n => n.id === Number(link.nodo_b));
       if (!a || !b) return;
       const aMidY = a.pos_y + NODE_H / 2, bMidY = b.pos_y + NODE_H / 2;
-      const [x1, y1, x2, y2] = (a.pos_x + NODE_W) < b.pos_x
-        ? [a.pos_x + NODE_W, aMidY, b.pos_x,          bMidY]
+      const [x1, y1, x2, y2, dir] = (a.pos_x + NODE_W) < b.pos_x
+        ? [a.pos_x + NODE_W, aMidY, b.pos_x, bMidY, 'h']
         : (b.pos_x + NODE_W) < a.pos_x
-          ? [b.pos_x + NODE_W, bMidY, a.pos_x,         aMidY]
-          : [a.pos_x + NODE_W / 2, a.pos_y + NODE_H, b.pos_x + NODE_W / 2, b.pos_y + NODE_H];
-      const mx = (x1 + x2) / 2;
+          ? [b.pos_x + NODE_W, bMidY, a.pos_x, aMidY, 'h']
+          : [a.pos_x + NODE_W / 2, a.pos_y + NODE_H, b.pos_x + NODE_W / 2, b.pos_y + NODE_H, 'v'];
+      const { d } = computeEdgePath(x1, y1, x2, y2, dir, lineStyle);
 
-      drawElegantLine(
-        () => { ctx.moveTo(x1, y1); ctx.bezierCurveTo(mx, y1, mx, y2, x2, y2); },
-        '#e07000', 1.5, 0.75, true
-      );
-      if (!link.sin_flecha) drawArrowTip(x2, y2, mx, y2, '#e07000');
+      drawElegantLine(d, '#d06000', 1.8, 0.80, true);
+
+      if (!link.sin_flecha) {
+        const { ex, ey, fx, fy } = getPathEndTangent(d);
+        drawArrowTip(ex, ey, fx, fy, '#d06000');
+      }
     });
 
     ctx.globalAlpha = 1;
@@ -1382,6 +1885,7 @@ export default function OrganigramaPage() {
       x: OX, y: OY, width: W, height: H,
       scale: SCALE, backgroundColor: null,
       useCORS: true, allowTaint: true,
+      logging: false,
     });
 
     if (svgEl) svgEl.style.display = '';
@@ -1408,17 +1912,60 @@ export default function OrganigramaPage() {
     }
   };
 
-  // ── Export PDF ────────────────────────────
-  const exportPDF = async () => {
+  // ── Export PDF Ultra-HD A4 ───────────────
+  // El título ya está capturado dentro de la imagen (buildExportCanvas lo incluye).
+  // Aquí solo colocamos la imagen centrada en el A4 con márgenes simétricos.
+  const exportPDF = async (orientation = exportOrientation) => {
     try {
+      toast('Generando PDF en alta resolución…', 'info');
       const canvas = await buildExportCanvas();
       const imgData = canvas.toDataURL('image/png');
+
+      const isLandscape = orientation === 'landscape';
+      const A4_W = isLandscape ? 297 : 210;  // mm
+      const A4_H = isLandscape ? 210 : 297;
+      const MARGIN = 12;  // margen uniforme en mm
+
       const pdf = new jsPDF({
-        orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [canvas.width / 2, canvas.height / 2],
+        orientation,
+        unit: 'mm',
+        format: 'a4',
+        compress: false,
       });
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
+
+      // Fondo crema del PDF — mismo tono que la imagen exportada
+      pdf.setFillColor(254, 250, 243);
+      pdf.rect(0, 0, A4_W, A4_H, 'F');
+
+      // Imagen centrada — ocupa todo el espacio disponible dentro de márgenes
+      const availW = A4_W - MARGIN * 2;
+      const availH = A4_H - MARGIN * 2;
+      const ratio  = canvas.width / canvas.height;
+
+      let imgW, imgH;
+      if (ratio > availW / availH) {
+        imgW = availW;
+        imgH = availW / ratio;
+      } else {
+        imgH = availH;
+        imgW = availH * ratio;
+      }
+
+      // Centrado perfecto horizontal y vertical
+      const imgX = MARGIN + (availW - imgW) / 2;
+      const imgY = MARGIN + (availH - imgH) / 2;
+
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH, undefined, 'FAST');
+
+      // Pie de página muy sutil
+      pdf.setFontSize(6.5);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(190, 175, 155);
+      pdf.text(
+        new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' }),
+        A4_W / 2, A4_H - 5, { align: 'center' }
+      );
+
       pdf.save(`organigrama_${new Date().toISOString().slice(0, 10)}.pdf`);
       toast('PDF exportado');
     } catch (err) {
@@ -1442,8 +1989,77 @@ export default function OrganigramaPage() {
     );
   }
 
+  const fondo = FONDOS[currentFondo] || FONDOS.grid_light;
+  const deptOptions = [...new Set(
+    [...boards.map(b => b.departamento), ...nodes.map(n => n.departamento)]
+      .filter(Boolean)
+  )].sort();
+
   return (
     <Box sx={{ height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column', bgcolor: '#f0f4fa' }}>
+
+      {/* ── Board Selector Bar ── */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center',
+        background: 'linear-gradient(90deg,#0d0d1a 0%,#12121f 100%)',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        px: 1.5, minHeight: 42, gap: 0.5,
+      }}>
+        {/* Tab General */}
+        <Chip
+          icon={<DashboardIcon sx={{ fontSize: 14 }} />}
+          label="General"
+          size="small"
+          onClick={() => switchBoard(null)}
+          sx={{
+            cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
+            bgcolor: currentBoardId == null ? '#F57C00' : 'rgba(255,255,255,0.07)',
+            color: currentBoardId == null ? '#fff' : 'rgba(255,255,255,0.55)',
+            border: currentBoardId == null ? 'none' : '1px solid rgba(255,255,255,0.12)',
+            '&:hover': { bgcolor: currentBoardId == null ? '#e65100' : 'rgba(255,255,255,0.13)' },
+          }}
+        />
+
+        {/* Tabs de boards */}
+        {boards.map(b => (
+          <Chip
+            key={b.id}
+            label={b.nombre}
+            size="small"
+            onClick={() => switchBoard(b.id)}
+            sx={{
+              cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600,
+              bgcolor: currentBoardId === b.id ? 'rgba(245,124,0,0.85)' : 'rgba(255,255,255,0.07)',
+              color: currentBoardId === b.id ? '#fff' : 'rgba(255,255,255,0.55)',
+              border: currentBoardId === b.id ? 'none' : '1px solid rgba(255,255,255,0.12)',
+              '&:hover': { bgcolor: currentBoardId === b.id ? '#e65100' : 'rgba(255,255,255,0.13)' },
+            }}
+          />
+        ))}
+
+        {/* Botón nuevo board */}
+        <Tooltip title="Nuevo organigrama por departamento">
+          <IconButton
+            size="small"
+            onClick={openBoardDialog}
+            sx={{ color: 'rgba(255,255,255,0.4)', '&:hover': { color: '#F57C00' }, ml: 0.5 }}
+          >
+            <AddBoardIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Box sx={{ flex: 1 }} />
+
+        {/* Eliminar board actual (solo si no es el general) */}
+        {currentBoardId != null && (
+          <Tooltip title="Eliminar este organigrama">
+            <IconButton size="small" onClick={() => setDeleteBoardDialog(true)}
+              sx={{ color: 'rgba(255,80,80,0.5)', '&:hover': { color: '#ef5350' } }}>
+              <DeleteIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Box>
 
       {/* ── Toolbar ── */}
       <Paper
@@ -1459,7 +2075,9 @@ export default function OrganigramaPage() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 1 }}>
           <OrgIcon sx={{ color: '#F57C00', fontSize: 26 }} />
           <Typography fontWeight="bold" fontSize="1rem" sx={{ color: '#fff' }}>
-            Organigrama Empresarial
+            {currentBoardId == null
+              ? 'Organigrama Empresarial'
+              : (boards.find(b => b.id === currentBoardId)?.nombre || 'Organigrama')}
           </Typography>
         </Box>
 
@@ -1550,7 +2168,59 @@ export default function OrganigramaPage() {
           </Tooltip>
         </Box>
 
+        {/* Estilo de líneas */}
+        <Box sx={{ display: 'flex', alignItems: 'center', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '8px', overflow: 'hidden', ml: 0.5 }}>
+          <Tooltip title="Líneas curvas (magnéticas)">
+            <IconButton
+              size="small"
+              onClick={() => setLineStyle('curved')}
+              sx={{
+                color: lineStyle === 'curved' ? '#80cbc4' : 'rgba(255,255,255,0.35)',
+                bgcolor: lineStyle === 'curved' ? 'rgba(128,203,196,0.12)' : 'transparent',
+                borderRadius: 0, px: 1,
+              }}
+            >
+              <CurvedIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Líneas rectas">
+            <IconButton
+              size="small"
+              onClick={() => setLineStyle('straight')}
+              sx={{
+                color: lineStyle === 'straight' ? '#80cbc4' : 'rgba(255,255,255,0.35)',
+                bgcolor: lineStyle === 'straight' ? 'rgba(128,203,196,0.12)' : 'transparent',
+                borderRadius: 0, px: 1,
+              }}
+            >
+              <StraightIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Líneas formales (codo)">
+            <IconButton
+              size="small"
+              onClick={() => setLineStyle('elbow')}
+              sx={{
+                color: lineStyle === 'elbow' ? '#80cbc4' : 'rgba(255,255,255,0.35)',
+                bgcolor: lineStyle === 'elbow' ? 'rgba(128,203,196,0.12)' : 'transparent',
+                borderRadius: 0, px: 1,
+              }}
+            >
+              <ElbowIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
         <Box sx={{ flex: 1 }} />
+
+        {/* Importar empleados existentes */}
+        {currentBoardId != null && (
+          <Tooltip title="Importar empleados existentes">
+            <IconButton onClick={openImportDialog} size="small" sx={{ color: '#a5d6a7' }}>
+              <GroupAddIcon />
+            </IconButton>
+          </Tooltip>
+        )}
 
         {/* Save / Export */}
         <Tooltip title="Exportar PNG">
@@ -1558,9 +2228,44 @@ export default function OrganigramaPage() {
             <DownloadIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Exportar PDF">
-          <IconButton onClick={exportPDF} size="small" sx={{ color: '#ef9a9a' }}>
-            <PdfIcon />
+
+        {/* PDF — selector de orientación A4 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '8px', overflow: 'hidden' }}>
+          <Tooltip title="PDF A4 Vertical">
+            <IconButton
+              onClick={() => { setExportOrientation('portrait'); exportPDF('portrait'); }}
+              size="small"
+              sx={{
+                color: exportOrientation === 'portrait' ? '#ef9a9a' : 'rgba(255,255,255,0.35)',
+                bgcolor: exportOrientation === 'portrait' ? 'rgba(239,154,154,0.12)' : 'transparent',
+                borderRadius: 0, px: 1,
+              }}
+            >
+              <PdfIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="PDF A4 Horizontal">
+            <IconButton
+              onClick={() => { setExportOrientation('landscape'); exportPDF('landscape'); }}
+              size="small"
+              sx={{
+                color: exportOrientation === 'landscape' ? '#ef9a9a' : 'rgba(255,255,255,0.35)',
+                bgcolor: exportOrientation === 'landscape' ? 'rgba(239,154,154,0.12)' : 'transparent',
+                borderRadius: 0, px: 1,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                <PdfIcon sx={{ fontSize: 18, transform: 'rotate(90deg)' }} />
+              </Box>
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Fondo del canvas */}
+        <Tooltip title="Cambiar fondo del organigrama">
+          <IconButton onClick={() => setFondoOpen(true)} size="small"
+            sx={{ color: fondo.dark ? '#ce93d8' : '#9c27b0' }}>
+            <PaletteIcon />
           </IconButton>
         </Tooltip>
 
@@ -1592,21 +2297,15 @@ export default function OrganigramaPage() {
           sx={{
             flex: 1, overflow: 'hidden', position: 'relative',
             cursor: 'default',
-            background: 'radial-gradient(circle at 50% 50%, #e8edf5 0%, #dce3f0 100%)',
-            backgroundImage: `
-              radial-gradient(circle at 50% 50%, #e8edf5 0%, #dce3f0 100%),
-              repeating-linear-gradient(0deg, transparent, transparent 39px, #c8d0e044 40px),
-              repeating-linear-gradient(90deg, transparent, transparent 39px, #c8d0e044 40px)
-            `,
+            background: fondo.canvasBg,
+            transition: 'background 0.4s ease',
           }}
         >
-          {/* Grid pattern */}
+          {/* Grid de puntos elegante según fondo */}
           <Box sx={{
             position: 'absolute', inset: 0, pointerEvents: 'none',
-            backgroundImage: `
-              repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(180,195,220,0.35) 40px),
-              repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(180,195,220,0.35) 40px)
-            `,
+            backgroundImage: `radial-gradient(circle, ${fondo.gridColor} 1.5px, transparent 1.5px)`,
+            backgroundSize: '28px 28px',
           }} />
 
           {/* Empty state */}
@@ -1662,6 +2361,81 @@ export default function OrganigramaPage() {
               }} />
             )}
 
+            {/* ── Título del organigrama ── */}
+            {nodes.length > 0 && (() => {
+              const b = getCanvasBounds();
+              const titleW = Math.max(b.width + NODE_W, 400);
+              return (
+                <Box
+                  onMouseDown={e => e.stopPropagation()}
+                  sx={{
+                    position: 'absolute',
+                    left: b.minX,
+                    top: b.minY - 140,
+                    width: titleW,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 0.8,
+                    pointerEvents: 'all',
+                  }}
+                >
+                  {titleEditing ? (
+                    <input
+                      autoFocus
+                      value={titleDraft}
+                      onChange={e => setTitleDraft(e.target.value.toUpperCase())}
+                      onBlur={confirmTitleEdit}
+                      onKeyDown={e => { if (e.key === 'Enter') confirmTitleEdit(); if (e.key === 'Escape') setTitleEditing(false); }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: `2px solid ${fondo.dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)'}`,
+                        outline: 'none',
+                        fontSize: '1.6rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.14em',
+                        textAlign: 'center',
+                        color: fondo.dark ? '#ffffff' : '#0d0d1f',
+                        width: '100%',
+                        maxWidth: 560,
+                        padding: '4px 8px',
+                      }}
+                    />
+                  ) : (
+                    <Typography
+                      onDoubleClick={startTitleEdit}
+                      title="Doble clic para editar el título"
+                      sx={{
+                        fontSize: '1.6rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.14em',
+                        textTransform: 'uppercase',
+                        color: fondo.dark ? 'rgba(255,255,255,0.92)' : '#0d0d1f',
+                        textAlign: 'center',
+                        lineHeight: 1,
+                        cursor: 'text',
+                        userSelect: 'none',
+                        textShadow: fondo.dark
+                          ? '0 2px 16px rgba(0,0,0,0.6)'
+                          : '0 2px 12px rgba(0,0,0,0.08)',
+                        transition: 'opacity 0.2s',
+                        '&:hover': { opacity: 0.75 },
+                      }}
+                    >
+                      {canvasTitle}
+                    </Typography>
+                  )}
+                  {/* Línea ornamental bajo el título */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{ width: 48, height: 1.5, background: fondo.dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)', borderRadius: 1 }}/>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', background: fondo.dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.22)' }}/>
+                    <Box sx={{ width: 48, height: 1.5, background: fondo.dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)', borderRadius: 1 }}/>
+                  </Box>
+                </Box>
+              );
+            })()}
+
             {/* Edges SVG */}
             <EdgesLayer
               nodes={nodes}
@@ -1669,6 +2443,7 @@ export default function OrganigramaPage() {
               connectingLine={connecting}
               selectedEdge={selectedEdge}
               onEdgeClick={setSelectedEdge}
+              lineStyle={lineStyle}
             />
 
             {/* Nodes */}
@@ -2015,7 +2790,7 @@ export default function OrganigramaPage() {
         onCancel={() => { setCropOpen(false); setCropFile(null); setCropSrc(null); }}
       />
 
-      {/* Delete confirm */}
+      {/* Delete node confirm */}
       <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="xs">
         <DialogTitle sx={{ bgcolor: '#1a1a2e', color: '#fff' }}>Eliminar nodo</DialogTitle>
         <DialogContent sx={{ mt: 1 }}>
@@ -2026,6 +2801,376 @@ export default function OrganigramaPage() {
         <DialogActions>
           <Button onClick={() => setDeleteDialog(false)}>Cancelar</Button>
           <Button onClick={deleteNode} color="error" variant="contained">Eliminar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Fondo Picker ── */}
+      <Dialog open={fondoOpen} onClose={() => setFondoOpen(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { background: 'linear-gradient(135deg,#0d0d1a,#1a1a2e)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3 } }}>
+        <DialogTitle sx={{ color: '#fff', pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PaletteIcon sx={{ color: '#F57C00' }} />
+          Fondo del Organigrama
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', mb: 2 }}>
+            Elige un fondo elegante para este organigrama.
+          </Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1.5 }}>
+            {Object.entries(FONDOS).map(([key, f]) => (
+              <Box
+                key={key}
+                onClick={() => handleFondoChange(key)}
+                sx={{
+                  cursor: 'pointer',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: currentFondo === key ? '2.5px solid #F57C00' : '2px solid rgba(255,255,255,0.1)',
+                  transition: 'all 0.2s',
+                  '&:hover': { transform: 'scale(1.03)', border: '2px solid rgba(245,124,0,0.6)' },
+                }}
+              >
+                {/* Preview */}
+                <Box sx={{ height: 70, background: f.canvasBg, position: 'relative' }}>
+                  <Box sx={{
+                    position: 'absolute', inset: 0,
+                    backgroundImage: `
+                      repeating-linear-gradient(0deg,transparent,transparent 9px,${f.gridColor} 10px),
+                      repeating-linear-gradient(90deg,transparent,transparent 9px,${f.gridColor} 10px)
+                    `,
+                  }} />
+                  {/* Nodo de ejemplo */}
+                  <Box sx={{
+                    position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+                    width: 50, height: 36, borderRadius: 1.5,
+                    bgcolor: f.dark ? 'rgba(255,255,255,0.12)' : 'rgba(21,101,192,0.75)',
+                    border: `1px solid ${f.dark ? 'rgba(255,255,255,0.2)' : 'rgba(21,101,192,0.4)'}`,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.3,
+                  }}>
+                    <Box sx={{ width: 18, height: 18, borderRadius: '50%', bgcolor: f.dark ? 'rgba(255,255,255,0.2)' : 'rgba(21,101,192,0.5)' }} />
+                    <Box sx={{ width: 30, height: 4, borderRadius: 1, bgcolor: f.dark ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.8)' }} />
+                  </Box>
+                  {currentFondo === key && (
+                    <Box sx={{ position: 'absolute', top: 6, right: 6, width: 18, height: 18, borderRadius: '50%', bgcolor: '#F57C00', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Typography sx={{ fontSize: 11, color: '#fff', fontWeight: 900 }}>✓</Typography>
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ px: 1, py: 0.8, bgcolor: 'rgba(0,0,0,0.4)' }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: '#fff', fontWeight: 600 }}>
+                    {f.label}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setFondoOpen(false)} sx={{ color: 'rgba(255,255,255,0.5)' }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Crear Board ── */}
+      <Dialog open={boardDialogOpen} onClose={() => setBoardDialogOpen(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { background: 'linear-gradient(135deg,#0d0d1a,#1a1a2e)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3 } }}>
+        <DialogTitle sx={{ color: '#fff', display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+          <AddBoardIcon sx={{ color: '#F57C00' }} />
+          Nuevo Organigrama
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <TextField
+            label="Nombre"
+            value={newBoardName}
+            onChange={e => setNewBoardName(e.target.value)}
+            size="small" autoFocus fullWidth
+            placeholder="Ej: Administración, Operaciones..."
+            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+            InputProps={{ sx: { color: '#fff', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
+          />
+          <TextField
+            label="Departamento (opcional)"
+            value={newBoardDept}
+            onChange={e => setNewBoardDept(e.target.value)}
+            size="small" fullWidth
+            placeholder="Etiqueta para identificar este organigrama"
+            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+            InputProps={{ sx: { color: '#fff', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
+          />
+
+          {/* ── Importar trabajadores existentes ── */}
+          <Box>
+            <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem', fontWeight: 600, mb: 0.5 }}>
+              Importar trabajadores existentes
+            </Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem', mb: 1 }}>
+              Selecciona personas de otros organigramas para incluirlas en este nuevo. Se copian con su foto y cargo.
+            </Typography>
+            <TextField
+              size="small" fullWidth
+              placeholder="Buscar por nombre, cargo o departamento..."
+              value={workerSearch}
+              onChange={e => setWorkerSearch(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 18 }} /></InputAdornment>,
+                sx: { color: '#fff', fontSize: '0.8rem', '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' } },
+              }}
+            />
+            {/* Chips de seleccionados */}
+            {selectedWorkerIds.length > 0 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                {allWorkers.filter(w => selectedWorkerIds.includes(w.id)).map(w => (
+                  <Chip
+                    key={w.id}
+                    label={w.nombre}
+                    size="small"
+                    onDelete={() => toggleWorker(w.id)}
+                    avatar={w.foto_url ? <Avatar src={getStaticFileURL(w.foto_url)} /> : <Avatar sx={{ bgcolor: w.color, fontSize: '0.6rem' }}>{w.nombre[0]}</Avatar>}
+                    sx={{ bgcolor: 'rgba(245,124,0,0.15)', color: '#F57C00', border: '1px solid rgba(245,124,0,0.3)', '& .MuiChip-deleteIcon': { color: 'rgba(245,124,0,0.6)' } }}
+                  />
+                ))}
+                <Chip
+                  label="Limpiar selección"
+                  size="small"
+                  onClick={() => setSelectedWorkerIds([])}
+                  sx={{ bgcolor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', cursor: 'pointer' }}
+                />
+              </Box>
+            )}
+            {/* Lista de trabajadores */}
+            <Box sx={{
+              maxHeight: 220, overflowY: 'auto', mt: 0.5, borderRadius: 1,
+              border: '1px solid rgba(255,255,255,0.1)',
+              '&::-webkit-scrollbar': { width: 4 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2 },
+            }}>
+              {workersLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <CircularProgress size={20} sx={{ color: '#F57C00' }} />
+                </Box>
+              ) : allWorkers.length === 0 ? (
+                <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', textAlign: 'center', py: 2 }}>
+                  No hay trabajadores creados aún
+                </Typography>
+              ) : (() => {
+                const filtered = allWorkers.filter(w => {
+                  const q = workerSearch.toLowerCase();
+                  return !q || w.nombre.toLowerCase().includes(q)
+                    || (w.cargo || '').toLowerCase().includes(q)
+                    || (w.departamento || '').toLowerCase().includes(q)
+                    || w.board_nombre.toLowerCase().includes(q);
+                });
+                if (filtered.length === 0) return (
+                  <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', textAlign: 'center', py: 2 }}>
+                    Sin resultados
+                  </Typography>
+                );
+                return (
+                  <List dense disablePadding>
+                    {filtered.map(w => {
+                      const checked = selectedWorkerIds.includes(w.id);
+                      return (
+                        <ListItem key={w.id} disablePadding secondaryAction={
+                          <Checkbox
+                            edge="end"
+                            checked={checked}
+                            onChange={() => toggleWorker(w.id)}
+                            icon={<CheckBoxBlankIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.2)' }} />}
+                            checkedIcon={<CheckBoxIcon sx={{ fontSize: 18, color: '#F57C00' }} />}
+                          />
+                        }>
+                          <ListItemButton onClick={() => toggleWorker(w.id)} sx={{ py: 0.5, px: 1.5, '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' } }}>
+                            <ListItemAvatar sx={{ minWidth: 36 }}>
+                              {w.foto_url
+                                ? <Avatar src={getStaticFileURL(w.foto_url)} sx={{ width: 28, height: 28 }} />
+                                : <Avatar sx={{ width: 28, height: 28, bgcolor: w.color || '#1565c0', fontSize: '0.7rem' }}>{w.nombre[0]}</Avatar>
+                              }
+                            </ListItemAvatar>
+                            <ListItemText
+                              primary={<Typography sx={{ fontSize: '0.8rem', color: '#fff', fontWeight: checked ? 600 : 400 }}>{w.nombre}</Typography>}
+                              secondary={
+                                <Typography sx={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)' }}>
+                                  {w.cargo}{w.cargo && w.board_nombre ? ' · ' : ''}{w.board_nombre}
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                );
+              })()}
+            </Box>
+          </Box>
+
+          {/* Fondo inicial */}
+          <Box>
+            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', mb: 1 }}>Fondo inicial</Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {Object.entries(FONDOS).map(([key, f]) => (
+                <Tooltip key={key} title={f.label}>
+                  <Box
+                    onClick={() => setNewBoardFondo(key)}
+                    sx={{
+                      width: 36, height: 24, borderRadius: 1, cursor: 'pointer',
+                      background: f.canvasBg,
+                      border: newBoardFondo === key ? '2px solid #F57C00' : '2px solid rgba(255,255,255,0.15)',
+                      transition: 'all 0.15s',
+                    }}
+                  />
+                </Tooltip>
+              ))}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button onClick={() => setBoardDialogOpen(false)} sx={{ color: 'rgba(255,255,255,0.5)' }}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleCrearBoard}
+            disabled={!newBoardName.trim() || creatingBoard}
+            startIcon={creatingBoard ? <CircularProgress size={14} color="inherit" /> : <AddBoardIcon />}
+            sx={{ bgcolor: '#F57C00', '&:hover': { bgcolor: '#e65100' }, textTransform: 'none', fontWeight: 700 }}
+          >
+            {selectedWorkerIds.length > 0 ? `Crear con ${selectedWorkerIds.length} trabajador${selectedWorkerIds.length > 1 ? 'es' : ''}` : 'Crear'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Confirmar eliminar board ── */}
+      <Dialog open={deleteBoardDialog} onClose={() => setDeleteBoardDialog(false)} maxWidth="xs"
+        PaperProps={{ sx: { background: '#1a1a2e', border: '1px solid rgba(255,80,80,0.2)', borderRadius: 3 } }}>
+        <DialogTitle sx={{ color: '#ef5350' }}>Eliminar organigrama</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
+            ¿Eliminar el organigrama <b style={{ color: '#fff' }}>
+              {boards.find(b => b.id === currentBoardId)?.nombre}
+            </b>?<br />
+            <Typography component="span" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.82rem' }}>
+              Esta acción no se puede deshacer.
+            </Typography>
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteBoardDialog(false)} sx={{ color: 'rgba(255,255,255,0.5)' }}>Cancelar</Button>
+          <Button onClick={handleEliminarBoard} color="error" variant="contained">Eliminar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Importar empleados existentes ── */}
+      <Dialog
+        open={importDialogOpen}
+        onClose={() => setImportDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { background: '#1a1f2e', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ color: '#fff', fontWeight: 700, pb: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <GroupAddIcon sx={{ color: '#a5d6a7' }} />
+            Importar empleados existentes
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.82rem', mb: 2 }}>
+            Selecciona empleados de otros organigramas para añadirlos a este tablero.
+          </Typography>
+          <TextField
+            fullWidth size="small"
+            placeholder="Buscar por nombre, cargo o departamento…"
+            value={importSearch}
+            onChange={e => setImportSearch(e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 18 }} /></InputAdornment> }}
+            sx={{
+              mb: 1.5,
+              '& .MuiOutlinedInput-root': {
+                color: '#fff',
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.18)' },
+                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.35)' },
+              },
+            }}
+          />
+          {importLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={32} sx={{ color: '#a5d6a7' }} />
+            </Box>
+          ) : (
+            <List dense sx={{ maxHeight: 360, overflowY: 'auto', mx: -1 }}>
+              {importWorkers
+                .filter(w => {
+                  const q = importSearch.toLowerCase();
+                  return !q || (w.nombre || '').toLowerCase().includes(q) ||
+                    (w.cargo || '').toLowerCase().includes(q) ||
+                    (w.departamento || '').toLowerCase().includes(q) ||
+                    (w.board_nombre || '').toLowerCase().includes(q);
+                })
+                .map(w => {
+                  const wId = w.rut || w.id;
+                  const checked = importSelected.includes(wId);
+                  return (
+                    <ListItem key={wId} disablePadding>
+                      <ListItemButton
+                        onClick={() => setImportSelected(prev => checked ? prev.filter(x => x !== wId) : [...prev, wId])}
+                        dense
+                        sx={{ borderRadius: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={checked}
+                          icon={<CheckBoxBlankIcon sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 18 }} />}
+                          checkedIcon={<CheckBoxIcon sx={{ color: '#a5d6a7', fontSize: 18 }} />}
+                          tabIndex={-1}
+                          disableRipple
+                        />
+                        <ListItemAvatar sx={{ minWidth: 44 }}>
+                          <Avatar
+                            src={w.foto_url ? getStaticFileURL(w.foto_url) : undefined}
+                            sx={{ width: 32, height: 32, fontSize: '0.75rem', bgcolor: PALETTE[Math.abs((w.nombre || '').charCodeAt(0) || 0) % PALETTE.length] }}
+                          >
+                            {(w.nombre || '?')[0].toUpperCase()}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={<Typography sx={{ color: '#fff', fontSize: '0.85rem', fontWeight: 600 }}>{w.nombre}</Typography>}
+                          secondary={
+                            <Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.73rem' }}>
+                              {[w.cargo, w.departamento].filter(Boolean).join(' · ')}
+                              {w.board_nombre && <> &nbsp;·&nbsp; <span style={{ color: 'rgba(165,214,167,0.7)' }}>{w.board_nombre}</span></>}
+                            </Typography>
+                          }
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
+              {!importLoading && importWorkers.filter(w => {
+                const q = importSearch.toLowerCase();
+                return !q || (w.nombre || '').toLowerCase().includes(q) ||
+                  (w.cargo || '').toLowerCase().includes(q) ||
+                  (w.departamento || '').toLowerCase().includes(q) ||
+                  (w.board_nombre || '').toLowerCase().includes(q);
+              }).length === 0 && (
+                <Box sx={{ py: 4, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>
+                  {importWorkers.length === 0 ? 'No hay empleados disponibles en otros organigramas' : 'Sin resultados para esa búsqueda'}
+                </Box>
+              )}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', mr: 'auto' }}>
+            {importSelected.length > 0 ? `${importSelected.length} seleccionado${importSelected.length !== 1 ? 's' : ''}` : ''}
+          </Typography>
+          <Button onClick={() => setImportDialogOpen(false)} sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'none' }}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleImportWorkers}
+            disabled={importSelected.length === 0}
+            variant="contained"
+            sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' }, textTransform: 'none', fontWeight: 700 }}
+          >
+            Importar {importSelected.length > 0 ? `(${importSelected.length})` : ''}
+          </Button>
         </DialogActions>
       </Dialog>
 

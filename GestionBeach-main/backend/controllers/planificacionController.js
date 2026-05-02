@@ -1515,7 +1515,15 @@ exports.getComprasPorEmision = async (req, res) => {
     const pagosResult = await pool.request()
       .input('año', sql.Int, año)
       .query(`
-        WITH dedup AS (
+        WITH ocs_año AS (
+          SELECT DISTINCT numero_orden
+          FROM panificacion_compras
+          WHERE fuente NOT IN ('FACTURA','REMANENTE')
+            AND YEAR(fecha_compra) = @año
+            AND fecha_compra <= GETDATE()
+            AND LEN(ISNULL(numero_orden,'')) > 0
+        ),
+        dedup AS (
           SELECT *,
             ROW_NUMBER() OVER (
               PARTITION BY
@@ -1534,9 +1542,15 @@ exports.getComprasPorEmision = async (req, res) => {
               ORDER BY CASE WHEN fuente = 'FACTURA' THEN 0 ELSE 1 END, id DESC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año AND ISNULL(es_madre, 0) = 0
+          WHERE ISNULL(es_madre, 0) = 0
+            AND fecha_compra <= GETDATE()
+            AND (
+              (fuente NOT IN ('FACTURA','REMANENTE') AND YEAR(fecha_compra) = @año)
+              OR
+              (fuente IN ('FACTURA','REMANENTE') AND numero_orden IN (SELECT numero_orden FROM ocs_año))
+            )
         )
-        SELECT semana_compra,
+        SELECT DATEPART(ISO_WEEK, fecha_compra) AS semana_emision,
                SUM(CASE WHEN tipo_proveedor='Encadenado'    AND fuente='EXCEL'
                              AND ISNULL(estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
                         THEN monto_con_iva ELSE 0 END) AS enc_oc,
@@ -1547,15 +1561,16 @@ exports.getComprasPorEmision = async (req, res) => {
                         THEN monto_con_iva ELSE 0 END) AS total,
                COUNT(DISTINCT CASE WHEN tipo_proveedor='Encadenado'
                                         AND ISNULL(estado_pago,'Pendiente') NOT IN ('Cancelado','Facturado')
+                                        AND fuente NOT IN ('FACTURA','REMANENTE')
                                    THEN ISNULL(numero_orden, CAST(id AS NVARCHAR)) END) AS num_ordenes
         FROM dedup
-        WHERE _rn = 1 AND semana_compra IS NOT NULL AND semana_compra > 0
-        GROUP BY semana_compra
-        ORDER BY semana_compra
+        WHERE _rn = 1 AND fecha_compra IS NOT NULL
+        GROUP BY DATEPART(ISO_WEEK, fecha_compra)
+        ORDER BY semana_emision
       `);
 
     const pagosMap = {};
-    pagosResult.recordset.forEach(r => { pagosMap[r.semana_compra] = r; });
+    pagosResult.recordset.forEach(r => { pagosMap[r.semana_emision] = r; });
 
     const semanas = [];
     for (let s = 1; s <= 52; s++) {
@@ -1692,16 +1707,6 @@ exports.getOrdenesMadre = async (req, res) => {
     const pool = await poolPromise;
     await asegurarTablas(pool);
     const result = await pool.request().query(`
-      WITH ranked AS (
-        SELECT *,
-          ROW_NUMBER() OVER (
-            PARTITION BY ISNULL(numero_orden, CAST(id AS NVARCHAR(20)))
-            ORDER BY monto_con_iva DESC, id ASC
-          ) AS _rn
-        FROM panificacion_compras
-        WHERE ISNULL(es_madre, 0) = 1
-          AND fuente NOT IN ('REMANENTE', 'FACTURA')
-      )
       SELECT id, proveedor,
              CONVERT(VARCHAR(10), fecha_compra,      120) AS fecha_compra,
              CONVERT(VARCHAR(10), fecha_vencimiento, 120) AS fecha_vencimiento,
@@ -1710,9 +1715,10 @@ exports.getOrdenesMadre = async (req, res) => {
              plazo_dias, tipo_proveedor, sucursal, fuente,
              ISNULL(estado_pago, 'Pendiente') AS estado_pago,
              lote_carga, fecha_carga
-      FROM ranked
-      WHERE _rn = 1
-      ORDER BY fecha_compra DESC, id DESC
+      FROM panificacion_compras
+      WHERE ISNULL(es_madre, 0) = 1
+        AND fuente NOT IN ('REMANENTE', 'FACTURA')
+      ORDER BY fecha_compra DESC, numero_orden, plazo_dias
     `);
     res.json({ success: true, total: result.recordset.length, registros: result.recordset });
   } catch (error) {
@@ -1748,26 +1754,20 @@ exports.getDetalleComprasPorEmision = async (req, res) => {
                   ELSE
                     CAST(id AS NVARCHAR(20))
                 END
-              ORDER BY CASE fuente
-                WHEN 'EXCEL'     THEN 0
-                WHEN 'ERP'       THEN 1
-                WHEN 'MANUAL'    THEN 2
-                WHEN 'FACTURA'   THEN 3
-                WHEN 'REMANENTE' THEN 4
-                ELSE 5
-              END, id ASC
+              ORDER BY CASE fuente WHEN 'EXCEL' THEN 0 WHEN 'ERP' THEN 1 WHEN 'MANUAL' THEN 2 ELSE 3 END, id ASC
             ) AS _rn
           FROM panificacion_compras
-          WHERE año = @año
+          WHERE fuente NOT IN ('FACTURA','REMANENTE')
+            AND YEAR(fecha_compra) = @año
+            AND fecha_compra <= GETDATE()
         )
         SELECT id, proveedor,
                CONVERT(VARCHAR(10), fecha_compra, 120) AS fecha_compra,
-               semana_compra, numero_orden,
-               monto_neto, monto_con_iva, tipo_proveedor,
-               sucursal, fuente, estado_pago,
+               numero_orden, monto_neto, monto_con_iva,
+               tipo_proveedor, sucursal, fuente, estado_pago,
                ISNULL(es_madre, 0) AS es_madre
         FROM dedup
-        WHERE _rn = 1 AND semana_compra IS NOT NULL AND semana_compra > 0
+        WHERE _rn = 1 AND fecha_compra IS NOT NULL
         ORDER BY fecha_compra ASC, id ASC
       `);
 

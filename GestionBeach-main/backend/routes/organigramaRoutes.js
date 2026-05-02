@@ -29,10 +29,20 @@ const upload = multer({
   },
 });
 
+// Boards (antes de /:id para que no haya conflicto de rutas)
+router.get('/boards',                  authMiddleware, ctrl.getBoards);
+router.post('/boards',                 authMiddleware, ctrl.crearBoard);
+router.put('/boards/:id',              authMiddleware, ctrl.actualizarBoard);
+router.delete('/boards/:id',           authMiddleware, ctrl.eliminarBoard);
+
+// Nodos
+router.get('/todos-trabajadores',      authMiddleware, ctrl.getTodosLosTrabajadores);
 router.get('/',                        authMiddleware, ctrl.getNodos);
 router.post('/guardar',                authMiddleware, ctrl.guardarNodos);
 router.delete('/:id',                  authMiddleware, ctrl.eliminarNodo);
 router.post('/foto',                   authMiddleware, upload.single('foto'), ctrl.subirFoto);
+
+// Relaciones
 router.get('/relaciones',              authMiddleware, ctrl.getRelaciones);
 router.post('/relaciones',             authMiddleware, ctrl.crearRelacion);
 router.put('/relaciones/:id',          authMiddleware, ctrl.actualizarRelacion);

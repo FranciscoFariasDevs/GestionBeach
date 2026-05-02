@@ -4,63 +4,42 @@ const router = express.Router();
 const ticketController = require('../controllers/ticketController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// ============================================
-// RUTAS PÚBLICAS
-// ============================================
-
-// Obtener categorías (público)
+// ── Públicas ──────────────────────────────────────────────────────────────────
 router.get('/categorias', ticketController.obtenerCategorias);
+router.get('/departamentos', ticketController.obtenerDepartamentos);
 
-// Crear nuevo ticket (requiere autenticación) - CON SOPORTE PARA IMAGEN
-router.post('/crear', authMiddleware, ticketController.uploadMiddleware, ticketController.crearTicket);
+// ── Crear ticket (con departamentos) ─────────────────────────────────────────
+router.post('/crear', authMiddleware, ticketController.uploadMiddleware, ticketController.crearTicketDept);
 
-// ============================================
-// RUTAS DE ADMINISTRACIÓN (Solo SuperAdmin)
-// ============================================
-// IMPORTANTE: Estas rutas deben estar ANTES de /:id para que no sean capturadas por el parámetro dinámico
-
-// Obtener estadísticas
+// ── Admin / Gerencia ──────────────────────────────────────────────────────────
 router.get('/admin/estadisticas', authMiddleware, ticketController.obtenerEstadisticas);
+router.get('/admin/todos',        authMiddleware, ticketController.obtenerTodosLosTickets);
+router.get('/admin/mantenciones', authMiddleware, ticketController.obtenerMantencionesAdmin);
+router.get('/admin/analytics',    authMiddleware, ticketController.obtenerAnalyticsDept);
+router.get('/gerencia/tablero',   authMiddleware, ticketController.obtenerTableroGerencia);
 
-// Obtener todos los tickets
-router.get('/admin/todos', authMiddleware, ticketController.obtenerTodosLosTickets);
+// ── Gestión de departamentos ──────────────────────────────────────────────────
+router.get('/mis-departamentos',                  authMiddleware, ticketController.obtenerMisDepartamentos);
+router.get('/dept/:dept_id/usuarios',             authMiddleware, ticketController.obtenerUsuariosDept);
+router.post('/dept/asignar-usuario',              authMiddleware, ticketController.asignarUsuarioDept);
 
-// ============================================
-// RUTAS PRIVADAS (Requieren autenticación)
-// ============================================
+// ── Mis tickets (filtrado por departamento) ───────────────────────────────────
+router.get('/mis-tickets', authMiddleware, ticketController.obtenerMisTicketsDept);
 
-// Obtener mis tickets
-router.get('/mis-tickets', authMiddleware, ticketController.obtenerMisTickets);
+// ── Notificaciones ────────────────────────────────────────────────────────────
+router.get('/mis-notificaciones',                 authMiddleware, ticketController.obtenerNotificacionesTickets);
+router.get('/notificaciones/todas',               authMiddleware, ticketController.obtenerNotificaciones);
+router.put('/notificaciones/marcar-todas',        authMiddleware, ticketController.marcarTodasLeidas);
+router.put('/notificaciones/:id/leer',            authMiddleware, ticketController.marcarNotificacionLeida);
 
-// Obtener notificaciones de tickets resueltos (legacy)
-router.get('/mis-notificaciones', authMiddleware, ticketController.obtenerNotificacionesTickets);
+// ── Detalle y acciones sobre ticket ──────────────────────────────────────────
+router.get('/:id',                authMiddleware, ticketController.obtenerDetalleTicket);
+router.post('/:id/responder',     authMiddleware, ticketController.uploadMiddleware, ticketController.responderTicket);
+router.put('/:id/estado',         authMiddleware, ticketController.cambiarEstadoTicket);
+router.put('/:id/asignar',        authMiddleware, ticketController.asignarTicket);
+router.post('/:id/imagen',        authMiddleware, ticketController.uploadMiddleware, ticketController.subirImagenTicket);
 
-// ============================================
-// RUTAS DE NOTIFICACIONES
-// ============================================
-
-// Obtener todas las notificaciones del usuario
-router.get('/notificaciones/todas', authMiddleware, ticketController.obtenerNotificaciones);
-
-// Marcar todas las notificaciones como leídas
-router.put('/notificaciones/marcar-todas', authMiddleware, ticketController.marcarTodasLeidas);
-
-// Marcar una notificación como leída
-router.put('/notificaciones/:id/leer', authMiddleware, ticketController.marcarNotificacionLeida);
-
-// Obtener detalle de un ticket
-router.get('/:id', authMiddleware, ticketController.obtenerDetalleTicket);
-
-// Responder a un ticket (con soporte para imagen)
-router.post('/:id/responder', authMiddleware, ticketController.uploadMiddleware, ticketController.responderTicket);
-
-// Cambiar estado de un ticket
-router.put('/:id/estado', authMiddleware, ticketController.cambiarEstadoTicket);
-
-// Asignar ticket a un usuario
-router.put('/:id/asignar', authMiddleware, ticketController.asignarTicket);
-
-// Subir imagen a un ticket existente
-router.post('/:id/imagen', authMiddleware, ticketController.uploadMiddleware, ticketController.subirImagenTicket);
+// ── Entregar parte de departamento ────────────────────────────────────────────
+router.put('/:ticket_id/dept/:dept_id/entregar', authMiddleware, ticketController.marcarDeptEntregado);
 
 module.exports = router;

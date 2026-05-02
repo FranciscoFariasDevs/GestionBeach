@@ -19,6 +19,7 @@ export const MODULES = {
   SORTEO_CONCURSO: 'sorteo-concurso',
   CODIGOS_DESCUENTO: 'codigos-descuento',
   TICKETS: 'mis-tickets',
+  MANTENCIONES: 'mantenciones',
   USUARIOS: 'usuarios',
   PERFILES: 'perfiles',
   MODULOS: 'modulos',
@@ -44,6 +45,7 @@ export const MODULES = {
   ORGANIGRAMA: 'organigrama',
   KANBAN: 'kanban',
   COTIZACIONES: 'cotizaciones',
+  LOS_MAS_VENDIDOS: 'los-mas-vendidos',
 };
 
 // Definir acciones
@@ -206,6 +208,12 @@ export function canAccessRoute(ability, route) {
     '/dashboard/organigrama': MODULES.ORGANIGRAMA,
     '/cotizaciones': MODULES.COTIZACIONES,
     '/dashboard/cotizaciones': MODULES.COTIZACIONES,
+    '/los-mas-vendidos': MODULES.LOS_MAS_VENDIDOS,
+    '/dashboard/los-mas-vendidos': MODULES.LOS_MAS_VENDIDOS,
+    '/mantenciones': MODULES.MANTENCIONES,
+    '/dashboard/mantenciones': MODULES.MANTENCIONES,
+    '/mis-tickets': MODULES.TICKETS,
+    '/dashboard/mis-tickets': MODULES.TICKETS,
   };
 
   const module = routeToModule[route];

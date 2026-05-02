@@ -52,7 +52,15 @@ exports.getSucursales = async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(
-      "SELECT id, nombre, tipo_sucursal FROM sucursales WHERE ip IS NOT NULL AND ip != '' ORDER BY nombre"
+      `SELECT id, nombre, tipo_sucursal FROM sucursales
+       WHERE ip IS NOT NULL AND ip != ''
+         AND nombre NOT LIKE '%Daniel vera 1440%'
+         AND nombre NOT LIKE '%890-891%'
+         AND nombre NOT LIKE '%Enrique molina 596%'
+         AND nombre NOT LIKE '%Lord cochrane%'
+         AND nombre NOT LIKE '%Tres esquinas coelemu%'
+         AND nombre NOT LIKE '%Los cipreses 77%'
+       ORDER BY nombre`
     );
     res.json(result.recordset);
   } catch (error) {

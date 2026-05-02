@@ -46,6 +46,8 @@ import InputAdornment from '@mui/material/InputAdornment';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSnackbar } from 'notistack';
 import api from '../api/api';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import TableChartIcon from '@mui/icons-material/TableChart';
 
 // ─── Hook: Número animado (cuenta de old → new en ~600ms) ──────────────────
 function useAnimatedNumber(value, duration = 550) {
@@ -415,6 +417,176 @@ function WeekMiniBar({ w, isCurrent, onClick, maxVal }) {
   );
 }
 
+// ─── Helpers de exportación PDF ──────────────────────────────────────────────
+const fmtMpdf = n => `$${(Math.round(n||0)).toLocaleString('es-CL')}`;
+
+async function exportarGraficoComoPDF(elementId, año) {
+  const { default: html2canvas } = await import('html2canvas');
+  const { jsPDF } = await import('jspdf');
+
+  const el = document.getElementById(elementId);
+  if (!el) return;
+
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: '#0d1117',
+    logging: false,
+  });
+
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const imgW  = pageW - 16;
+  const imgH  = (canvas.height / canvas.width) * imgW;
+  const yPos  = Math.max(8, (pageH - imgH) / 2);
+
+  pdf.addImage(imgData, 'PNG', 8, yPos, imgW, Math.min(imgH, pageH - 16));
+  pdf.save(`grafico-anual-${año}.pdf`);
+}
+
+async function exportarResumenComoPDF(weeksData, año) {
+  const { jsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+
+  // ── Encabezado ──
+  pdf.setFillColor(26, 35, 126);
+  pdf.rect(0, 0, pageW, 18, 'F');
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(13);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`Control de Pagos Semanales — Año ${año}`, 10, 11);
+  pdf.setFontSize(8);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`Generado el ${new Date().toLocaleDateString('es-CL', { day:'2-digit', month:'long', year:'numeric' })}`, pageW - 10, 11, { align:'right' });
+
+  // ── Totales resumen ──
+  const totEnc  = weeksData.reduce((s,w) => s + (parseFloat(w.encadenados)||0) + (parseFloat(w.deuda_facturada_enc)||0), 0);
+  const totNenc = weeksData.reduce((s,w) => s + (parseFloat(w.deuda_facturada_nenc)||0), 0);
+  const totGen  = totEnc + totNenc;
+  const semsOK  = weeksData.filter(w => w.estado === 'OK' || !w.estado).length;
+  const semsAlt = weeksData.filter(w => ['ALERTA','EXCEDIDO','REVISAR'].includes(w.estado)).length;
+
+  pdf.setFontSize(8);
+  pdf.setTextColor(60, 60, 60);
+  const kpis = [
+    ['Total Encadenados Año', fmtMpdf(totEnc)],
+    ['Total No Encadenados Año', fmtMpdf(totNenc)],
+    ['Total General Año', fmtMpdf(totGen)],
+    ['Semanas sin alerta', String(semsOK)],
+    ['Semanas con alerta/excedido', String(semsAlt)],
+  ];
+  let kx = 10;
+  kpis.forEach(([label, val]) => {
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(100, 100, 100);
+    pdf.text(label, kx, 24);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(26, 35, 126);
+    pdf.text(val, kx, 29);
+    kx += 54;
+  });
+
+  // ── Tabla de 52 semanas ──
+  const MESES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const getMes = (fechaStr) => {
+    if (!fechaStr) return '–';
+    const m = new Date(fechaStr).getMonth() + 1;
+    return isNaN(m) ? '–' : MESES[m];
+  };
+
+  const rows = weeksData.map(w => {
+    const enc      = parseFloat(w.encadenados)          || 0;
+    const factEnc  = parseFloat(w.deuda_facturada_enc)  || 0;
+    const noEnc    = parseFloat(w.deuda_facturada_nenc) || 0;
+    const totalEnc = enc + factEnc;
+    const totalGen = totalEnc + noEnc;
+    const limite   = parseFloat(w.limite_semanal)       || 100_000_000;
+    const cap      = limite - totalEnc;
+    const pct      = limite > 0 ? Math.round(totalEnc / limite * 100) : 0;
+    const periodo  = w.fecha_inicio
+      ? `${new Date(w.fecha_inicio).toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'})} – ${new Date(w.fecha_fin).toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit'})}`
+      : '–';
+    return [
+      `S${w.semana}`,
+      getMes(w.fecha_inicio),
+      periodo,
+      fmtMpdf(limite),
+      enc > 0      ? fmtMpdf(enc)      : '–',
+      factEnc > 0  ? fmtMpdf(factEnc)  : '–',
+      totalEnc > 0 ? fmtMpdf(totalEnc) : '–',
+      noEnc > 0    ? fmtMpdf(noEnc)    : '–',
+      totalGen > 0 ? fmtMpdf(totalGen) : '–',
+      cap >= 0     ? fmtMpdf(cap)      : fmtMpdf(cap),
+      `${pct}%`,
+      w.estado || 'SIN DATOS',
+    ];
+  });
+
+  const statusColor = estado => {
+    if (estado === 'EXCEDIDO') return [183, 28, 28];
+    if (estado === 'ALERTA')   return [230, 81, 0];
+    if (estado === 'REVISAR')  return [245, 127, 23];
+    if (estado === 'OK')       return [46, 125, 50];
+    return [84, 110, 122];
+  };
+
+  autoTable(pdf, {
+    startY: 33,
+    head: [[
+      'Sem.', 'Mes', 'Período', 'Límite',
+      'Enc. OC', 'Enc. Fact.', 'Total Enc.',
+      'No Enc.', 'Total Gral.', 'Cap. Disp.', '% Uso', 'Estado',
+    ]],
+    body: rows,
+    styles: { fontSize: 6.5, cellPadding: 1.5, overflow: 'linebreak' },
+    headStyles: { fillColor: [26, 35, 126], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+    columnStyles: {
+      0:  { cellWidth: 10, fontStyle: 'bold' },
+      1:  { cellWidth: 10 },
+      2:  { cellWidth: 22 },
+      3:  { cellWidth: 22, halign: 'right' },
+      4:  { cellWidth: 22, halign: 'right', textColor: [21, 101, 192] },
+      5:  { cellWidth: 22, halign: 'right', textColor: [106, 27, 154] },
+      6:  { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      7:  { cellWidth: 22, halign: 'right', textColor: [0, 77, 64] },
+      8:  { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      9:  { cellWidth: 22, halign: 'right' },
+      10: { cellWidth: 12, halign: 'center' },
+      11: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+    },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index === 11) {
+        const estado = data.cell.raw;
+        data.cell.styles.textColor = statusColor(estado);
+      }
+      if (data.section === 'body' && data.column.index === 9) {
+        const val = parseFloat(String(data.cell.raw).replace(/[$.]/g,'').replace(/,/g,'.'));
+        if (val < 0) data.cell.styles.textColor = [183, 28, 28];
+        else data.cell.styles.textColor = [27, 94, 32];
+      }
+    },
+    alternateRowStyles: { fillColor: [248, 249, 252] },
+    margin: { left: 8, right: 8 },
+  });
+
+  // Pie de página
+  const totalPages = pdf.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(7);
+    pdf.setTextColor(150);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Página ${i} de ${totalPages}  ·  GestionBeach · Control de Pagos ${año}`, pageW / 2, pdf.internal.pageSize.getHeight() - 5, { align:'center' });
+  }
+
+  pdf.save(`resumen-pagos-${año}.pdf`);
+}
+
 // ─── Gráfico Anual Pantalla Completa ─────────────────────────────────────────
 const FULL_BAR_H = 420;
 const FULL_BAR_W = 22;
@@ -424,6 +596,20 @@ const CHART_GRID  = 'rgba(255,255,255,0.06)';
 const CHART_AXIS  = 'rgba(255,255,255,0.25)';
 
 function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, onJump }) {
+  const [exportingChart, setExportingChart] = React.useState(false);
+  const [exportingTable, setExportingTable] = React.useState(false);
+
+  const handleExportChart = async () => {
+    setExportingChart(true);
+    try { await exportarGraficoComoPDF('grafico-anual-capturable', año); }
+    finally { setExportingChart(false); }
+  };
+  const handleExportTable = async () => {
+    setExportingTable(true);
+    try { await exportarResumenComoPDF(weeksData, año); }
+    finally { setExportingTable(false); }
+  };
+
   if (!weeksData || weeksData.length === 0) return null;
 
   const totEncOC    = weeksData.reduce((s,w) => s + (parseFloat(w.encadenados)          || 0), 0);
@@ -496,9 +682,40 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
               sx={{ bgcolor:'rgba(255,255,255,0.18)', color:'white', fontWeight:700,
                 border:'1px solid rgba(255,255,255,0.3)', ml:1 }}/>
           </Box>
-          <IconButton onClick={onClose} sx={{ color:'rgba(255,255,255,0.8)', '&:hover':{ bgcolor:'rgba(255,255,255,0.12)' } }}>
-            <CloseIcon/>
-          </IconButton>
+          {/* Botones exportar */}
+          <Box sx={{ display:'flex', alignItems:'center', gap:1 }}>
+            <Tooltip title="Exportar gráfico como PDF (captura visual)" arrow>
+              <span>
+                <Button
+                  size="small" variant="outlined"
+                  startIcon={exportingChart ? <CircularProgress size={13} sx={{color:'white'}}/> : <PictureAsPdfIcon sx={{fontSize:15}}/>}
+                  disabled={exportingChart}
+                  onClick={handleExportChart}
+                  sx={{ color:'white', borderColor:'rgba(255,255,255,0.3)', textTransform:'none',
+                    fontWeight:700, fontSize:'0.75rem', borderRadius:2,
+                    '&:hover':{ borderColor:'white', bgcolor:'rgba(255,255,255,0.08)' } }}>
+                  {exportingChart ? 'Exportando…' : 'PDF Gráfico'}
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title="Exportar tabla de 52 semanas como PDF" arrow>
+              <span>
+                <Button
+                  size="small" variant="outlined"
+                  startIcon={exportingTable ? <CircularProgress size={13} sx={{color:'white'}}/> : <TableChartIcon sx={{fontSize:15}}/>}
+                  disabled={exportingTable}
+                  onClick={handleExportTable}
+                  sx={{ color:'white', borderColor:'rgba(255,255,255,0.3)', textTransform:'none',
+                    fontWeight:700, fontSize:'0.75rem', borderRadius:2,
+                    '&:hover':{ borderColor:'white', bgcolor:'rgba(255,255,255,0.08)' } }}>
+                  {exportingTable ? 'Exportando…' : 'PDF Resumen'}
+                </Button>
+              </span>
+            </Tooltip>
+            <IconButton onClick={onClose} sx={{ color:'rgba(255,255,255,0.8)', '&:hover':{ bgcolor:'rgba(255,255,255,0.12)' }, ml:0.5 }}>
+              <CloseIcon/>
+            </IconButton>
+          </Box>
         </Box>
 
         {/* ── Tarjetas resumen ── */}
@@ -527,7 +744,7 @@ function GraficoAnualFullscreen({ open, onClose, weeksData, currentWeek, año, o
         </Box>
 
         {/* ── Área del gráfico ── */}
-        <Box sx={{ flex:1, overflowX:'auto', overflowY:'auto', px:3, py:3,
+        <Box id="grafico-anual-capturable" sx={{ flex:1, overflowX:'auto', overflowY:'auto', px:3, py:3,
           '&::-webkit-scrollbar':{ height:6 },
           '&::-webkit-scrollbar-track':{ bgcolor:'rgba(255,255,255,0.04)' },
           '&::-webkit-scrollbar-thumb':{ bgcolor:'rgba(255,255,255,0.15)', borderRadius:3 },
@@ -1571,9 +1788,12 @@ function VistaOrdenFactura({ registros, loading, año, onRefresh }) {
 const MADRE_COLOR = '#6a1b9a';
 const MADRE_BG    = '#f3e5f5';
 
+const MADRE_PAGE_SIZE = 10;
+
 function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
   const [busqueda, setBusqueda] = React.useState('');
   const [filtroTipo, setFiltroTipo] = React.useState('todos');
+  const [page, setPage] = React.useState(0);
   const [expandedOC, setExpandedOC] = React.useState({});
   const [productosOC, setProductosOC] = React.useState({});
   const [loadingOC, setLoadingOC] = React.useState({});
@@ -1598,8 +1818,35 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
     }
   }, [productosOC, loadingOC]);
 
+  // Agrupar filas por numero_orden: una OC con N plazos → 1 grupo con plazos[]
+  const groupedRegistros = React.useMemo(() => {
+    const map = new Map();
+    for (const r of registros) {
+      const key = r.numero_orden || `_id_${r.id}`;
+      if (!map.has(key)) {
+        map.set(key, { ...r, ids: [], plazos: [], monto_con_iva_total: 0, monto_neto_total: 0 });
+      }
+      const g = map.get(key);
+      g.ids.push(r.id);
+      g.plazos.push({
+        id: r.id,
+        plazo_dias: r.plazo_dias,
+        fecha_vencimiento: r.fecha_vencimiento,
+        semana_vencimiento: r.semana_vencimiento,
+        monto_con_iva: parseFloat(r.monto_con_iva) || 0,
+        monto_neto:    parseFloat(r.monto_neto)    || 0,
+        estado_pago:   r.estado_pago,
+      });
+      g.monto_con_iva_total += parseFloat(r.monto_con_iva) || 0;
+      g.monto_neto_total    += parseFloat(r.monto_neto)    || 0;
+    }
+    return Array.from(map.values());
+  }, [registros]);
+
+  React.useEffect(() => { setPage(0); }, [busqueda, filtroTipo]);
+
   const filtradas = React.useMemo(() => {
-    let r = registros;
+    let r = groupedRegistros;
     if (filtroTipo !== 'todos') r = r.filter(x => (x.tipo_proveedor||'').toLowerCase().includes(filtroTipo === 'enc' ? 'enc' : 'no'));
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase();
@@ -1610,10 +1857,13 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
       );
     }
     return r;
-  }, [registros, busqueda, filtroTipo]);
+  }, [groupedRegistros, busqueda, filtroTipo]);
 
-  const totMonto  = filtradas.reduce((s,r) => s + (parseFloat(r.monto_con_iva)||0), 0);
-  const totNeto   = filtradas.reduce((s,r) => s + (parseFloat(r.monto_neto)||0), 0);
+  const totalPages = Math.ceil(filtradas.length / MADRE_PAGE_SIZE);
+  const paginadas  = filtradas.slice(page * MADRE_PAGE_SIZE, (page + 1) * MADRE_PAGE_SIZE);
+
+  const totMonto  = filtradas.reduce((s,r) => s + (r.monto_con_iva_total || parseFloat(r.monto_con_iva)||0), 0);
+  const totNeto   = filtradas.reduce((s,r) => s + (r.monto_neto_total    || parseFloat(r.monto_neto)   ||0), 0);
 
   const fuenteChip = fuente => {
     const map = { EXCEL:{ label:'Excel', color:'#1565c0', bg:'#e3f2fd' }, ERP:{ label:'ERP', color:'#2e7d32', bg:'#e8f5e9' },
@@ -1631,7 +1881,7 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
             <span style={{ fontSize:18, lineHeight:1 }}>👑</span>
           </Box>
           <Typography variant="subtitle1" fontWeight={800}>Órdenes Madre</Typography>
-          <Chip label={registros.length} size="small"
+          <Chip label={groupedRegistros.length} size="small"
             sx={{ bgcolor:'rgba(255,255,255,0.18)', color:'white', fontSize:'0.65rem', height:20, ml:'auto' }}/>
         </Box>
         <Typography variant="caption" sx={{ opacity:0.7, fontSize:'0.68rem' }}>
@@ -1685,19 +1935,22 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
               {registros.length === 0 ? 'Ninguna OC marcada como madre aún' : 'Sin resultados para esa búsqueda'}
             </Typography>
           </Box>
-        ) : filtradas.map(r => {
-          const isEnc = !(r.tipo_proveedor||'').toLowerCase().includes('no');
-          const fc    = fuenteChip(r.fuente);
+        ) : paginadas.map(r => {
+          const isEnc       = !(r.tipo_proveedor||'').toLowerCase().includes('no');
+          const fc          = fuenteChip(r.fuente);
+          const tieneMultiP = r.plazos?.length > 1;
+          const montoTotal  = r.monto_con_iva_total ?? parseFloat(r.monto_con_iva) ?? 0;
+          const netoTotal   = r.monto_neto_total    ?? parseFloat(r.monto_neto)    ?? 0;
           return (
-            <Box key={r.id} sx={{
+            <Box key={r.numero_orden || r.id} sx={{
               mb:1, p:1.5, borderRadius:2,
-              border:`1px solid ${alpha(MADRE_COLOR, 0.15)}`,
+              border:`1px solid ${tieneMultiP ? alpha(MADRE_COLOR,0.3) : alpha(MADRE_COLOR, 0.15)}`,
               bgcolor:'white',
-              boxShadow:'0 1px 4px rgba(0,0,0,0.05)',
-              '&:hover':{ borderColor: alpha(MADRE_COLOR,0.35), boxShadow:'0 2px 8px rgba(106,27,154,0.10)' },
+              boxShadow: tieneMultiP ? '0 2px 8px rgba(106,27,154,0.08)' : '0 1px 4px rgba(0,0,0,0.05)',
+              '&:hover':{ borderColor: alpha(MADRE_COLOR,0.45), boxShadow:'0 2px 10px rgba(106,27,154,0.12)' },
               transition:'border-color .15s, box-shadow .15s',
             }}>
-              {/* Fila 1: proveedor + monto */}
+              {/* Fila 1: proveedor + monto total */}
               <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:1, mb:0.6 }}>
                 <Typography variant="body2" fontWeight={700} sx={{
                   fontSize:'0.78rem', color:'text.primary',
@@ -1705,12 +1958,19 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
                 }}>
                   {r.proveedor || '(Sin nombre)'}
                 </Typography>
-                <Typography variant="body2" fontWeight={800} color={MADRE_COLOR} sx={{ fontSize:'0.8rem', flexShrink:0 }}>
-                  {fmtM(r.monto_con_iva)}
-                </Typography>
+                <Box sx={{ textAlign:'right', flexShrink:0 }}>
+                  <Typography variant="body2" fontWeight={800} color={MADRE_COLOR} sx={{ fontSize:'0.8rem', lineHeight:1.1 }}>
+                    {fmtM(montoTotal)}
+                  </Typography>
+                  {tieneMultiP && (
+                    <Typography variant="caption" sx={{ fontSize:'0.58rem', color:'text.disabled' }}>
+                      total {r.plazos.length} plazos
+                    </Typography>
+                  )}
+                </Box>
               </Box>
 
-              {/* Fila 2: chips de tipo/fuente + N° OC */}
+              {/* Fila 2: chips de tipo/fuente + N° OC + badge multi-plazo */}
               <Box sx={{ display:'flex', alignItems:'center', gap:0.6, flexWrap:'wrap', mb:0.6 }}>
                 <Chip size="small" label={isEnc ? 'Encadenado' : 'No Enc.'} sx={{
                   height:16, fontSize:'0.6rem', fontWeight:700,
@@ -1718,6 +1978,12 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
                   color: isEnc ? ENC_DARK : NENC_DARK,
                 }}/>
                 <Chip size="small" label={fc.label} sx={{ height:16, fontSize:'0.6rem', fontWeight:700, bgcolor:fc.bg, color:fc.color }}/>
+                {tieneMultiP && (
+                  <Chip size="small" label={`${r.plazos.length} plazos`}
+                    sx={{ height:16, fontSize:'0.6rem', fontWeight:700,
+                      bgcolor:alpha(MADRE_COLOR,0.1), color:MADRE_COLOR,
+                      border:`1px solid ${alpha(MADRE_COLOR,0.3)}` }}/>
+                )}
                 {r.numero_orden && (
                   <Chip
                     size="small"
@@ -1737,15 +2003,17 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
                 )}
               </Box>
 
-              {/* Fila 3: fechas + semana + sucursal */}
-              <Box sx={{ display:'flex', flexWrap:'wrap', gap:1, mb:0.8 }}>
+              {/* Fila 3: datos generales (sin Vence/Plazo cuando hay múltiples — se muestran abajo) */}
+              <Box sx={{ display:'flex', flexWrap:'wrap', gap:1, mb: tieneMultiP ? 0.5 : 0.8 }}>
                 {[
-                  { icon:'📅', label:'Emisión',   val: r.fecha_compra      ? new Date(r.fecha_compra+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
-                  { icon:'💳', label:'Vence',     val: r.fecha_vencimiento ? new Date(r.fecha_vencimiento+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
-                  { icon:'📦', label:'Sem.',       val: r.semana_compra ? `S${r.semana_compra} / ${r.año||''}` : '–' },
-                  { icon:'🏪', label:'Sucursal',  val: r.sucursal || '–' },
-                  { icon:'💰', label:'Neto',       val: fmtM(r.monto_neto) },
-                  { icon:'⏱️',  label:'Plazo',     val: r.plazo_dias ? `${r.plazo_dias} días` : '–' },
+                  { icon:'📅', label:'Emisión',  val: r.fecha_compra ? new Date(r.fecha_compra+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
+                  ...(!tieneMultiP ? [
+                    { icon:'💳', label:'Vence',  val: r.fecha_vencimiento ? new Date(r.fecha_vencimiento+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'}) : '–' },
+                    { icon:'⏱️',  label:'Plazo',  val: r.plazo_dias ? `${r.plazo_dias} días` : '–' },
+                  ] : []),
+                  { icon:'📦', label:'Sem.',      val: r.semana_compra ? `S${r.semana_compra} / ${r.año||''}` : '–' },
+                  { icon:'🏪', label:'Sucursal', val: r.sucursal || '–' },
+                  { icon:'💰', label:'Neto',      val: fmtM(netoTotal) },
                 ].map(({ icon, label, val }) => (
                   <Box key={label} sx={{ minWidth:90 }}>
                     <Typography variant="caption" sx={{ color:'text.disabled', fontSize:'0.6rem', display:'block' }}>
@@ -1757,6 +2025,49 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
                   </Box>
                 ))}
               </Box>
+
+              {/* Plazos múltiples — mini-tabla con cada cuota */}
+              {tieneMultiP && (
+                <Box sx={{ mb:0.8, borderRadius:1.5, overflow:'hidden',
+                  border:`1px solid ${alpha(MADRE_COLOR,0.2)}`, bgcolor:alpha(MADRE_COLOR,0.03) }}>
+                  {/* Header */}
+                  <Box sx={{ display:'grid', gridTemplateColumns:'auto 1fr 1fr 1fr', gap:'2px 8px',
+                    px:1, py:0.4, bgcolor:alpha(MADRE_COLOR,0.08) }}>
+                    {['#','Plazo','Vence','c/IVA'].map(h => (
+                      <Typography key={h} variant="caption" sx={{ fontSize:'0.57rem', fontWeight:700, color:MADRE_COLOR }}>{h}</Typography>
+                    ))}
+                  </Box>
+                  {/* Filas */}
+                  {r.plazos.map((p, idx) => (
+                    <Box key={p.id} sx={{
+                      display:'grid', gridTemplateColumns:'auto 1fr 1fr 1fr', gap:'2px 8px',
+                      px:1, py:0.5, alignItems:'center',
+                      borderTop: idx > 0 ? `1px solid ${alpha(MADRE_COLOR,0.1)}` : 'none',
+                      bgcolor: idx % 2 === 0 ? 'transparent' : alpha(MADRE_COLOR,0.02),
+                    }}>
+                      <Typography variant="caption" sx={{ fontSize:'0.6rem', fontWeight:700, color:MADRE_COLOR }}>
+                        {idx+1}
+                      </Typography>
+                      <Chip size="small" label={p.plazo_dias ? `${p.plazo_dias}d` : '–'}
+                        sx={{ height:15, fontSize:'0.58rem', fontWeight:700,
+                          bgcolor:alpha(MADRE_COLOR,0.1), color:MADRE_COLOR, width:'fit-content' }}/>
+                      <Box>
+                        <Typography variant="caption" sx={{ fontSize:'0.63rem', fontWeight:600, display:'block', lineHeight:1.2 }}>
+                          {p.fecha_vencimiento ? new Date(p.fecha_vencimiento+'T12:00').toLocaleDateString('es-CL',{day:'2-digit',month:'short'}) : '–'}
+                        </Typography>
+                        {p.semana_vencimiento && (
+                          <Typography variant="caption" sx={{ fontSize:'0.57rem', color:'text.disabled' }}>
+                            S{p.semana_vencimiento}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Typography variant="caption" sx={{ fontSize:'0.65rem', fontWeight:700, color:'text.primary' }}>
+                        {fmtM(p.monto_con_iva)}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
 
               {/* Productos expandibles */}
               {r.numero_orden && (
@@ -1940,6 +2251,34 @@ function PanelOrdenesMadre({ registros, loading, onDesmarcar, ofMap = {} }) {
             </Box>
           );
         })}
+
+      {/* ── Paginación ── */}
+      {totalPages > 1 && (
+        <Box sx={{ display:'flex', alignItems:'center', justifyContent:'center', gap:1.5, pt:1.5, pb:0.5 }}>
+          <Button size="small" variant="outlined" disabled={page === 0}
+            onClick={() => setPage(p => p - 1)}
+            sx={{ minWidth:0, px:1.2, py:0.4, fontSize:'0.7rem', borderRadius:2,
+              borderColor:alpha(MADRE_COLOR,0.4), color:MADRE_COLOR,
+              '&:hover':{ bgcolor:alpha(MADRE_COLOR,0.06) },
+              '&.Mui-disabled':{ opacity:0.35 } }}>
+            ‹ Anterior
+          </Button>
+          <Typography variant="caption" sx={{ color:'text.secondary', fontSize:'0.7rem', fontWeight:600 }}>
+            {page + 1} / {totalPages}
+            <Box component="span" sx={{ ml:0.8, color:'text.disabled', fontWeight:400 }}>
+              ({filtradas.length} OC)
+            </Box>
+          </Typography>
+          <Button size="small" variant="outlined" disabled={page >= totalPages - 1}
+            onClick={() => setPage(p => p + 1)}
+            sx={{ minWidth:0, px:1.2, py:0.4, fontSize:'0.7rem', borderRadius:2,
+              borderColor:alpha(MADRE_COLOR,0.4), color:MADRE_COLOR,
+              '&:hover':{ bgcolor:alpha(MADRE_COLOR,0.06) },
+              '&.Mui-disabled':{ opacity:0.35 } }}>
+            Siguiente ›
+          </Button>
+        </Box>
+      )}
       </Box>
     </Box>
   );
@@ -1952,10 +2291,17 @@ const EMIT_BG    = '#e0f7fa';
 function TablaComprasPorEmision({ semanas, año, loading }) {
   const [open, setOpen] = useState(true);
 
-  const totEncOC   = semanas.reduce((s,w) => s + (parseFloat(w.enc_oc)  || 0), 0);
-  const totNoEnc   = semanas.reduce((s,w) => s + (parseFloat(w.no_enc)  || 0), 0);
-  const totGeneral = semanas.reduce((s,w) => s + (parseFloat(w.total)   || 0), 0);
-  const semanasConDatos = semanas.filter(w => (w.total || 0) > 0).length;
+  const hoy = new Date();
+  hoy.setHours(23, 59, 59, 999);
+  const currentYear = hoy.getFullYear();
+  const semanasFiltradas = año === currentYear
+    ? semanas.filter(w => !w.fecha_inicio || new Date(w.fecha_inicio + 'T00:00:00') <= hoy)
+    : semanas;
+
+  const totEncOC   = semanasFiltradas.reduce((s,w) => s + (parseFloat(w.enc_oc)  || 0), 0);
+  const totNoEnc   = semanasFiltradas.reduce((s,w) => s + (parseFloat(w.no_enc)  || 0), 0);
+  const totGeneral = semanasFiltradas.reduce((s,w) => s + (parseFloat(w.total)   || 0), 0);
+  const semanasConDatos = semanasFiltradas.filter(w => (w.total || 0) > 0).length;
 
   return (
     <Paper elevation={0} sx={{ border:'1px solid', borderColor:'divider', borderRadius:3, mb:2, overflow:'hidden' }}>
@@ -2005,7 +2351,7 @@ function TablaComprasPorEmision({ semanas, año, loading }) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {semanas.map(w => {
+                {semanasFiltradas.map(w => {
                   const hayDatos = (w.total || 0) > 0;
                   return (
                     <TableRow key={w.numero_semana} sx={{
@@ -2210,8 +2556,11 @@ function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onM
       dObj.registros.push(r);
     });
     // Agrupar visualmente: misma OC con distintos plazos → 1 fila con total sumado
-    Object.values(años).forEach(añoData =>
-      Object.values(añoData.semanas).forEach(semData =>
+    // Recalcular contadores después de agrupar
+    Object.values(años).forEach(añoData => {
+      añoData.ordenes = 0;
+      Object.values(añoData.semanas).forEach(semData => {
+        semData.ordenes = 0;
         Object.values(semData.dias).forEach(diaData => {
           const map = {};
           diaData.registros.forEach(r => {
@@ -2226,9 +2575,12 @@ function VistaArbolEmision({ registros, loading, sospechosasIds = new Set(), onM
             }
           });
           diaData.registros = Object.values(map);
-        })
-      )
-    );
+          diaData.ordenes   = diaData.registros.length;
+          semData.ordenes  += diaData.ordenes;
+        });
+        añoData.ordenes += semData.ordenes;
+      });
+    });
     return años;
   }, [registros]);
 
@@ -4051,7 +4403,10 @@ const PlanificacionPage = () => {
   }, [loadCompras, loadOrdenesMadre, loadDetalleEmision]);
 
   const handleDesmarcarMadre = useCallback(async (r) => {
-    await api.put(`/planificacion/compras/${r.id}/madre`, { es_madre: false }).catch(() => {});
+    const ids = r.ids?.length ? r.ids : [r.id];
+    await Promise.all(ids.map(id =>
+      api.put(`/planificacion/compras/${id}/madre`, { es_madre: false }).catch(() => {})
+    ));
     loadOrdenesMadre();
     loadCompras();
     loadDetalleEmision();

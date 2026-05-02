@@ -28,7 +28,8 @@ const pantallasDashboard = [
   { id: 18, nombre: 'Perfiles', descripcion: 'Gestión de perfiles', ruta: '/perfiles', icono: 'security' },
   { id: 19, nombre: 'Módulos', descripcion: 'Gestión de módulos', ruta: '/modulos', icono: 'view_module' },
   { id: 20, nombre: 'Configuración', descripcion: 'Configuración del sistema', ruta: '/configuracion', icono: 'settings' },
-  { id: 21, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico', ruta: '/correo', icono: 'email' }
+  { id: 21, nombre: 'Correo Electrónico', descripcion: 'Sistema de correo electrónico', ruta: '/correo', icono: 'email' },
+  { id: 22, nombre: 'Los Más Vendidos',   descripcion: 'Productos más vendidos',         ruta: '/los-mas-vendidos', icono: 'trending_up' }
 ];
 
 // Función para sincronizar pantallas con la base de datos usando tu estructura

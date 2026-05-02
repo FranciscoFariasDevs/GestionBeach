@@ -3,6 +3,16 @@ const { sql, poolPromise } = require('../config/db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const ioInstance = require('../config/ioInstance');
+
+// Departamentos fijos del sistema
+const DEPARTAMENTOS = [
+  { id: 1, nombre: 'Electricidad',       color: '#FF9800', icono: 'ElectricBolt' },
+  { id: 2, nombre: 'Informática',        color: '#2196F3', icono: 'Computer'     },
+  { id: 3, nombre: 'Mantenciones',       color: '#4CAF50', icono: 'Build'        },
+  { id: 4, nombre: 'Recursos Humanos',   color: '#9C27B0', icono: 'People'       },
+  { id: 5, nombre: 'Finanzas',           color: '#F44336', icono: 'AccountBalance'},
+];
 
 // ============================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES
@@ -26,9 +36,12 @@ const storage = multer.diskStorage({
   }
 });
 
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
+
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  if (allowedTypes.includes(file.mimetype)) {
+  const mimeOk = file.mimetype && file.mimetype.startsWith('image/');
+  const extOk  = IMAGE_EXTENSIONS.test(path.extname(file.originalname || ''));
+  if (mimeOk || extOk) {
     cb(null, true);
   } else {
     cb(new Error('Tipo de archivo no permitido. Solo imágenes (jpg, png, gif, webp)'), false);
@@ -41,8 +54,17 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB máximo
 });
 
-// Exportar middleware de upload
-exports.uploadMiddleware = upload.single('imagen');
+// Middleware que captura errores de multer y devuelve JSON en vez de 500
+exports.uploadMiddleware = (req, res, next) => {
+  upload.single('imagen')(req, res, (err) => {
+    if (!err) return next();
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const msg    = err.code === 'LIMIT_FILE_SIZE'
+      ? 'La imagen supera el límite de 5 MB'
+      : err.message || 'Error al procesar el archivo';
+    return res.status(status).json({ success: false, message: msg });
+  });
+};
 
 // ============================================
 // FUNCIÓN AUXILIAR: Crear notificación
@@ -59,10 +81,81 @@ const crearNotificacion = async (pool, usuario_id, ticket_id, tipo, titulo, mens
         INSERT INTO ticket_notificaciones (usuario_id, ticket_id, tipo, titulo, mensaje)
         VALUES (@usuario_id, @ticket_id, @tipo, @titulo, @mensaje)
       `);
+
+    // Emitir en tiempo real via Socket.IO
+    const io = ioInstance.getIO();
+    if (io) {
+      io.to(`user_${usuario_id}`).emit('nueva_notificacion', {
+        tipo,
+        titulo,
+        mensaje,
+        ticket_id,
+        ruta: '/mis-tickets',
+        leida: false,
+        fecha_creacion: new Date()
+      });
+    }
+
+    // Enviar Web Push si el usuario tiene suscripción activa
+    try {
+      const subResult = await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .query(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE usuario_id = @uid AND activo = 1`);
+      if (subResult.recordset.length > 0) {
+        const webpush = require('web-push');
+        webpush.setVapidDetails(
+          process.env.VAPID_SUBJECT || 'mailto:soporte@beachmarket.cl',
+          process.env.VAPID_PUBLIC_KEY,
+          process.env.VAPID_PRIVATE_KEY
+        );
+        const payload = JSON.stringify({ titulo, mensaje, ruta: '/mis-tickets' });
+        for (const sub of subResult.recordset) {
+          try {
+            await webpush.sendNotification(
+              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+              payload
+            );
+          } catch (pushErr) {
+            // Suscripción expirada → desactivar
+            if (pushErr.statusCode === 410) {
+              await pool.request()
+                .input('ep', sql.VarChar(500), sub.endpoint)
+                .query(`UPDATE push_subscriptions SET activo = 0 WHERE endpoint = @ep`);
+            }
+          }
+        }
+      }
+    } catch (_) { /* no interrumpir si falla web push */ }
+
+    // Enviar Expo Push Notification (app móvil)
+    try {
+      const expoResult = await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .query(`SELECT token FROM expo_push_tokens WHERE usuario_id = @uid AND activo = 1`);
+      if (expoResult.recordset.length > 0) {
+        const { Expo } = require('expo-server-sdk');
+        const expo = new Expo();
+        const messages = expoResult.recordset
+          .filter(r => Expo.isExpoPushToken(r.token))
+          .map(r => ({
+            to: r.token,
+            sound: 'default',
+            title: titulo,
+            body: mensaje,
+            data: { ticket_id, tipo },
+          }));
+        if (messages.length > 0) {
+          const chunks = expo.chunkPushNotifications(messages);
+          for (const chunk of chunks) {
+            try { await expo.sendPushNotificationsAsync(chunk); } catch (_) {}
+          }
+        }
+      }
+    } catch (_) { /* no interrumpir si falla expo push */ }
+
     console.log(`📬 Notificación creada para usuario ${usuario_id}: ${titulo}`);
   } catch (error) {
     console.error('Error al crear notificación:', error.message);
-    // No lanzamos error para no interrumpir el flujo principal
   }
 };
 
@@ -257,10 +350,26 @@ exports.obtenerMisTickets = async (req, res) => {
     let whereConditions = [];
     const request = pool.request();
 
-    // Si NO es admin, solo mostrar sus propios tickets
+    // Si NO es admin, verificar si tiene departamentos asignados
     if (!esAdmin) {
-      whereConditions.push('t.usuario_id = @usuario_id');
-      request.input('usuario_id', sql.Int, usuario_id);
+      const deptResult = await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .query(`SELECT departamento_id FROM usuario_departamentos WHERE usuario_id = @uid`);
+      const misDeptIds = deptResult.recordset.map(r => r.departamento_id);
+
+      if (misDeptIds.length > 0) {
+        // Usuario con departamentos: ve tickets de sus departamentos O creados por él
+        const deptList = misDeptIds.join(',');
+        whereConditions.push(`(t.usuario_id = @usuario_id OR EXISTS (
+          SELECT 1 FROM ticket_dept_asignaciones tda
+          WHERE tda.ticket_id = t.id AND tda.departamento_id IN (${deptList})
+        ))`);
+        request.input('usuario_id', sql.Int, usuario_id);
+      } else {
+        // Sin departamentos: solo sus propios tickets
+        whereConditions.push('t.usuario_id = @usuario_id');
+        request.input('usuario_id', sql.Int, usuario_id);
+      }
     }
 
     if (estado && estado !== 'todos') {
@@ -491,16 +600,34 @@ exports.obtenerDetalleTicket = async (req, res) => {
 
     const ticket = ticketResult.recordset[0];
 
-    // Verificar permisos - Los SuperAdmins pueden ver todos los tickets
-    // perfilId 1 = SuperAdmin (Lnova, Pancho)
+    // Verificar permisos
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
                     perfilNombre.toLowerCase().includes('superadmin') ||
                     perfilNombre.toLowerCase().includes('administrador');
 
-    if (!esAdmin && ticket.usuario_id !== usuario_id) {
-      console.log('🔒 Acceso denegado:', { perfilId, perfilNombre, usuario_id, ticket_usuario_id: ticket.usuario_id });
+    // Verificar si el usuario pertenece a algún departamento asignado al ticket
+    let tieneAccesoDepto = false;
+    if (!esAdmin) {
+      try {
+        const deptCheck = await pool.request()
+          .input('tid', sql.Int, id)
+          .input('uid', sql.Int, usuario_id)
+          .query(`
+            SELECT COUNT(*) as total
+            FROM ticket_dept_asignaciones tda
+            INNER JOIN usuario_departamentos ud ON ud.departamento_id = tda.departamento_id
+            WHERE tda.ticket_id = @tid AND ud.usuario_id = @uid
+          `);
+        tieneAccesoDepto = deptCheck.recordset[0].total > 0;
+      } catch (_) {
+        tieneAccesoDepto = false;
+      }
+    }
+
+    if (!esAdmin && ticket.usuario_id !== usuario_id && !tieneAccesoDepto) {
+      console.log('🔒 Acceso denegado:', { perfilId, perfilNombre, usuario_id, ticket_usuario_id: ticket.usuario_id, tieneAccesoDepto });
       return res.status(403).json({
         success: false,
         message: 'No tienes permiso para ver este ticket'
@@ -518,7 +645,7 @@ exports.obtenerDetalleTicket = async (req, res) => {
       .query(`
         SELECT
           r.*,
-          u.nombre_completo as nombre_usuario
+          COALESCE(u.nombre_completo, r.nombre_usuario) as nombre_real
         FROM ticket_respuestas r
         LEFT JOIN usuarios u ON r.usuario_id = u.id
         WHERE r.ticket_id = @ticket_id ${whereRespuestas}
@@ -560,16 +687,27 @@ exports.obtenerDetalleTicket = async (req, res) => {
 // ============================================
 exports.responderTicket = async (req, res) => {
   try {
+    console.log('📥 RESPONDER - START:', {
+      method: req.method,
+      url: req.url,
+      headers: { 'content-type': req.headers['content-type'] },
+      hasFile: !!req.file,
+      file: req.file ? { fieldname: req.file.fieldname, originalname: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size, path: req.file.path } : null,
+      body: req.body,
+    });
+
     const pool = await poolPromise;
     const { id } = req.params;
-    const { mensaje, es_interno = false } = req.body;
+
+    // Normalizar valores que vienen como string (multipart los envía así)
+    const es_interno_raw = req.body.es_interno;
+    const es_interno = es_interno_raw === 'true' || es_interno_raw === true || es_interno_raw === 1 || es_interno_raw === '1';
+    const mensaje = req.body.mensaje ? String(req.body.mensaje).trim() : '';
     const usuario_id = req.user.id;
     const nombre_usuario = req.user.nombre_completo || req.user.username || 'Usuario';
-
-    // Obtener imagen si fue subida
     const imagen_url = req.file ? `/uploads/tickets/${req.file.filename}` : null;
 
-    console.log('📥 Responder ticket:', { ticket_id: id, usuario_id, nombre_usuario, mensaje, imagen_url });
+    console.log('📥 RESPONDER - Datos normalizados:', { ticket_id: id, usuario_id, nombre_usuario, mensaje, imagen_url, es_interno });
 
     if (!mensaje && !imagen_url) {
       return res.status(400).json({
@@ -579,6 +717,7 @@ exports.responderTicket = async (req, res) => {
     }
 
     // Verificar que el ticket existe
+    console.log('📥 RESPONDER - Paso 1: Verificando ticket...');
     const ticketResult = await pool.request()
       .input('id', sql.Int, id)
       .query('SELECT * FROM tickets WHERE id = @id');
@@ -588,13 +727,15 @@ exports.responderTicket = async (req, res) => {
     }
 
     const ticket = ticketResult.recordset[0];
+    console.log('📥 RESPONDER - Paso 2: Ticket encontrado:', ticket.numero_ticket);
 
     // Insertar respuesta (con imagen si existe)
+    console.log('📥 RESPONDER - Paso 3: Insertando respuesta...');
     const result = await pool.request()
       .input('ticket_id', sql.Int, id)
       .input('usuario_id', sql.Int, usuario_id)
       .input('nombre_usuario', sql.VarChar(100), nombre_usuario)
-      .input('mensaje', sql.NVarChar(sql.MAX), mensaje || '')
+      .input('mensaje', sql.NVarChar(sql.MAX), mensaje)
       .input('es_interno', sql.Bit, es_interno)
       .input('imagen_url', sql.VarChar(500), imagen_url)
       .query(`
@@ -602,9 +743,11 @@ exports.responderTicket = async (req, res) => {
         OUTPUT INSERTED.id
         VALUES (@ticket_id, @usuario_id, @nombre_usuario, @mensaje, @es_interno, @imagen_url)
       `);
+    console.log('📥 RESPONDER - Paso 3: Respuesta insertada, id:', result.recordset[0].id);
 
     // Actualizar estado si estaba activo
     if (ticket.estado === 'activo') {
+      console.log('📥 RESPONDER - Paso 4: Cambiando estado a en_proceso...');
       await pool.request()
         .input('id', sql.Int, id)
         .query(`UPDATE tickets SET estado = 'en_proceso' WHERE id = @id`);
@@ -620,6 +763,7 @@ exports.responderTicket = async (req, res) => {
 
     // 📬 Notificar al reportante si la respuesta NO es interna y NO es del mismo usuario
     if (!es_interno && ticket.usuario_id !== usuario_id) {
+      console.log('📥 RESPONDER - Paso 5: Notificando al reportante...');
       await crearNotificacion(
         pool,
         ticket.usuario_id,
@@ -632,6 +776,7 @@ exports.responderTicket = async (req, res) => {
 
     // 📬 Si el que responde es el usuario normal, notificar a los SuperAdmins
     if (ticket.usuario_id === usuario_id) {
+      console.log('📥 RESPONDER - Paso 6: Notificando a SuperAdmins...');
       await notificarSuperAdmins(
         pool,
         parseInt(id),
@@ -641,6 +786,7 @@ exports.responderTicket = async (req, res) => {
       );
     }
 
+    console.log('📥 RESPONDER - ÉXITO');
     res.json({
       success: true,
       message: 'Respuesta agregada exitosamente',
@@ -648,15 +794,15 @@ exports.responderTicket = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error al responder ticket:', error);
-    console.error('❌ Detalles del error:', {
-      message: error.message,
-      stack: error.stack,
-      originalError: error.originalError
-    });
+    console.error('❌ RESPONDER - ERROR:', error);
+    console.error('❌ RESPONDER - Mensaje:', error.message);
+    console.error('❌ RESPONDER - Stack:', error.stack);
+    if (error.originalError) {
+      console.error('❌ RESPONDER - SQL Error:', error.originalError);
+    }
     res.status(500).json({
       success: false,
-      message: 'Error al responder ticket',
+      message: 'Error al responder: ' + error.message,
       error: error.message
     });
   }
@@ -717,7 +863,7 @@ exports.cambiarEstadoTicket = async (req, res) => {
       .input('usuario_id', sql.Int, usuario_id)
       .input('valor_anterior', sql.VarChar(255), estado_anterior)
       .input('valor_nuevo', sql.VarChar(255), estado)
-      .input('descripcion', sql.NVarChar(sql.MAX), comentario)
+      .input('descripcion', sql.NVarChar(sql.MAX), comentario || null)
       .query(`
         INSERT INTO ticket_historial (ticket_id, usuario_id, accion, valor_anterior, valor_nuevo, descripcion)
         VALUES (@ticket_id, @usuario_id, 'estado_cambiado', @valor_anterior, @valor_nuevo, @descripcion)
@@ -1129,7 +1275,6 @@ exports.subirImagenTicket = async (req, res) => {
 
   } catch (error) {
     console.error('Error al subir imagen:', error);
-    // Eliminar archivo si hubo error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
@@ -1138,5 +1283,654 @@ exports.subirImagenTicket = async (req, res) => {
       message: 'Error al subir imagen',
       error: error.message
     });
+  }
+};
+
+// ============================================
+// OBTENER DEPARTAMENTOS
+// ============================================
+exports.obtenerDepartamentos = async (req, res) => {
+  res.json({ success: true, departamentos: DEPARTAMENTOS });
+};
+
+// ============================================
+// HELPER: es usuario de departamento o admin
+// ============================================
+const esAdminOGerencia = (user) => {
+  const perfil = (user?.perfil || '').toLowerCase();
+  const perfilId = user?.perfilId;
+  return perfilId === 1 ||
+    perfil.includes('superadmin') ||
+    perfil.includes('administrador') ||
+    perfil.includes('gerencia');
+};
+
+// ============================================
+// CREAR TICKET CON DEPARTAMENTOS (REEMPLAZA crearTicket)
+// ============================================
+exports.crearTicketDept = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Debes estar autenticado' });
+    }
+
+    const { asunto, mensaje, prioridad = 'media', categoria, departamentos = [] } = req.body;
+
+    if (!asunto || !mensaje) {
+      return res.status(400).json({ success: false, message: 'Asunto y mensaje son obligatorios' });
+    }
+
+    // departamentos es un array de IDs: [1,2] = mixto, [1] = simple
+    let deptIds = [];
+    if (typeof departamentos === 'string') {
+      try { deptIds = JSON.parse(departamentos); } catch { deptIds = []; }
+    } else {
+      deptIds = Array.isArray(departamentos) ? departamentos.map(Number) : [];
+    }
+
+    const usuario_id = req.user.id;
+    const sucursal_id = req.body.sucursal_id ? Number(req.body.sucursal_id) : (req.user.sucursal_id || null);
+    const nombre_reportante = req.user.nombre_completo || req.user.username;
+    const imagen_url = req.file ? `/uploads/tickets/${req.file.filename}` : null;
+    const es_mixto = deptIds.length > 1 ? 1 : 0;
+    const dept_nombre_principal = deptIds.length > 0
+      ? (DEPARTAMENTOS.find(d => d.id === deptIds[0])?.nombre || null)
+      : null;
+
+    const resultNumero = await pool.request()
+      .output('nuevo_numero', sql.VarChar(20))
+      .execute('generar_numero_ticket');
+    const numero_ticket = resultNumero.output.nuevo_numero;
+
+    const ip_origen = req.ip || req.connection.remoteAddress;
+    const user_agent = req.headers['user-agent'];
+
+    let horas_vencimiento;
+    switch (prioridad) {
+      case 'critica': horas_vencimiento = 1; break;
+      case 'alta': horas_vencimiento = 4; break;
+      case 'media': horas_vencimiento = 24; break;
+      default: horas_vencimiento = 72;
+    }
+    const fecha_vencimiento = new Date();
+    fecha_vencimiento.setHours(fecha_vencimiento.getHours() + horas_vencimiento);
+
+    const result = await pool.request()
+      .input('numero_ticket', sql.VarChar(20), numero_ticket)
+      .input('asunto', sql.VarChar(255), asunto)
+      .input('mensaje', sql.NVarChar(sql.MAX), mensaje)
+      .input('usuario_id', sql.Int, usuario_id)
+      .input('nombre_reportante', sql.VarChar(100), nombre_reportante)
+      .input('sucursal_id', sql.Int, sucursal_id)
+      .input('departamento', sql.VarChar(100), dept_nombre_principal)
+      .input('es_mixto', sql.Bit, es_mixto)
+      .input('prioridad', sql.VarChar(20), prioridad)
+      .input('categoria', sql.VarChar(50), categoria || null)
+      .input('fecha_vencimiento', sql.DateTime, fecha_vencimiento)
+      .input('ip_origen', sql.VarChar(45), ip_origen)
+      .input('user_agent', sql.NVarChar(sql.MAX), user_agent)
+      .input('imagen_url', sql.VarChar(500), imagen_url)
+      .query(`
+        INSERT INTO tickets (
+          numero_ticket, asunto, mensaje, usuario_id, nombre_reportante,
+          sucursal_id, departamento, es_mixto,
+          estado, prioridad, categoria, fecha_vencimiento, ip_origen, user_agent, imagen_url
+        )
+        OUTPUT INSERTED.id
+        VALUES (
+          @numero_ticket, @asunto, @mensaje, @usuario_id, @nombre_reportante,
+          @sucursal_id, @departamento, @es_mixto,
+          'activo', @prioridad, @categoria, @fecha_vencimiento, @ip_origen, @user_agent, @imagen_url
+        )
+      `);
+
+    const ticket_id = result.recordset[0].id;
+
+    // Insertar asignaciones de departamentos en orden
+    for (let i = 0; i < deptIds.length; i++) {
+      const deptId = deptIds[i];
+      const dept = DEPARTAMENTOS.find(d => d.id === deptId);
+      if (!dept) continue;
+      const estadoInicial = i === 0 ? 'pendiente' : 'bloqueado';
+      await pool.request()
+        .input('ticket_id', sql.Int, ticket_id)
+        .input('departamento_id', sql.Int, deptId)
+        .input('departamento_nombre', sql.VarChar(100), dept.nombre)
+        .input('orden', sql.Int, i + 1)
+        .input('estado', sql.VarChar(20), estadoInicial)
+        .query(`
+          INSERT INTO ticket_dept_asignaciones (ticket_id, departamento_id, departamento_nombre, orden, estado)
+          VALUES (@ticket_id, @departamento_id, @departamento_nombre, @orden, @estado)
+        `);
+
+      // Notificar a usuarios del departamento
+      const usuariosDept = await pool.request()
+        .input('departamento_id', sql.Int, deptId)
+        .query(`SELECT usuario_id FROM usuario_departamentos WHERE departamento_id = @departamento_id`);
+
+      for (const u of usuariosDept.recordset) {
+        if (u.usuario_id !== usuario_id) {
+          await crearNotificacion(pool, u.usuario_id, ticket_id, 'nuevo_ticket',
+            `🎫 Nuevo ticket para ${dept.nombre}: ${numero_ticket}`,
+            `${nombre_reportante} reportó: "${asunto}"`);
+        }
+      }
+    }
+
+    // Historial
+    await pool.request()
+      .input('ticket_id', sql.Int, ticket_id)
+      .input('usuario_id', sql.Int, usuario_id)
+      .input('accion', sql.VarChar(50), 'creado')
+      .input('valor_nuevo', sql.VarChar(255), 'activo')
+      .input('descripcion', sql.NVarChar(sql.MAX), `Ticket creado${es_mixto ? ' (mixto)' : ''}`)
+      .query(`INSERT INTO ticket_historial (ticket_id, usuario_id, accion, valor_nuevo, descripcion)
+              VALUES (@ticket_id, @usuario_id, @accion, @valor_nuevo, @descripcion)`);
+
+    await notificarSuperAdmins(pool, ticket_id,
+      `🎫 Nuevo ticket: ${numero_ticket}`,
+      `${nombre_reportante} creó: "${asunto}" (${prioridad})`, usuario_id);
+
+    res.status(201).json({
+      success: true,
+      message: 'Ticket creado exitosamente',
+      ticket: { id: ticket_id, numero_ticket, asunto, estado: 'activo', prioridad, imagen_url, es_mixto }
+    });
+
+  } catch (error) {
+    console.error('Error al crear ticket con dept:', error);
+    res.status(500).json({ success: false, message: 'Error al crear el ticket', error: error.message });
+  }
+};
+
+// ============================================
+// MIS TICKETS — filtra por departamentos del usuario
+// ============================================
+exports.obtenerMisTicketsDept = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const usuario_id = req.user.id;
+    const { estado, limite = 100, pagina = 1 } = req.query;
+    const offset = (pagina - 1) * limite;
+
+    const esAdmin = esAdminOGerencia(req.user);
+
+    // Obtener departamentos asignados al usuario
+    const deptResult = await pool.request()
+      .input('uid', sql.Int, usuario_id)
+      .query(`SELECT departamento_id FROM usuario_departamentos WHERE usuario_id = @uid`);
+    const misDeptIds = deptResult.recordset.map(r => r.departamento_id);
+
+    let whereConditions = [];
+    const request = pool.request();
+    request.input('limite', sql.Int, parseInt(limite));
+    request.input('offset', sql.Int, parseInt(offset));
+
+    if (estado && estado !== 'todos') {
+      whereConditions.push('t.estado = @estado');
+      request.input('estado', sql.VarChar(20), estado);
+    }
+
+    if (esAdmin) {
+      // Admin y Gerencia ven todos
+    } else if (misDeptIds.length > 0) {
+      // Técnico con departamentos: ve tickets de sus departamentos O creados por él
+      const deptList = misDeptIds.join(',');
+      whereConditions.push(`(t.usuario_id = @uid OR EXISTS (
+        SELECT 1 FROM ticket_dept_asignaciones tda
+        WHERE tda.ticket_id = t.id AND tda.departamento_id IN (${deptList})
+      ))`);
+      request.input('uid', sql.Int, usuario_id);
+    } else {
+      // Sin departamentos: solo sus propios tickets
+      whereConditions.push('t.usuario_id = @uid');
+      request.input('uid', sql.Int, usuario_id);
+    }
+
+    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+    const result = await request.query(`
+      SELECT * FROM (
+        SELECT TOP (@limite + @offset)
+          t.*,
+          s.nombre as sucursal_nombre,
+          u_asignado.nombre_completo as asignado_nombre,
+          u_reportante.nombre_completo as reportante_nombre,
+          u_resuelto.nombre_completo as resuelto_nombre,
+          tc.nombre as categoria_nombre, tc.color as categoria_color, tc.icono as categoria_icono,
+          (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id = t.id) as num_respuestas,
+          ROW_NUMBER() OVER (ORDER BY
+            CASE t.prioridad WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 WHEN 'media' THEN 3 ELSE 4 END,
+            t.fecha_creacion DESC
+          ) as RowNum
+        FROM tickets t
+        LEFT JOIN sucursales s ON t.sucursal_id = s.id
+        LEFT JOIN usuarios u_asignado ON t.asignado_a = u_asignado.id
+        LEFT JOIN usuarios u_reportante ON t.usuario_id = u_reportante.id
+        LEFT JOIN usuarios u_resuelto ON t.resuelto_por = u_resuelto.id
+        LEFT JOIN ticket_categorias tc ON t.categoria = tc.nombre
+        ${whereClause}
+      ) AS R WHERE RowNum > @offset ORDER BY RowNum
+    `);
+
+    // Agregar info de departamentos a cada ticket
+    const ticketsConDept = await Promise.all(result.recordset.map(async (t) => {
+      const deptAsig = await pool.request()
+        .input('tid', sql.Int, t.id)
+        .query(`SELECT * FROM ticket_dept_asignaciones WHERE ticket_id = @tid ORDER BY orden ASC`);
+      return { ...t, dept_asignaciones: deptAsig.recordset };
+    }));
+
+    res.json({ success: true, tickets: ticketsConDept });
+
+  } catch (error) {
+    console.error('Error obtenerMisTicketsDept:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener tickets', error: error.message });
+  }
+};
+
+// ============================================
+// MARCAR DEPARTAMENTO COMO ENTREGADO
+// ============================================
+exports.marcarDeptEntregado = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { ticket_id, dept_id } = req.params;
+    const usuario_id = req.user.id;
+    const { notas } = req.body;
+
+    // Verificar que el usuario pertenece a ese departamento o es admin
+    if (!esAdminOGerencia(req.user)) {
+      const check = await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .input('did', sql.Int, parseInt(dept_id))
+        .query(`SELECT 1 FROM usuario_departamentos WHERE usuario_id = @uid AND departamento_id = @did`);
+      if (check.recordset.length === 0) {
+        return res.status(403).json({ success: false, message: 'No perteneces a este departamento' });
+      }
+    }
+
+    // Marcar esta asignación como entregada
+    await pool.request()
+      .input('ticket_id', sql.Int, parseInt(ticket_id))
+      .input('dept_id', sql.Int, parseInt(dept_id))
+      .input('uid', sql.Int, usuario_id)
+      .input('notas', sql.NVarChar(sql.MAX), notas || null)
+      .query(`
+        UPDATE ticket_dept_asignaciones
+        SET estado = 'entregado', usuario_asignado = @uid, fecha_entrega = GETDATE(), notas = @notas
+        WHERE ticket_id = @ticket_id AND departamento_id = @dept_id
+      `);
+
+    // Desbloquear el siguiente departamento en orden
+    const siguiente = await pool.request()
+      .input('ticket_id', sql.Int, parseInt(ticket_id))
+      .input('dept_id', sql.Int, parseInt(dept_id))
+      .query(`
+        SELECT TOP 1 id FROM ticket_dept_asignaciones
+        WHERE ticket_id = @ticket_id
+          AND estado = 'bloqueado'
+          AND orden > (SELECT orden FROM ticket_dept_asignaciones WHERE ticket_id = @ticket_id AND departamento_id = @dept_id)
+        ORDER BY orden ASC
+      `);
+
+    if (siguiente.recordset.length > 0) {
+      await pool.request()
+        .input('id', sql.Int, siguiente.recordset[0].id)
+        .query(`UPDATE ticket_dept_asignaciones SET estado = 'pendiente' WHERE id = @id`);
+    } else {
+      // No hay más departamentos pendientes → cerrar ticket
+      const todosEntregados = await pool.request()
+        .input('ticket_id', sql.Int, parseInt(ticket_id))
+        .query(`SELECT COUNT(*) as restantes FROM ticket_dept_asignaciones
+                WHERE ticket_id = @ticket_id AND estado != 'entregado'`);
+
+      if (todosEntregados.recordset[0].restantes === 0) {
+        await pool.request()
+          .input('id', sql.Int, parseInt(ticket_id))
+          .input('uid', sql.Int, usuario_id)
+          .query(`
+            UPDATE tickets SET estado = 'resuelto', resuelto_por = @uid, fecha_resolucion = GETDATE()
+            WHERE id = @id
+          `);
+        await pool.request()
+          .input('tid', sql.Int, parseInt(ticket_id))
+          .input('uid', sql.Int, usuario_id)
+          .query(`INSERT INTO ticket_historial (ticket_id, usuario_id, accion, valor_anterior, valor_nuevo, descripcion)
+                  VALUES (@tid, @uid, 'estado_cambiado', 'en_proceso', 'resuelto', 'Todos los departamentos entregaron')`);
+      }
+    }
+
+    await pool.request()
+      .input('tid', sql.Int, parseInt(ticket_id))
+      .input('uid', sql.Int, usuario_id)
+      .input('did', sql.VarChar(50), dept_id)
+      .query(`INSERT INTO ticket_historial (ticket_id, usuario_id, accion, valor_nuevo, descripcion)
+              VALUES (@tid, @uid, 'dept_entregado', @did, 'Departamento marcó su parte como entregada')`);
+
+    res.json({ success: true, message: 'Parte entregada correctamente' });
+
+  } catch (error) {
+    console.error('Error marcarDeptEntregado:', error);
+    res.status(500).json({ success: false, message: 'Error al entregar', error: error.message });
+  }
+};
+
+// ============================================
+// TABLERO GERENCIA — tickets por día
+// ============================================
+exports.obtenerTableroGerencia = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { dias = 30 } = req.query;
+
+    // Tickets por día
+    const porDia = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT
+          CAST(fecha_creacion AS DATE) as fecha,
+          COUNT(*) as total,
+          SUM(CASE WHEN estado = 'activo' THEN 1 ELSE 0 END) as activos,
+          SUM(CASE WHEN estado = 'en_proceso' THEN 1 ELSE 0 END) as en_proceso,
+          SUM(CASE WHEN estado = 'resuelto' THEN 1 ELSE 0 END) as resueltos,
+          SUM(CASE WHEN estado = 'cancelado' THEN 1 ELSE 0 END) as cancelados,
+          SUM(CASE WHEN estado = 'vencido' THEN 1 ELSE 0 END) as vencidos,
+          SUM(CASE WHEN es_mixto = 1 THEN 1 ELSE 0 END) as mixtos
+        FROM tickets
+        WHERE fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY CAST(fecha_creacion AS DATE)
+        ORDER BY fecha DESC
+      `);
+
+    // Tickets por departamento
+    const porDept = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT
+          tda.departamento_nombre,
+          COUNT(*) as total,
+          SUM(CASE WHEN tda.estado = 'entregado' THEN 1 ELSE 0 END) as entregados,
+          SUM(CASE WHEN tda.estado = 'pendiente' THEN 1 ELSE 0 END) as pendientes,
+          SUM(CASE WHEN tda.estado = 'bloqueado' THEN 1 ELSE 0 END) as bloqueados
+        FROM ticket_dept_asignaciones tda
+        INNER JOIN tickets t ON tda.ticket_id = t.id
+        WHERE t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY tda.departamento_nombre
+      `);
+
+    // Últimos 50 tickets con sus asignaciones
+    const ultimos = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT TOP 50
+          t.id, t.numero_ticket, t.asunto, t.estado, t.prioridad,
+          t.es_mixto, t.departamento, t.fecha_creacion,
+          s.nombre as sucursal_nombre,
+          u.nombre_completo as reportante_nombre
+        FROM tickets t
+        LEFT JOIN sucursales s ON t.sucursal_id = s.id
+        LEFT JOIN usuarios u ON t.usuario_id = u.id
+        WHERE t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        ORDER BY t.fecha_creacion DESC
+      `);
+
+    const ticketsConDept = await Promise.all(ultimos.recordset.map(async (t) => {
+      const deptAsig = await pool.request()
+        .input('tid', sql.Int, t.id)
+        .query(`SELECT * FROM ticket_dept_asignaciones WHERE ticket_id = @tid ORDER BY orden ASC`);
+      return { ...t, dept_asignaciones: deptAsig.recordset };
+    }));
+
+    res.json({
+      success: true,
+      por_dia: porDia.recordset,
+      por_departamento: porDept.recordset,
+      tickets: ticketsConDept
+    });
+
+  } catch (error) {
+    console.error('Error tablero gerencia:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener tablero', error: error.message });
+  }
+};
+
+// ============================================
+// OBTENER USUARIOS DE UN DEPARTAMENTO
+// ============================================
+exports.obtenerUsuariosDept = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { dept_id } = req.params;
+
+    const result = await pool.request()
+      .input('did', sql.Int, parseInt(dept_id))
+      .query(`
+        SELECT u.id, u.nombre_completo, u.username, ud.departamento_id
+        FROM usuario_departamentos ud
+        INNER JOIN usuarios u ON ud.usuario_id = u.id
+        WHERE ud.departamento_id = @did
+      `);
+
+    res.json({ success: true, usuarios: result.recordset });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error', error: error.message });
+  }
+};
+
+// ============================================
+// ASIGNAR / QUITAR USUARIO A DEPARTAMENTO (Admin)
+// ============================================
+exports.asignarUsuarioDept = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { usuario_id, departamento_id, accion } = req.body; // accion: 'agregar' | 'quitar'
+
+    if (accion === 'agregar') {
+      await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .input('did', sql.Int, departamento_id)
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM usuario_departamentos WHERE usuario_id = @uid AND departamento_id = @did)
+            INSERT INTO usuario_departamentos (usuario_id, departamento_id) VALUES (@uid, @did)
+        `);
+    } else {
+      await pool.request()
+        .input('uid', sql.Int, usuario_id)
+        .input('did', sql.Int, departamento_id)
+        .query(`DELETE FROM usuario_departamentos WHERE usuario_id = @uid AND departamento_id = @did`);
+    }
+
+    res.json({ success: true, message: `Usuario ${accion === 'agregar' ? 'asignado a' : 'quitado de'} departamento` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error', error: error.message });
+  }
+};
+
+// ============================================
+// MIS DEPARTAMENTOS (para el usuario actual)
+// ============================================
+// ============================================
+// ADMIN: TODAS LAS SOLICITUDES (MANTENCIONES)
+// ============================================
+exports.obtenerMantencionesAdmin = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { estado, departamento_id, prioridad, sucursal_id, busqueda, limite = 100 } = req.query;
+
+    const request = pool.request().input('limite', sql.Int, parseInt(limite));
+    const where = ['1=1'];
+
+    if (estado)        { where.push('t.estado = @estado');            request.input('estado',        sql.VarChar, estado); }
+    if (prioridad)     { where.push('t.prioridad = @prioridad');      request.input('prioridad',     sql.VarChar, prioridad); }
+    if (sucursal_id)   { where.push('t.sucursal_id = @sucursal_id'); request.input('sucursal_id',  sql.Int,     parseInt(sucursal_id)); }
+    if (departamento_id) {
+      where.push(`EXISTS (SELECT 1 FROM ticket_dept_asignaciones tda WHERE tda.ticket_id=t.id AND tda.departamento_id=@dept_id)`);
+      request.input('dept_id', sql.Int, parseInt(departamento_id));
+    }
+    if (busqueda) {
+      where.push(`(t.asunto LIKE @bus OR t.mensaje LIKE @bus OR t.numero_ticket LIKE @bus OR u_r.nombre_completo LIKE @bus)`);
+      request.input('bus', sql.VarChar, `%${busqueda}%`);
+    }
+
+    const result = await request.query(`
+      SELECT TOP (@limite)
+        t.id, t.numero_ticket, t.asunto, t.mensaje, t.estado, t.prioridad, t.tipo,
+        t.es_mixto, t.imagen_url, t.fecha_creacion, t.fecha_vencimiento,
+        t.sucursal_id, s.nombre AS sucursal_nombre,
+        t.usuario_id, u_r.nombre_completo AS reportante_nombre,
+        t.asignado_a, u_a.nombre_completo AS asignado_nombre,
+        (SELECT COUNT(*) FROM ticket_respuestas WHERE ticket_id=t.id) AS num_respuestas
+      FROM tickets t
+      LEFT JOIN sucursales s   ON t.sucursal_id = s.id
+      LEFT JOIN usuarios u_r   ON t.usuario_id  = u_r.id
+      LEFT JOIN usuarios u_a   ON t.asignado_a  = u_a.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        CASE t.prioridad WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 WHEN 'media' THEN 3 ELSE 4 END,
+        t.fecha_creacion DESC
+    `);
+
+    const tickets = await Promise.all(result.recordset.map(async (t) => {
+      const deptAsig = await pool.request()
+        .input('tid', sql.Int, t.id)
+        .query(`SELECT * FROM ticket_dept_asignaciones WHERE ticket_id=@tid ORDER BY orden ASC`);
+      return { ...t, dept_asignaciones: deptAsig.recordset };
+    }));
+
+    // Stats
+    const stats = await pool.request().query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN estado='activo'     THEN 1 ELSE 0 END) AS activos,
+        SUM(CASE WHEN estado='en_proceso' THEN 1 ELSE 0 END) AS en_proceso,
+        SUM(CASE WHEN estado='resuelto'   THEN 1 ELSE 0 END) AS resueltos,
+        SUM(CASE WHEN prioridad='critica' THEN 1 ELSE 0 END) AS criticos
+      FROM tickets
+    `);
+
+    res.json({ success: true, tickets, stats: stats.recordset[0] });
+  } catch (error) {
+    console.error('obtenerMantencionesAdmin:', error);
+    res.status(500).json({ success: false, message: 'Error', error: error.message });
+  }
+};
+
+// ============================================
+// ANALYTICS DE DEPARTAMENTOS
+// ============================================
+exports.obtenerAnalyticsDept = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { dias = 30 } = req.query;
+
+    // Tickets por departamento con conteos de estado
+    const porDept = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT
+          tda.departamento_id,
+          tda.departamento_nombre,
+          COUNT(DISTINCT tda.ticket_id)                                             AS total,
+          SUM(CASE WHEN tda.estado = 'entregado' THEN 1 ELSE 0 END)               AS resueltos,
+          SUM(CASE WHEN tda.estado = 'pendiente' THEN 1 ELSE 0 END)               AS pendientes,
+          SUM(CASE WHEN tda.estado = 'bloqueado' THEN 1 ELSE 0 END)               AS bloqueados,
+          SUM(CASE WHEN t.prioridad = 'critica' THEN 1 ELSE 0 END)                AS criticos,
+          AVG(CAST(t.tiempo_resolucion_minutos AS FLOAT))                          AS tiempo_promedio_min
+        FROM ticket_dept_asignaciones tda
+        INNER JOIN tickets t ON tda.ticket_id = t.id
+        WHERE t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY tda.departamento_id, tda.departamento_nombre
+        ORDER BY total DESC
+      `);
+
+    // Tickets por día (últimos N días)
+    const porDia = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT
+          CAST(t.fecha_creacion AS DATE) AS fecha,
+          COUNT(*) AS total,
+          SUM(CASE WHEN t.estado='resuelto'   THEN 1 ELSE 0 END) AS resueltos,
+          SUM(CASE WHEN t.estado='activo'     THEN 1 ELSE 0 END) AS activos,
+          SUM(CASE WHEN t.estado='en_proceso' THEN 1 ELSE 0 END) AS en_proceso
+        FROM tickets t
+        WHERE t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY CAST(t.fecha_creacion AS DATE)
+        ORDER BY fecha ASC
+      `);
+
+    // Top resolvedores (usuarios que más dept_entregado tienen)
+    const topResolvedores = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT TOP 10
+          u.id,
+          u.nombre_completo,
+          COUNT(*) AS resueltos
+        FROM ticket_dept_asignaciones tda
+        INNER JOIN tickets t ON tda.ticket_id = t.id
+        INNER JOIN usuarios u ON tda.usuario_asignado = u.id
+        WHERE tda.estado = 'entregado'
+          AND t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY u.id, u.nombre_completo
+        ORDER BY resueltos DESC
+      `);
+
+    // Distribución por prioridad
+    const porPrioridad = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT prioridad, COUNT(*) AS total
+        FROM tickets
+        WHERE fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY prioridad
+      `);
+
+    // Distribución por sucursal
+    const porSucursal = await pool.request()
+      .input('dias', sql.Int, parseInt(dias))
+      .query(`
+        SELECT
+          ISNULL(s.nombre, 'Sin sucursal') AS sucursal,
+          COUNT(*) AS total
+        FROM tickets t
+        LEFT JOIN sucursales s ON t.sucursal_id = s.id
+        WHERE t.fecha_creacion >= DATEADD(DAY, -@dias, GETDATE())
+        GROUP BY s.nombre
+        ORDER BY total DESC
+      `);
+
+    res.json({
+      success: true,
+      por_departamento: porDept.recordset,
+      por_dia: porDia.recordset,
+      top_resolvedores: topResolvedores.recordset,
+      por_prioridad: porPrioridad.recordset,
+      por_sucursal: porSucursal.recordset,
+    });
+  } catch (error) {
+    console.error('obtenerAnalyticsDept:', error);
+    res.status(500).json({ success: false, message: 'Error', error: error.message });
+  }
+};
+
+exports.obtenerMisDepartamentos = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const usuario_id = req.user.id;
+
+    const result = await pool.request()
+      .input('uid', sql.Int, usuario_id)
+      .query(`SELECT departamento_id FROM usuario_departamentos WHERE usuario_id = @uid`);
+
+    const misDeptIds = result.recordset.map(r => r.departamento_id);
+    const misDepts = DEPARTAMENTOS.filter(d => misDeptIds.includes(d.id));
+
+    res.json({ success: true, departamentos: misDepts });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error :(', error: error.message });
   }
 };

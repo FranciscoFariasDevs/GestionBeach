@@ -7,6 +7,7 @@ const { sql, poolPromise } = require('../config/db');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
+const { crearNotificacion } = require('../services/notificacionesService');
 
 // ─── Upload de fotos de ítems ────────────────────────────────────────────────
 const uploadDir = path.join(__dirname, '..', 'uploads', 'cotizaciones');
@@ -119,7 +120,7 @@ exports.crearCotizacion = async (req, res) => {
     // Obtener gerentes para notificar
     const gerentes = await getUsuariosPorPerfiles(pool, [...PERFILES_GERENTE, ...PERFILES_ADMIN]);
 
-    // Notificar en tiempo real
+    // Notificar en tiempo real (Socket.IO) + persistente (BD)
     notificar(req, 'nueva_cotizacion', {
       cotizacion_id:    cotizacionId,
       asunto,
@@ -129,6 +130,16 @@ exports.crearCotizacion = async (req, res) => {
       para_usuarios:    gerentes.map(u => u.id),
       para_roles:       [...PERFILES_GERENTE, ...PERFILES_ADMIN],
     });
+    for (const g of gerentes) {
+      await crearNotificacion({
+        usuarioId: g.id,
+        tipo:      'cotizacion_nueva',
+        titulo:    `📋 Nueva cotización: ${asunto}`,
+        mensaje:   `${usuario.nombre || usuario.username} creó una cotización por $${total.toLocaleString('es-CL')}.`,
+        ruta:      '/cotizaciones',
+        icono:     'request_quote',
+      });
+    }
 
     console.log(`✅ Cotización #${cotizacionId} creada por ${usuario.nombre || usuario.username}`);
     res.status(201).json({ success: true, id: cotizacionId, message: 'Cotización enviada al gerente' });

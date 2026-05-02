@@ -1,5 +1,6 @@
 // frontend/src/layouts/DashboardLayout.jsx - CON PERMISOS CASL.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { io as socketIO } from 'socket.io-client';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
 import {
@@ -66,6 +67,11 @@ import {
   Summarize as SummarizeIcon,
   AccountTree as AccountTreeIcon,
   ViewKanban as ViewKanbanIcon,
+  DoneAll as DoneAllIcon,
+  Delete as DeleteIcon,
+  Info as InfoIcon,
+  Search as SearchIcon,
+  Build as BuildIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -73,6 +79,8 @@ import { filterMenuItems } from '../config/permissions';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/api';
 import ChatWidget from '../components/ChatWidget';
+import BuscadorInteligente from '../components/BuscadorInteligente';
+import { registrarPushNotificaciones } from '../services/pushService';
 
 const drawerWidth = 200;
 const miniDrawerWidth = 60;
@@ -186,6 +194,7 @@ export default function DashboardLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [open, setOpen] = useState(!isMobile); // Iniciar cerrado en móvil
+  const [buscadorOpen, setBuscadorOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const { user, logout } = useAuth();
   const { ability, isSuperUser, hasProfile } = usePermissions();
@@ -203,6 +212,11 @@ export default function DashboardLayout() {
   const [notifications, setNotifications] = useState([]);
   const [ticketNotifications, setTicketNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
+
+  // Estados para notificaciones del sistema (BD + Socket.IO)
+  const [sistemaNotifs, setSistemaNotifs] = useState([]);
+  const [sistemaNoLeidas, setSistemaNoLeidas] = useState(0);
+  const socketRef = useRef(null);
 
   const handleDrawerOpen = () => {
     console.log('🔓 Abriendo drawer - isMobile:', isMobile);
@@ -298,7 +312,6 @@ export default function DashboardLayout() {
         }
 
         setNotifications(filteredNotifications);
-        updateNotificationCount(filteredNotifications);
       }
     } catch (error) {
       console.error('Error al cargar notificaciones:', error);
@@ -314,7 +327,6 @@ export default function DashboardLayout() {
         const prevCount = ticketNotifications.length;
 
         setTicketNotifications(newNotifications);
-        updateNotificationCount(null, newNotifications);
 
         // Efecto visual si hay nuevas notificaciones
         if (newNotifications.length > prevCount && prevCount > 0) {
@@ -332,7 +344,6 @@ export default function DashboardLayout() {
     try {
       await api.put('/tickets/notificaciones/marcar-todas');
       setTicketNotifications([]);
-      updateNotificationCount(notifications, []);
     } catch (error) {
       console.error('Error al marcar notificaciones:', error);
     }
@@ -343,17 +354,12 @@ export default function DashboardLayout() {
     try {
       await api.put(`/tickets/notificaciones/${notifId}/leer`);
       setTicketNotifications(prev => prev.filter(n => n.id !== notifId));
-      updateNotificationCount(notifications, ticketNotifications.filter(n => n.id !== notifId));
     } catch (error) {
       console.error('Error al marcar notificación:', error);
     }
   };
 
-  // Actualizar el conteo total de notificaciones
-  const updateNotificationCount = (inventoryNotifs = notifications, ticketNotifs = ticketNotifications) => {
-    const total = (inventoryNotifs?.length || 0) + (ticketNotifs?.length || 0);
-    setNotificationCount(total);
-  };
+  // (conteo centralizado en useEffect que incluye sistema)
 
   // Cargar notificaciones al montar el componente y cada minuto (más frecuente para tickets)
   useEffect(() => {
@@ -373,6 +379,80 @@ export default function DashboardLayout() {
       };
     }
   }, [user]);
+
+  // Notificaciones del sistema (BD) — carga inicial + Socket.IO
+  const fetchSistemaNotifs = async () => {
+    try {
+      const r = await api.get('/notificaciones');
+      setSistemaNotifs(r.data.notificaciones || []);
+      setSistemaNoLeidas(r.data.no_leidas || 0);
+    } catch {}
+  };
+
+  useEffect(() => {
+    setNotificationCount(
+      (notifications?.length || 0) + (ticketNotifications?.length || 0) + sistemaNoLeidas
+    );
+  }, [notifications, ticketNotifications, sistemaNoLeidas]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchSistemaNotifs();
+
+    // Intentar registrar push notifications (pide permiso al usuario si no lo ha dado)
+    registrarPushNotificaciones().catch(() => {});
+
+    const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://192.168.100.150:5000';
+    const socket = socketIO(SOCKET_URL, { transports: ['websocket'], autoConnect: true });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('registrar_usuario', { id: user.id, nombre: user.nombre });
+    });
+
+    socket.on('nueva_notificacion', (notif) => {
+      setSistemaNotifs(prev => [notif, ...prev].slice(0, 50));
+      setSistemaNoLeidas(n => n + 1);
+    });
+
+    return () => socket.disconnect();
+  }, [user]);
+
+  const marcarSistemaLeida = async (id, ruta) => {
+    try { await api.put(`/notificaciones/${id}/leer`); } catch {}
+    setSistemaNotifs(prev => prev.map(n => n.id === id ? { ...n, leida: 1 } : n));
+    setSistemaNoLeidas(n => Math.max(0, n - 1));
+    if (ruta) { setNotificationsAnchor(null); navigate(ruta); }
+  };
+
+  const marcarSistemaTodasLeidas = async () => {
+    try { await api.put('/notificaciones/leer-todas'); } catch {}
+    setSistemaNotifs(prev => prev.map(n => ({ ...n, leida: 1 })));
+    setSistemaNoLeidas(0);
+  };
+
+  const eliminarSistemaNotif = async (e, id) => {
+    e.stopPropagation();
+    try { await api.delete(`/notificaciones/${id}`); } catch {}
+    setSistemaNotifs(prev => {
+      const updated = prev.filter(n => n.id !== id);
+      const noLeidas = updated.filter(n => !n.leida).length;
+      setSistemaNoLeidas(noLeidas);
+      return updated;
+    });
+  };
+
+  // Atajo global Ctrl+K para abrir el buscador semántico
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setBuscadorOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Definir todos los elementos del menú (ANTES del filtrado)
   const allMenuItems = [
@@ -402,6 +482,7 @@ export default function DashboardLayout() {
         { text: 'Anulaciones', path: '/productos/anulaciones', icon: <PointOfSaleIcon /> },
       ],
     },
+    { text: 'Los Más Vendidos', icon: <TrendingUpIcon />, path: '/los-mas-vendidos', orangeType: 'light' },
     { text: 'Rotación Ferreterias', icon: <TrendingUpIcon />, path: '/productos/rotacion-ferreterias', orangeType: 'dark' },
     {
       text: 'Compras',
@@ -436,6 +517,7 @@ export default function DashboardLayout() {
     },
     { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
     { text: 'Códigos Descuento', icon: <ConfirmationNumberIcon />, path: '/codigos-descuento', orangeType: 'dark' },
+    { text: 'Mantenciones', icon: <BuildIcon />, path: '/mantenciones', orangeType: 'dark' },
     { text: 'Mis Tickets', icon: <AssignmentIcon />, path: '/mis-tickets', orangeType: 'light' },
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
     { text: 'Perfiles', icon: <AssignmentIcon />, path: '/perfiles', orangeType: 'dark' },
@@ -480,6 +562,7 @@ export default function DashboardLayout() {
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',
         '/codigos-descuento': 'Códigos de Descuento',
+        '/mantenciones': 'Mantenciones — Solicitudes',
         '/mis-tickets': 'Mis Tickets de Soporte',
         '/usuarios': 'Gestión de Usuarios',
         '/perfiles': 'Gestión de Perfiles',
@@ -547,6 +630,33 @@ export default function DashboardLayout() {
             />
           )}
 
+          {/* Buscador semántico */}
+          <Tooltip title="Buscar (Ctrl+K)">
+            <Box
+              onClick={() => setBuscadorOpen(true)}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                mr: 1.5,
+                px: 1.5,
+                py: 0.5,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.12)',
+                cursor: 'pointer',
+                border: '1px solid rgba(255,255,255,0.2)',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
+                transition: 'background 0.2s',
+              }}
+            >
+              <SearchIcon sx={{ fontSize: 18, opacity: 0.85 }} />
+              <Typography variant="body2" sx={{ opacity: 0.75, fontSize: '0.8rem', display: { xs: 'none', sm: 'block' } }}>
+                Buscar…
+              </Typography>
+              <Chip label="Ctrl K" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: 'rgba(255,255,255,0.15)', color: 'inherit', display: { xs: 'none', md: 'flex' } }} />
+            </Box>
+          </Tooltip>
+
           {/* Botón de Notificaciones de Inventario */}
           <IconButton
             size="large"
@@ -609,28 +719,29 @@ export default function DashboardLayout() {
                     Notificaciones
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                    {ticketNotifications.length} de tickets • {notifications.length} de inventario
+                    {ticketNotifications.length} tickets • {notifications.length} inventario • {sistemaNoLeidas} sistema
                   </Typography>
                 </Box>
-                {ticketNotifications.length > 0 && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={handleMarkAllAsRead}
-                    sx={{
-                      color: 'white',
-                      borderColor: 'rgba(255,255,255,0.5)',
-                      fontSize: '0.7rem',
-                      '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
-                    }}
-                  >
-                    Marcar leídas
-                  </Button>
-                )}
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  {sistemaNoLeidas > 0 && (
+                    <Button size="small" variant="outlined" onClick={marcarSistemaTodasLeidas}
+                      sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', fontSize: '0.65rem',
+                        '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
+                      <DoneAllIcon sx={{ fontSize: 14, mr: 0.5 }} />Sistema
+                    </Button>
+                  )}
+                  {ticketNotifications.length > 0 && (
+                    <Button size="small" variant="outlined" onClick={handleMarkAllAsRead}
+                      sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', fontSize: '0.65rem',
+                        '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
+                      <DoneAllIcon sx={{ fontSize: 14, mr: 0.5 }} />Tickets
+                    </Button>
+                  )}
+                </Box>
               </Box>
 
               <List sx={{ p: 0, maxHeight: 420, overflow: 'auto' }}>
-                {notifications.length === 0 && ticketNotifications.length === 0 ? (
+                {notifications.length === 0 && ticketNotifications.length === 0 && sistemaNotifs.length === 0 ? (
                   <Box sx={{ p: 4, textAlign: 'center' }}>
                     <NotificationsIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
                     <Typography variant="body2" color="text.secondary">
@@ -639,6 +750,62 @@ export default function DashboardLayout() {
                   </Box>
                 ) : (
                   <>
+                    {/* Notificaciones del Sistema (planificación, kanban, cotizaciones) */}
+                    {sistemaNotifs.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 0 }}>
+                          <Chip label="Sistema" size="small" color="primary" />
+                        </Divider>
+                        {sistemaNotifs.map((n, i) => (
+                          <ListItem
+                            key={`sis-${n.id}`}
+                            alignItems="flex-start"
+                            button
+                            onClick={() => marcarSistemaLeida(n.id, n.ruta)}
+                            secondaryAction={
+                              <IconButton size="small" onClick={(e) => eliminarSistemaNotif(e, n.id)}>
+                                <DeleteIcon sx={{ fontSize: 13, color: 'text.disabled' }} />
+                              </IconButton>
+                            }
+                            sx={{
+                              borderBottom: 1, borderColor: 'divider',
+                              bgcolor: n.leida ? 'transparent' : '#f0f4ff',
+                              '&:hover': { filter: 'brightness(0.97)' },
+                              py: 1, pr: 5,
+                            }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 40, mt: 0.5 }}>
+                              <Avatar sx={{ width: 28, height: 28, bgcolor: n.leida ? '#bdbdbd' : '#667eea' }}>
+                                <InfoIcon sx={{ fontSize: 16 }} />
+                              </Avatar>
+                            </ListItemIcon>
+                            <ListItemText
+                              primary={
+                                <Typography variant="subtitle2" fontWeight={n.leida ? 400 : 700} noWrap>
+                                  {n.titulo}
+                                </Typography>
+                              }
+                              secondary={
+                                <>
+                                  {n.mensaje && (
+                                    <Typography variant="body2" color="text.secondary" sx={{
+                                      overflow: 'hidden', textOverflow: 'ellipsis',
+                                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                    }}>
+                                      {n.mensaje}
+                                    </Typography>
+                                  )}
+                                  <Typography variant="caption" color="text.disabled" sx={{ mt: 0.3, display: 'block' }}>
+                                    {new Date(n.fecha_creacion).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                  </Typography>
+                                </>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </>
+                    )}
+
                     {/* Notificaciones de Tickets - Mejoradas */}
                     {ticketNotifications.map((notif, index) => {
                       // Determinar icono y color según tipo
@@ -1053,6 +1220,9 @@ export default function DashboardLayout() {
 
       {/* Chat interno en tiempo real */}
       <ChatWidget />
+
+      {/* Buscador semántico global */}
+      <BuscadorInteligente open={buscadorOpen} onClose={() => setBuscadorOpen(false)} />
 
       {/* Botón flotante de Reportar Problema */}
       <Tooltip title="Reportar Problema" placement="left">
