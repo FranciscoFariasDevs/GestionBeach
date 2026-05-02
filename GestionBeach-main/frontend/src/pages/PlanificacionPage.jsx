@@ -41,6 +41,7 @@ import {
   FullscreenExit as FullscreenExitIcon,
   Bookmark as BookmarkIcon,
   Receipt as ReceiptIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import InputAdornment from '@mui/material/InputAdornment';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -585,6 +586,147 @@ async function exportarResumenComoPDF(weeksData, año) {
   }
 
   pdf.save(`resumen-pagos-${año}.pdf`);
+}
+
+// ─── Exportar detalle encadenados / no encadenados ────────────────────────────
+function expandirParaExport(agrupados) {
+  const filas = [];
+  for (const g of agrupados) {
+    const plazos = g.plazos?.length > 0 ? g.plazos : [{
+      plazo_dias:        g.plazo_dias,
+      fecha_vencimiento: g.fecha_vencimiento,
+      semana_vencimiento: g.semana_vencimiento,
+      monto_con_iva:     parseFloat(g.monto_con_iva) || 0,
+      monto_neto:        parseFloat(g.monto_neto)    || 0,
+      fuente:            g.fuente,
+    }];
+    for (const p of plazos) {
+      const fv = p.fecha_vencimiento
+        ? (typeof p.fecha_vencimiento === 'string' ? p.fecha_vencimiento.split('T')[0] : isoStr(new Date(p.fecha_vencimiento)))
+        : '';
+      const fe = g.fecha_compra
+        ? (typeof g.fecha_compra === 'string' ? g.fecha_compra.split('T')[0] : isoStr(new Date(g.fecha_compra)))
+        : '';
+      filas.push({
+        proveedor:          g.proveedor          || '',
+        numero_orden:       g.numero_orden        || '',
+        sucursal:           g.sucursal            || '',
+        tipo_proveedor:     g.tipo_proveedor || g.tipo || '',
+        fuente:             p.fuente || g.fuente  || '',
+        fecha_compra:       fe,
+        semana_vencimiento: p.semana_vencimiento  || g.semana_vencimiento || '',
+        fecha_vencimiento:  fv,
+        plazo_dias:         p.plazo_dias ?? g.plazo_dias ?? '',
+        monto_neto:         p.monto_neto  ?? (parseFloat(g.monto_neto)    || 0),
+        monto_con_iva:      p.monto_con_iva ?? (parseFloat(g.monto_con_iva) || 0),
+        estado_pago:        p.estado_pago || g.estado_pago || 'pendiente',
+      });
+    }
+  }
+  return filas;
+}
+
+async function exportarDetalleXLSX(agrupados, tipo, semana, year, desde, hasta) {
+  const XLSX = await import('xlsx');
+  const filas = expandirParaExport(agrupados);
+  const fmt  = n => Math.round(n || 0);
+  const rango = (desde || hasta) ? `${desde || '(sin límite)'} al ${hasta || '(sin límite)'}` : 'Todos los registros';
+
+  const wsData = [
+    [`Planificación — Detalle ${tipo} — Semana ${semana} · Año ${year}`],
+    [`Rango de vencimiento: ${rango}`],
+    [`Generado: ${new Date().toLocaleDateString('es-CL', { day:'2-digit', month:'long', year:'numeric' })}`],
+    [],
+    ['Proveedor','N° Orden','Sucursal','Tipo','Fuente','F. Emisión','Sem. Venc.','F. Vencimiento','Plazo (días)','Monto Neto ($)','Monto c/IVA ($)','Estado Pago'],
+    ...filas.map(f => [
+      f.proveedor, f.numero_orden, f.sucursal, f.tipo_proveedor, f.fuente,
+      f.fecha_compra, f.semana_vencimiento ? `S${f.semana_vencimiento}` : '',
+      f.fecha_vencimiento, f.plazo_dias !== '' ? Number(f.plazo_dias) : '',
+      fmt(f.monto_neto), fmt(f.monto_con_iva), f.estado_pago,
+    ]),
+    [],
+    ['TOTAL', '', '', '', '', '', '', '', '',
+      fmt(filas.reduce((s,f) => s + f.monto_neto,   0)),
+      fmt(filas.reduce((s,f) => s + f.monto_con_iva, 0)), ''],
+  ];
+
+  const ws  = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    {wch:32},{wch:16},{wch:22},{wch:16},{wch:12},
+    {wch:14},{wch:10},{wch:16},{wch:12},{wch:18},{wch:18},{wch:14},
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `Sem${semana}_${tipo.substring(0,10)}`);
+  const nombre = `planificacion_${tipo.toLowerCase().replace(/[^a-z]/g,'')}_sem${semana}_${year}${desde?`_${desde}`:''}${hasta?`_al_${hasta}`:''}.xlsx`;
+  XLSX.writeFile(wb, nombre);
+}
+
+async function exportarDetallePDF(agrupados, tipo, semana, year, desde, hasta, esEnc) {
+  const { jsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+  const filas = expandirParaExport(agrupados);
+  const fmtClp = n => '$' + Math.round(n||0).toLocaleString('es-CL');
+  const [r, g, b] = esEnc ? [26,35,126] : [6,78,59];
+
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+
+  pdf.setFillColor(r, g, b);
+  pdf.rect(0, 0, pageW, 22, 'F');
+  pdf.setTextColor(255,255,255);
+  pdf.setFontSize(12);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`Planificación — ${tipo} — Semana ${semana} · Año ${year}`, 10, 10);
+  pdf.setFontSize(7.5);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`Generado el ${new Date().toLocaleDateString('es-CL', { day:'2-digit', month:'long', year:'numeric' })}`, pageW - 10, 10, { align:'right' });
+  if (desde || hasta) {
+    pdf.setTextColor(200,220,255);
+    pdf.text(`Vencimiento desde ${desde||'(inicio)'} hasta ${hasta||'(fin)'}`, 10, 18);
+  }
+
+  const totNeto = filas.reduce((s,f) => s + f.monto_neto,   0);
+  const totIva  = filas.reduce((s,f) => s + f.monto_con_iva, 0);
+  const kpis = [['Registros', String(filas.length)], ['Total Neto', fmtClp(totNeto)], ['Total c/IVA', fmtClp(totIva)]];
+  kpis.forEach(([label, val], i) => {
+    const kx = 10 + i * 95;
+    pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100,100,100); pdf.setFontSize(7.5);
+    pdf.text(label, kx, 30);
+    pdf.setFont('helvetica', 'bold');   pdf.setTextColor(r,g,b);
+    pdf.text(val, kx, 36);
+  });
+
+  autoTable(pdf, {
+    startY: 42,
+    head: [['Proveedor','N° Orden','Sucursal','Fuente','F. Emisión','Sem. Venc.','F. Vencimiento','Plazo','Monto Neto','Monto c/IVA','Estado']],
+    body: filas.map(f => [
+      f.proveedor, f.numero_orden, f.sucursal, f.fuente, f.fecha_compra,
+      f.semana_vencimiento ? `S${f.semana_vencimiento}` : '—',
+      f.fecha_vencimiento || '—',
+      f.plazo_dias !== '' ? `${f.plazo_dias}d` : '—',
+      fmtClp(f.monto_neto), fmtClp(f.monto_con_iva), f.estado_pago || 'pendiente',
+    ]),
+    foot: [['TOTAL','','','','','','','', fmtClp(totNeto), fmtClp(totIva),'']],
+    theme: 'striped',
+    headStyles: { fillColor:[r,g,b], textColor:255, fontStyle:'bold', fontSize:7 },
+    footStyles: { fillColor:[240,240,245], textColor:[r,g,b], fontStyle:'bold', fontSize:7 },
+    bodyStyles: { fontSize:6.5, cellPadding:1.5 },
+    alternateRowStyles: { fillColor:[248,250,252] },
+    columnStyles: {
+      0:{cellWidth:38}, 1:{cellWidth:20}, 2:{cellWidth:24}, 3:{cellWidth:16},
+      4:{cellWidth:18}, 5:{cellWidth:13,halign:'center'}, 6:{cellWidth:20},
+      7:{cellWidth:12,halign:'center'}, 8:{cellWidth:22,halign:'right'},
+      9:{cellWidth:22,halign:'right'}, 10:{cellWidth:18},
+    },
+    didDrawPage: (data) => {
+      const total = pdf.internal.getNumberOfPages();
+      pdf.setFontSize(6.5); pdf.setTextColor(150); pdf.setFont('helvetica','normal');
+      pdf.text(`Página ${data.pageNumber} de ${total}  ·  GestionBeach · ${tipo} Sem. ${semana}/${year}`,
+        pageW/2, pdf.internal.pageSize.getHeight()-5, { align:'center' });
+    },
+  });
+
+  pdf.save(`planificacion_${tipo.toLowerCase().replace(/[^a-z]/g,'')}_sem${semana}_${year}.pdf`);
 }
 
 // ─── Gráfico Anual Pantalla Completa ─────────────────────────────────────────
@@ -4077,6 +4219,10 @@ const PlanificacionPage = () => {
   const [filterEncHasta,  setFilterEncHasta]  = useState('');
   const [filterNencDesde, setFilterNencDesde] = useState('');
   const [filterNencHasta, setFilterNencHasta] = useState('');
+  const [exportingEncXlsx,  setExportingEncXlsx]  = useState(false);
+  const [exportingEncPdf,   setExportingEncPdf]   = useState(false);
+  const [exportingNencXlsx, setExportingNencXlsx] = useState(false);
+  const [exportingNencPdf,  setExportingNencPdf]  = useState(false);
   // Filtro por N° Orden en Enc / No Enc
   const [searchEncOC,      setSearchEncOC]      = useState('');
   const [searchNencOC,     setSearchNencOC]     = useState('');
@@ -5101,6 +5247,26 @@ const PlanificacionPage = () => {
                       </Typography>
                     )}
                   </Typography>
+                  {encFiltrados.length > 0 && (
+                    <>
+                      <Tooltip title="Exportar a Excel (respeta filtros de fecha activos)">
+                        <Button size="small" variant="outlined" startIcon={exportingEncXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
+                          disabled={exportingEncXlsx}
+                          onClick={async () => { setExportingEncXlsx(true); try { await exportarDetalleXLSX(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta); } finally { setExportingEncXlsx(false); } }}
+                          sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:ENC_MID, color:ENC_DARK, '&:hover':{bgcolor:alpha(ENC_DARK,.06)} }}>
+                          {exportingEncXlsx ? 'Exportando…' : 'Excel'}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Exportar a PDF (respeta filtros de fecha activos)">
+                        <Button size="small" variant="outlined" startIcon={exportingEncPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
+                          disabled={exportingEncPdf}
+                          onClick={async () => { setExportingEncPdf(true); try { await exportarDetallePDF(encFiltrados,'Encadenados',week,year,filterEncDesde,filterEncHasta,true); } finally { setExportingEncPdf(false); } }}
+                          sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:'#b71c1c', color:'#b71c1c', '&:hover':{bgcolor:'rgba(183,28,28,0.06)'} }}>
+                          {exportingEncPdf ? 'Exportando…' : 'PDF'}
+                        </Button>
+                      </Tooltip>
+                    </>
+                  )}
                 </Box>
                   );
                 })()}
@@ -5212,6 +5378,26 @@ const PlanificacionPage = () => {
                             </>
                           )}
                         </Typography>
+                        {!cargando && nencFiltrados.length > 0 && (
+                          <>
+                            <Tooltip title="Exportar a Excel (respeta filtros de fecha activos)">
+                              <Button size="small" variant="outlined" startIcon={exportingNencXlsx ? <CircularProgress size={12}/> : <DownloadIcon sx={{fontSize:14}}/>}
+                                disabled={exportingNencXlsx}
+                                onClick={async () => { setExportingNencXlsx(true); try { await exportarDetalleXLSX(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta); } finally { setExportingNencXlsx(false); } }}
+                                sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:NENC_MID, color:NENC_DARK, '&:hover':{bgcolor:alpha(NENC_DARK,.06)} }}>
+                                {exportingNencXlsx ? 'Exportando…' : 'Excel'}
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="Exportar a PDF (respeta filtros de fecha activos)">
+                              <Button size="small" variant="outlined" startIcon={exportingNencPdf ? <CircularProgress size={12}/> : <PictureAsPdfIcon sx={{fontSize:14}}/>}
+                                disabled={exportingNencPdf}
+                                onClick={async () => { setExportingNencPdf(true); try { await exportarDetallePDF(nencFiltrados,'No Encadenados',week,year,filterNencDesde,filterNencHasta,false); } finally { setExportingNencPdf(false); } }}
+                                sx={{ textTransform:'none', fontSize:'0.72rem', borderRadius:2, borderColor:'#b71c1c', color:'#b71c1c', '&:hover':{bgcolor:'rgba(183,28,28,0.06)'} }}>
+                                {exportingNencPdf ? 'Exportando…' : 'PDF'}
+                              </Button>
+                            </Tooltip>
+                          </>
+                        )}
                       </Box>
                       {!cargando && nencAgrupados.length > 0 && (
                         <Box sx={{px:2,py:1,borderBottom:'1px solid',borderColor:'divider'}}>
