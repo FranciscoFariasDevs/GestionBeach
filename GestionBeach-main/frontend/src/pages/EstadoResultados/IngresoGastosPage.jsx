@@ -7,15 +7,12 @@ import {
   Grid,
   Card,
   CardHeader,
-  CardContent,
-  CardActions,
   Typography,
   Paper,
   CircularProgress,
   Alert,
   useTheme,
   Fade,
-  Zoom,
   Select,
   MenuItem,
   FormControl,
@@ -30,8 +27,8 @@ import {
   Tab,
   Chip,
   LinearProgress,
-  Divider,
   alpha,
+  Stack,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -40,26 +37,16 @@ import { es } from 'date-fns/locale';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SaveIcon from '@mui/icons-material/Save';
 import SendIcon from '@mui/icons-material/Send';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import EditIcon from '@mui/icons-material/Edit';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
-import ReceiptIcon from '@mui/icons-material/Receipt';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
-import {
-  AnalisisFinanciero,
-  EstadoResultadosDetallado,
-  KPICard,
-  IndicatorProgress
-} from './ResultadosComponents';
 import DynamicExpenseSection from '../../components/DynamicExpenseSection.jsx';
 import {
-  calcularPorcentaje,
-  obtenerRangoDeFechas
+  obtenerRangoDeFechas,
+  formatCurrency
 } from './utils';
 
 function TabPanel(props) {
@@ -91,8 +78,6 @@ const IngresoGastosPage = () => {
   const [hasChanges, setHasChanges] = useState(false);
   const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
   const [razonesSocialesDisponibles, setRazonesSocialesDisponibles] = useState([]);
-  const [centrosCostos, setCentrosCostos] = useState([]);
-  const [datosRemuneraciones, setDatosRemuneraciones] = useState(null);
 
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -167,7 +152,6 @@ const IngresoGastosPage = () => {
         const totalCargoAdmin = resumen.administrativos?.total_cargo || 0;
         const totalCargoVentas = resumen.ventas?.total_cargo || 0;
         const totalCargo = resumen.total_cargo || (totalCargoAdmin + totalCargoVentas);
-        setDatosRemuneraciones({ resumen, porcentajes_aplicados });
         return {
           data: remuneracionesResponse.data.data.remuneraciones,
           total: totalCargo,
@@ -269,13 +253,7 @@ const IngresoGastosPage = () => {
         setRazonesSocialesDisponibles([{ id: 'todos', nombre_razon: 'Todas las Razones Sociales' }]);
         setSelectedRazonSocial('todos');
       }
-      try {
-        const res = await api.get('/centros-costos');
-        const list = res.data.success ? res.data.data : (Array.isArray(res.data) ? res.data : []);
-        setCentrosCostos(list);
-      } catch {
-        setCentrosCostos([{ id: 'ADM', nombre: 'Administración' }, { id: 'VEN', nombre: 'Ventas' }]);
-      }
+
     } catch {
       enqueueSnackbar('Error al cargar configuración inicial', { variant: 'warning' });
       setSucursalesDisponibles([{ id: 1, nombre: 'Sucursal Principal' }]);
@@ -568,75 +546,6 @@ const IngresoGastosPage = () => {
     return <Chip label={label} color={color} size="small" sx={{ fontWeight: 'bold' }} />;
   };
 
-  const KeyResultsCard = ({ data }) => {
-    const margenBruto = calcularPorcentaje(data.utilidadBruta, data.ingresos.ventas);
-    const margenNeto = calcularPorcentaje(data.utilidadNeta, data.ingresos.ventas);
-    return (
-      <Zoom in style={{ transitionDelay: '150ms' }}>
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, mt: 4 }}>
-            <Typography variant="h5" fontWeight="700">
-              Indicadores Clave de Rendimiento
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <StatusChip />
-              {hasChanges && <Chip label="Cambios sin guardar" color="warning" variant="outlined" size="small" />}
-            </Box>
-          </Box>
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <KPICard title="Ventas Totales" value={data.ingresos.ventas} subtitle="Ingresos del período" icon={<AttachMoneyIcon sx={{ fontSize: 28 }} />} color="primary" trend="up" trendValue="+100%" />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <KPICard title="Utilidad Bruta" value={data.utilidadBruta} subtitle={`Margen: ${margenBruto}%`} icon={<TrendingUpIcon sx={{ fontSize: 28 }} />} color="success" trend={data.utilidadBruta > 0 ? 'up' : 'down'} trendValue={`${margenBruto}%`} />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <KPICard title="Gastos Operativos" value={data.gastosOperativos.totalGastosOperativos} subtitle={`${calcularPorcentaje(data.gastosOperativos.totalGastosOperativos, data.ingresos.ventas)}% de ventas`} icon={<ReceiptIcon sx={{ fontSize: 28 }} />} color="warning" trend="neutral" />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <KPICard title="Utilidad Neta" value={data.utilidadNeta} subtitle={`Margen: ${margenNeto}%`} icon={<AccountBalanceIcon sx={{ fontSize: 28 }} />} color="secondary" trend={data.utilidadNeta > 0 ? 'up' : 'down'} trendValue={`${margenNeto}%`} />
-            </Grid>
-          </Grid>
-          <Card sx={{ mt: 3, borderRadius: 3, boxShadow: `0 4px 20px ${theme.palette.grey[500]}10` }}>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight="700" gutterBottom>Análisis de Márgenes</Typography>
-              <Box sx={{ mt: 3 }}>
-                <IndicatorProgress label="Margen Bruto" value={data.utilidadBruta} total={data.ingresos.ventas} color="success" />
-                <IndicatorProgress label="Margen Operativo" value={data.utilidadOperativa} total={data.ingresos.ventas} color="info" />
-                <IndicatorProgress label="Margen Neto" value={data.utilidadNeta} total={data.ingresos.ventas} color="secondary" />
-              </Box>
-            </CardContent>
-            <Divider />
-            <CardActions sx={{ justifyContent: 'flex-end', p: 3, gap: 1 }}>
-              <Button
-                variant="outlined"
-                startIcon={<SaveIcon />}
-                onClick={handleSaveResultados}
-                disabled={loading || data.estado === "enviado" || !hasChanges}
-                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 'medium' }}
-              >
-                Guardar Borrador
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={data.estado === "enviado" ? <CheckCircleIcon /> : <SendIcon />}
-                onClick={handleSendResultados}
-                disabled={loading || data.estado === "enviado"}
-                color={data.estado === "enviado" ? "success" : "primary"}
-                sx={{
-                  borderRadius: 2, textTransform: 'none', fontWeight: 'medium',
-                  background: data.estado === "enviado" ? undefined : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-                  boxShadow: `0 4px 20px ${theme.palette.primary.main}25`
-                }}
-              >
-                {data.estado === "enviado" ? "Enviado al Sistema" : "Enviar al Sistema"}
-              </Button>
-            </CardActions>
-          </Card>
-        </Box>
-      </Zoom>
-    );
-  };
 
   const ConfirmDialog = () => (
     <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ ...confirmDialog, open: false })} maxWidth="sm" fullWidth>
@@ -780,84 +689,114 @@ const IngresoGastosPage = () => {
 
         {data && (
           <>
-            <KeyResultsCard data={data} />
+            {/* Barra de resumen del sistema */}
+            <Paper elevation={1} sx={{ p: 2.5, mb: 3, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" gap={1}>
+                <Typography variant="subtitle2" color="textSecondary" sx={{ fontWeight: 600 }}>
+                  Sistema ({data.sucursal}):
+                </Typography>
+                <Chip label={`Ventas ${formatCurrency(data.ingresos.ventas)}`} color="success" size="small" />
+                <Chip label={`Compras ${formatCurrency(data.datosOriginales?.totalCompras || 0)}`} color="info" size="small" />
+                <Chip
+                  label={`Sueldos ${formatCurrency((data.gastosOperativos?.gastosAdministrativos?.sueldos || 0) + (data.gastosOperativos?.gastosVenta?.sueldos || 0))}`}
+                  color="warning" size="small"
+                />
+                <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <StatusChip />
+                  {hasChanges && <Chip label="Cambios sin guardar" color="warning" variant="outlined" size="small" />}
+                </Box>
+              </Stack>
+            </Paper>
 
-            <Grid container spacing={4} sx={{ mt: 1 }}>
-              {/* Panel izquierdo: ingreso de gastos */}
-              <Grid item xs={12} lg={6}>
-                <Card sx={{
-                  borderRadius: 3,
-                  boxShadow: `0 8px 32px ${theme.palette.grey[500]}15`,
-                  height: '100%',
-                  background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
-                }}>
-                  <CardHeader
-                    title={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <EditIcon sx={{ color: 'primary.main' }} />
-                        <Typography variant="h6" fontWeight="bold">Gestión de Gastos e Ingresos</Typography>
-                      </Box>
-                    }
-                    subheader="Ingrese los gastos variables y otros ingresos del período"
-                    sx={{ backgroundColor: 'transparent', borderBottom: `1px solid ${theme.palette.divider}`, pb: 2 }}
-                  />
-                  <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <Tabs value={tabValue} onChange={handleTabChange} variant="fullWidth" sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 'medium', minHeight: 60 } }}>
-                      <Tab label="Gastos Admin." />
-                      <Tab label="Gastos Venta" />
-                      <Tab label="Otros" />
-                    </Tabs>
+            {/* Sección de ingreso de gastos (ancho completo) */}
+            <Card sx={{
+              borderRadius: 3,
+              boxShadow: `0 8px 32px ${theme.palette.grey[500]}15`,
+              background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
+            }}>
+              <CardHeader
+                title={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <EditIcon sx={{ color: 'primary.main' }} />
+                    <Typography variant="h6" fontWeight="bold">Gestión de Gastos e Ingresos</Typography>
                   </Box>
-                  <TabPanel value={tabValue} index={0}>
-                    <Box sx={{ p: 3 }}>
-                      <DynamicExpenseSection
-                        category="administrativos" title="Gastos Administrativos"
-                        description="Agregue y gestione los gastos administrativos variables."
-                        existingExpenses={gastosAdministrativos}
-                        onAddExpense={handleAddGastoAdministrativo}
-                        onUpdateExpense={handleUpdateGastoAdministrativo}
-                        onRemoveExpense={handleRemoveGastoAdministrativo}
-                        disabled={data.estado === "enviado"}
-                      />
-                    </Box>
-                  </TabPanel>
-                  <TabPanel value={tabValue} index={1}>
-                    <Box sx={{ p: 3 }}>
-                      <DynamicExpenseSection
-                        category="venta" title="Gastos de Venta"
-                        description="Gestione los gastos relacionados con las ventas."
-                        existingExpenses={gastosVenta}
-                        onAddExpense={handleAddGastoVenta}
-                        onUpdateExpense={handleUpdateGastoVenta}
-                        onRemoveExpense={handleRemoveGastoVenta}
-                        disabled={data.estado === "enviado"}
-                      />
-                    </Box>
-                  </TabPanel>
-                  <TabPanel value={tabValue} index={2}>
-                    <Box sx={{ p: 3 }}>
-                      <DynamicExpenseSection
-                        category="otros" title="Otros Gastos e Ingresos"
-                        description="Administre otros conceptos como mermas, arriendos e ingresos financieros."
-                        existingExpenses={otrosGastos}
-                        onAddExpense={handleAddOtroGasto}
-                        onUpdateExpense={handleUpdateOtroGasto}
-                        onRemoveExpense={handleRemoveOtroGasto}
-                        disabled={data.estado === "enviado"}
-                      />
-                    </Box>
-                  </TabPanel>
-                </Card>
-              </Grid>
+                }
+                subheader="Ingrese los gastos variables y otros ingresos del período"
+                sx={{ backgroundColor: 'transparent', borderBottom: `1px solid ${theme.palette.divider}`, pb: 2 }}
+              />
+              <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs value={tabValue} onChange={handleTabChange} variant="fullWidth" sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 'medium', minHeight: 60 } }}>
+                  <Tab label="Gastos Admin." />
+                  <Tab label="Gastos Venta" />
+                  <Tab label="Otros" />
+                </Tabs>
+              </Box>
+              <TabPanel value={tabValue} index={0}>
+                <Box sx={{ p: 3 }}>
+                  <DynamicExpenseSection
+                    category="administrativos" title="Gastos Administrativos"
+                    description="Agregue y gestione los gastos administrativos variables."
+                    existingExpenses={gastosAdministrativos}
+                    onAddExpense={handleAddGastoAdministrativo}
+                    onUpdateExpense={handleUpdateGastoAdministrativo}
+                    onRemoveExpense={handleRemoveGastoAdministrativo}
+                    disabled={data.estado === "enviado"}
+                  />
+                </Box>
+              </TabPanel>
+              <TabPanel value={tabValue} index={1}>
+                <Box sx={{ p: 3 }}>
+                  <DynamicExpenseSection
+                    category="venta" title="Gastos de Venta"
+                    description="Gestione los gastos relacionados con las ventas."
+                    existingExpenses={gastosVenta}
+                    onAddExpense={handleAddGastoVenta}
+                    onUpdateExpense={handleUpdateGastoVenta}
+                    onRemoveExpense={handleRemoveGastoVenta}
+                    disabled={data.estado === "enviado"}
+                  />
+                </Box>
+              </TabPanel>
+              <TabPanel value={tabValue} index={2}>
+                <Box sx={{ p: 3 }}>
+                  <DynamicExpenseSection
+                    category="otros" title="Otros Gastos e Ingresos"
+                    description="Administre otros conceptos como mermas, arriendos e ingresos financieros."
+                    existingExpenses={otrosGastos}
+                    onAddExpense={handleAddOtroGasto}
+                    onUpdateExpense={handleUpdateOtroGasto}
+                    onRemoveExpense={handleRemoveOtroGasto}
+                    disabled={data.estado === "enviado"}
+                  />
+                </Box>
+              </TabPanel>
+            </Card>
 
-              {/* Panel derecho: vista previa del estado de resultados */}
-              <Grid item xs={12} lg={6}>
-                <EstadoResultadosDetallado data={data} datosRemuneraciones={datosRemuneraciones} />
-              </Grid>
-            </Grid>
-
-            <Box sx={{ mt: 4 }}>
-              <AnalisisFinanciero data={data} />
+            {/* Botones de acción */}
+            <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+              <Button
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveResultados}
+                disabled={loading || data.estado === "enviado" || !hasChanges}
+                sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 'medium' }}
+              >
+                Guardar Borrador
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={data.estado === "enviado" ? <CheckCircleIcon /> : <SendIcon />}
+                onClick={handleSendResultados}
+                disabled={loading || data.estado === "enviado"}
+                color={data.estado === "enviado" ? "success" : "primary"}
+                sx={{
+                  borderRadius: 2, textTransform: 'none', fontWeight: 'medium',
+                  background: data.estado === "enviado" ? undefined : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                  boxShadow: `0 4px 20px ${theme.palette.primary.main}25`
+                }}
+              >
+                {data.estado === "enviado" ? "Enviado al Sistema" : "Enviar al Sistema"}
+              </Button>
             </Box>
           </>
         )}

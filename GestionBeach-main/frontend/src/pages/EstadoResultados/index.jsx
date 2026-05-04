@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/index.jsx - Visualización de Estado de Resultados (solo lectura)
+// src/pages/EstadoResultados/index.jsx - Visualización de Estado de Resultados
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -6,12 +6,14 @@ import {
   Card,
   CardHeader,
   CardContent,
+  CardActions,
   Typography,
   Paper,
   CircularProgress,
   Alert,
   useTheme,
   Fade,
+  Zoom,
   IconButton,
   Tooltip,
   Select,
@@ -23,6 +25,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Tabs,
+  Tab,
   Chip,
   LinearProgress,
   Divider,
@@ -35,14 +39,21 @@ import {
   TableRow,
   alpha,
 } from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { es } from 'date-fns/locale';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
-import GetAppIcon from '@mui/icons-material/GetApp';
+import HistoryIcon from '@mui/icons-material/History';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import GetAppIcon from '@mui/icons-material/GetApp';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import EditIcon from '@mui/icons-material/Edit';
 import PercentIcon from '@mui/icons-material/Percent';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CalendarIcon from '@mui/icons-material/CalendarMonth';
 import StoreIcon from '@mui/icons-material/Store';
@@ -54,7 +65,13 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useSnackbar } from 'notistack';
 import api from '../../api/api';
 import WeatherBar from '../../components/WeatherBar';
-import { formatCurrency } from './utils';
+import {
+  AnalisisFinanciero,
+  EstadoResultadosDetallado,
+  KPICard,
+  IndicatorProgress
+} from './ResultadosComponents';
+import { formatCurrency, calcularPorcentaje, obtenerRangoDeFechas } from './utils';
 
 // Componente TabPanel para las pestañas
 function TabPanel(props) {
@@ -1299,49 +1316,430 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
   );
 };
 
-// Componente principal: Visualización de Estado de Resultados (solo lectura)
+// Componente principal: Visualización completa — sistema + gastos manuales
 const EstadoResultadosPage = () => {
+  const [viewTab, setViewTab] = useState(0);
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [selectedSucursal, setSelectedSucursal] = useState('');
+  const [selectedRazonSocial, setSelectedRazonSocial] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState(null);
   const [sucursalesDisponibles, setSucursalesDisponibles] = useState([]);
-  const theme = useTheme();
+  const [razonesSocialesDisponibles, setRazonesSocialesDisponibles] = useState([]);
+  const [datosRemuneraciones, setDatosRemuneraciones] = useState(null);
+  const [savedRecord, setSavedRecord] = useState(null);
 
-  useEffect(() => {
-    const cargarSucursales = async () => {
+  const theme = useTheme();
+  const { enqueueSnackbar } = useSnackbar();
+
+  useEffect(() => { cargarDatosIniciales(); }, []);
+
+  const cargarDatosIniciales = async () => {
+    try {
+      setLoading(true);
+      let ok = false;
       try {
         const res = await api.get('/facturas-xml/lista/sucursales');
         if (res.data.success && Array.isArray(res.data.data)) {
           setSucursalesDisponibles(res.data.data);
-          return;
+          if (res.data.data.length > 0) setSelectedSucursal(res.data.data[0].id.toString());
+          ok = true;
         }
       } catch {}
+      if (!ok) {
+        try {
+          const res = await api.get('/sucursales');
+          if (Array.isArray(res.data)) {
+            setSucursalesDisponibles(res.data);
+            if (res.data.length > 0) setSelectedSucursal(res.data[0].id.toString());
+          }
+        } catch {}
+      }
       try {
-        const res = await api.get('/sucursales');
-        if (Array.isArray(res.data)) setSucursalesDisponibles(res.data);
-      } catch {}
+        const res = await api.get('/razonessociales');
+        const list = Array.isArray(res.data) ? res.data : (res.data.success ? res.data.data : []);
+        setRazonesSocialesDisponibles([{ id: 'todos', nombre_razon: 'Todas las Razones Sociales' }, ...list]);
+        setSelectedRazonSocial('todos');
+      } catch {
+        setRazonesSocialesDisponibles([{ id: 'todos', nombre_razon: 'Todas las Razones Sociales' }]);
+        setSelectedRazonSocial('todos');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadComprasData = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      const res = await api.get('/estado-resultados/compras', {
+        params: { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, sucursal_id: selectedSucursal, razon_social_id: selectedRazonSocial === 'todos' ? 'todos' : selectedRazonSocial }
+      });
+      if (res.data.success) {
+        const { resumen } = res.data.data;
+        return { data: res.data.data.compras, total: resumen.total_compras, cantidad: resumen.cantidad_facturas };
+      }
+      return { data: [], total: 0, cantidad: 0 };
+    } catch {
+      return { data: [], total: 0, cantidad: 0 };
+    }
+  };
+
+  const loadRemuneracionesData = async () => {
+    try {
+      const mes = selectedMonth.getMonth() + 1;
+      const anio = selectedMonth.getFullYear();
+      const res = await api.get('/estado-resultados/remuneraciones', {
+        params: { anio, mes, sucursal_id: selectedSucursal, razon_social_id: selectedRazonSocial === 'todos' ? 'todos' : selectedRazonSocial }
+      });
+      if (res.data.success) {
+        const { resumen, porcentajes_aplicados } = res.data.data;
+        const totalCargoAdmin = resumen.administrativos?.total_cargo || 0;
+        const totalCargoVentas = resumen.ventas?.total_cargo || 0;
+        const totalCargo = resumen.total_cargo || (totalCargoAdmin + totalCargoVentas);
+        setDatosRemuneraciones({ resumen, porcentajes_aplicados });
+        return { data: res.data.data.remuneraciones, total: totalCargo, total_cargo: totalCargo, cantidad: resumen.cantidad_empleados || 0, resumen, porcentajes_aplicados };
+      }
+      return { data: [], total: 0, total_cargo: 0, cantidad: 0, resumen: null, porcentajes_aplicados: null };
+    } catch {
+      return { data: [], total: 0, total_cargo: 0, cantidad: 0, resumen: null, porcentajes_aplicados: null };
+    }
+  };
+
+  const loadVentasData = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      const res = await api.post('/ventas', {
+        sucursal_id: parseInt(selectedSucursal),
+        razon_social_id: selectedRazonSocial && selectedRazonSocial !== 'todos' ? parseInt(selectedRazonSocial) : null,
+        start_date: fechaDesde, end_date: fechaHasta
+      });
+      const ventas = res?.data?.ventas || [];
+      const total = ventas.reduce((sum, v) => sum + Number(v.Total || v.total || v.monto_total || 0), 0);
+      return { data: ventas, total };
+    } catch {
+      return { data: [], total: 0 };
+    }
+  };
+
+  const loadCostosVenta = async () => {
+    try {
+      const { fechaDesde, fechaHasta } = obtenerRangoDeFechas(selectedMonth);
+      const res = await api.get(`/dashboard?startDate=${fechaDesde}&endDate=${fechaHasta}`);
+      if (res?.data) {
+        const sucursalNombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || '';
+        let costos = 0;
+        ['supermercados', 'ferreterias', 'multitiendas'].forEach(cat => {
+          const suc = res.data[cat]?.sucursales?.find(s =>
+            s.nombre?.toLowerCase().includes(sucursalNombre.toLowerCase()) ||
+            sucursalNombre.toLowerCase().includes(s.nombre?.toLowerCase())
+          );
+          if (suc) costos = suc.costos || 0;
+        });
+        return { costos };
+      }
+      return { costos: 0 };
+    } catch {
+      return { costos: 0 };
+    }
+  };
+
+  const construirEstadoResultados = ({ compras, remuneraciones, ventas, costos }) => {
+    const sucursalSel = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal);
+    const sueldosAdmin = remuneraciones.resumen?.administrativos?.total_cargo || 0;
+    const sueldosVentas = remuneraciones.resumen?.ventas?.total_cargo || 0;
+    const estado = {
+      sucursal: sucursalSel?.nombre || 'Desconocida',
+      periodo: selectedMonth.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }),
+      ingresos: { ventas: ventas.total || 0, otrosIngresos: { fletes: 0, total: 0 }, totalIngresos: ventas.total || 0 },
+      costos: { costoVentas: costos?.costos || 0, compras: compras.total || 0, mermaVenta: 0, totalCostos: costos?.costos || 0 },
+      utilidadBruta: (ventas.total || 0) - (costos?.costos || 0),
+      gastosOperativos: {
+        gastosVenta: { sueldos: sueldosVentas, fletes: 0, finiquitos: 0, mantenciones: 0, publicidad: 0, total: sueldosVentas },
+        gastosAdministrativos: {
+          sueldos: sueldosAdmin, seguros: 0, gastosComunes: 0, electricidad: 0, agua: 0,
+          telefonia: 0, alarma: 0, internet: 0, facturasNet: 0, transbank: 0,
+          patenteMunicipal: 0, contribuciones: 0, petroleo: 0, otros: 0, total: sueldosAdmin
+        },
+        totalGastosOperativos: sueldosVentas + sueldosAdmin
+      },
+      utilidadOperativa: 0, costoArriendo: 0, otrosIngresosFinancieros: 0,
+      utilidadAntesImpuestos: 0, impuestos: 0, utilidadNeta: 0,
+      estado: 'sistema',
+      datosOriginales: {
+        totalCompras: compras.total || 0, totalRemuneraciones: sueldosAdmin + sueldosVentas,
+        totalVentas: ventas.total || 0, numeroFacturas: compras.cantidad || 0,
+        numeroVentas: ventas.data?.length || 0, numeroEmpleados: remuneraciones.cantidad || 0,
+        clasificacion: {
+          empleados_admin: remuneraciones.resumen?.administrativos?.cantidad_empleados_unicos || 0,
+          empleados_ventas: remuneraciones.resumen?.ventas?.cantidad_empleados_unicos || 0,
+          cargo_admin: sueldosAdmin, cargo_ventas: sueldosVentas
+        }
+      }
     };
-    cargarSucursales();
-  }, []);
+    estado.utilidadOperativa = estado.utilidadBruta - estado.gastosOperativos.totalGastosOperativos;
+    estado.utilidadAntesImpuestos = estado.utilidadOperativa;
+    estado.impuestos = Math.max(0, Math.round(estado.utilidadAntesImpuestos * 0.19));
+    estado.utilidadNeta = estado.utilidadAntesImpuestos - estado.impuestos;
+    return estado;
+  };
+
+  const mergeManualGastos = (estadoBase, rec) => {
+    const m = JSON.parse(JSON.stringify(estadoBase));
+    const ga = m.gastosOperativos.gastosAdministrativos;
+    const gv = m.gastosOperativos.gastosVenta;
+    ga.seguros       = Number(rec.gastos_admin_seguros) || 0;
+    ga.gastosComunes = Number(rec.gastos_admin_gastos_comunes) || 0;
+    ga.electricidad  = Number(rec.gastos_admin_electricidad) || 0;
+    ga.agua          = Number(rec.gastos_admin_agua) || 0;
+    ga.telefonia     = Number(rec.gastos_admin_telefonia) || 0;
+    ga.alarma        = Number(rec.gastos_admin_alarma) || 0;
+    ga.internet      = Number(rec.gastos_admin_internet) || 0;
+    ga.facturasNet   = Number(rec.gastos_admin_facturas_net) || 0;
+    ga.transbank     = Number(rec.gastos_admin_transbank) || 0;
+    ga.patenteMunicipal  = Number(rec.gastos_admin_patente_municipal) || 0;
+    ga.contribuciones    = Number(rec.gastos_admin_contribuciones) || 0;
+    ga.petroleo      = Number(rec.gastos_admin_petroleo) || 0;
+    ga.otros         = Number(rec.gastos_admin_otros) || 0;
+    gv.fletes        = Number(rec.gastos_venta_fletes) || 0;
+    gv.finiquitos    = Number(rec.gastos_venta_finiquitos) || 0;
+    gv.mantenciones  = Number(rec.gastos_venta_mantenciones) || 0;
+    gv.publicidad    = Number(rec.gastos_venta_publicidad) || 0;
+    m.costos.mermaVenta         = Number(rec.merma_venta) || 0;
+    m.costoArriendo             = Number(rec.costo_arriendo) || 0;
+    m.ingresos.otrosIngresos.fletes = Number(rec.otros_ingresos_fletes) || 0;
+    m.otrosIngresosFinancieros  = Number(rec.otros_ingresos_financieros) || 0;
+    // Recalculate totals
+    const adminFields = ['seguros','gastosComunes','electricidad','agua','telefonia','alarma','internet','facturasNet','transbank','patenteMunicipal','contribuciones','petroleo','otros'];
+    ga.total = adminFields.reduce((s, k) => s + (ga[k] || 0), 0) + ga.sueldos;
+    const ventaFields = ['fletes','finiquitos','mantenciones','publicidad'];
+    gv.total = ventaFields.reduce((s, k) => s + (gv[k] || 0), 0) + gv.sueldos;
+    m.gastosOperativos.totalGastosOperativos = ga.total + gv.total;
+    m.costos.totalCostos = m.costos.costoVentas + m.costos.mermaVenta;
+    m.ingresos.otrosIngresos.total = m.ingresos.otrosIngresos.fletes;
+    m.ingresos.totalIngresos = m.ingresos.ventas + m.ingresos.otrosIngresos.total;
+    m.utilidadBruta = m.ingresos.totalIngresos - m.costos.totalCostos;
+    m.utilidadOperativa = m.utilidadBruta - m.gastosOperativos.totalGastosOperativos;
+    m.utilidadAntesImpuestos = m.utilidadOperativa - m.costoArriendo + m.otrosIngresosFinancieros;
+    m.impuestos = Math.max(0, Math.round(m.utilidadAntesImpuestos * 0.19));
+    m.utilidadNeta = m.utilidadAntesImpuestos - m.impuestos;
+    m.estado = rec.estado;
+    m.id = rec.id;
+    return m;
+  };
+
+  const cargarVistaCompleta = async () => {
+    if (!selectedSucursal) return;
+    setLoading(true);
+    setError(null);
+    setData(null);
+    setSavedRecord(null);
+    try {
+      const [comprasResult, remuneracionesResult, ventasResult, costosResult] = await Promise.all([
+        loadComprasData(), loadRemuneracionesData(), loadVentasData(), loadCostosVenta()
+      ]);
+      let estado = construirEstadoResultados({ compras: comprasResult, remuneraciones: remuneracionesResult, ventas: ventasResult, costos: costosResult });
+      // Look for saved manual gastos for this period
+      try {
+        const mes = selectedMonth.getMonth() + 1;
+        const anio = selectedMonth.getFullYear();
+        const savedRes = await api.get('/estado-resultados', { params: { anio, mes, sucursal_id: selectedSucursal } });
+        if (savedRes.data.success && savedRes.data.data.length > 0) {
+          const rec = savedRes.data.data[0];
+          setSavedRecord(rec);
+          estado = mergeManualGastos(estado, rec);
+        }
+      } catch {}
+      setData(estado);
+      const nombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || '';
+      enqueueSnackbar(`${nombre}: datos cargados`, { variant: 'success' });
+    } catch (err) {
+      setError(`Error al cargar datos: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // KPIs display (read-only)
+  const KPIsDisplay = ({ data }) => {
+    const margenBruto = calcularPorcentaje(data.utilidadBruta, data.ingresos.ventas);
+    const margenNeto  = calcularPorcentaje(data.utilidadNeta, data.ingresos.ventas);
+    return (
+      <Zoom in style={{ transitionDelay: '100ms' }}>
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, mt: 4 }}>
+            <Typography variant="h5" fontWeight="700">Indicadores Clave del Período</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {savedRecord && (
+                <Chip
+                  icon={<CheckCircleIcon />}
+                  label={`Gastos manuales incluidos — ${savedRecord.estado}`}
+                  color={savedRecord.estado === 'enviado' ? 'success' : 'info'}
+                  size="small"
+                />
+              )}
+              {!savedRecord && (
+                <Chip label="Solo datos del sistema" color="default" size="small" variant="outlined" />
+              )}
+            </Box>
+          </Box>
+          <Grid container spacing={3}>
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard title="Ventas Totales" value={data.ingresos.ventas} subtitle="Ingresos del período" icon={<AttachMoneyIcon sx={{ fontSize: 28 }} />} color="primary" trend="up" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard title="Utilidad Bruta" value={data.utilidadBruta} subtitle={`Margen: ${margenBruto}%`} icon={<TrendingUpIcon sx={{ fontSize: 28 }} />} color="success" trend={data.utilidadBruta > 0 ? 'up' : 'down'} trendValue={`${margenBruto}%`} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard title="Gastos Operativos" value={data.gastosOperativos.totalGastosOperativos} subtitle={`${calcularPorcentaje(data.gastosOperativos.totalGastosOperativos, data.ingresos.ventas)}% de ventas`} icon={<ReceiptIcon sx={{ fontSize: 28 }} />} color="warning" trend="neutral" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <KPICard title="Utilidad Neta" value={data.utilidadNeta} subtitle={`Margen: ${margenNeto}%`} icon={<AccountBalanceIcon sx={{ fontSize: 28 }} />} color="secondary" trend={data.utilidadNeta > 0 ? 'up' : 'down'} trendValue={`${margenNeto}%`} />
+            </Grid>
+          </Grid>
+          <Card sx={{ mt: 3, borderRadius: 3, boxShadow: `0 4px 20px ${theme.palette.grey[500]}10` }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" fontWeight="700" gutterBottom>Análisis de Márgenes</Typography>
+              <Box sx={{ mt: 3 }}>
+                <IndicatorProgress label="Margen Bruto" value={data.utilidadBruta} total={data.ingresos.ventas} color="success" />
+                <IndicatorProgress label="Margen Operativo" value={data.utilidadOperativa} total={data.ingresos.ventas} color="info" />
+                <IndicatorProgress label="Margen Neto" value={data.utilidadNeta} total={data.ingresos.ventas} color="secondary" />
+              </Box>
+            </CardContent>
+          </Card>
+        </Box>
+      </Zoom>
+    );
+  };
 
   return (
     <Box sx={{ position: 'relative', minHeight: '100vh' }}>
       <WeatherBar />
       <Box sx={{ py: 4, mt: 4 }}>
+
+        {/* Header */}
         <Fade in>
           <Box sx={{ mb: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <AnalyticsIcon sx={{ fontSize: 40, mr: 2, color: 'primary.main' }} />
               <Box>
-                <Typography variant="h4" component="h1" fontWeight="bold">
-                  Estado de Resultados
-                </Typography>
+                <Typography variant="h4" component="h1" fontWeight="bold">Estado de Resultados</Typography>
                 <Typography variant="subtitle1" color="textSecondary">
-                  Visualización y análisis de estados de resultados del sistema
+                  Datos del sistema + gastos manuales ingresados por el equipo
                 </Typography>
               </Box>
             </Box>
           </Box>
         </Fade>
 
-        <HistoricosTab sucursalesDisponibles={sucursalesDisponibles} />
+        {/* Tabs principales */}
+        <Paper elevation={2} sx={{ mb: 3 }}>
+          <Tabs
+            value={viewTab}
+            onChange={(e, v) => setViewTab(v)}
+            variant="fullWidth"
+            sx={{ borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, fontSize: '1rem', minHeight: 64 } }}
+          >
+            <Tab icon={<AnalyticsIcon />} iconPosition="start" label="Vista del Período" />
+            <Tab icon={<HistoryIcon />} iconPosition="start" label="Históricos" />
+          </Tabs>
+        </Paper>
+
+        {/* Tab 0: Vista del período */}
+        <TabPanel value={viewTab} index={0}>
+          {/* Filtros */}
+          <Fade in>
+            <Paper elevation={2} sx={{
+              p: 3, mb: 4, borderRadius: 3,
+              background: `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.grey[50]} 100%)`,
+              border: `1px solid ${theme.palette.divider}`,
+            }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>Filtros de Consulta</Typography>
+              <Grid container spacing={3} alignItems="center">
+                <Grid item xs={12} sm={3}>
+                  <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+                    <DatePicker
+                      label="Período"
+                      views={['year', 'month']}
+                      value={selectedMonth}
+                      onChange={(v) => setSelectedMonth(v)}
+                      disabled={loading}
+                      slotProps={{ textField: { fullWidth: true, size: 'small', variant: 'outlined', InputProps: { sx: { borderRadius: 2 } } } }}
+                    />
+                  </LocalizationProvider>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Sucursal</InputLabel>
+                    <Select value={selectedSucursal} label="Sucursal" onChange={(e) => setSelectedSucursal(e.target.value)} disabled={loading} sx={{ borderRadius: 2 }}>
+                      {sucursalesDisponibles.map(s => <MenuItem key={s.id} value={s.id.toString()}>{s.nombre}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Razón Social</InputLabel>
+                    <Select value={selectedRazonSocial} label="Razón Social" onChange={(e) => setSelectedRazonSocial(e.target.value)} disabled={loading} sx={{ borderRadius: 2 }}>
+                      {razonesSocialesDisponibles.map(r => <MenuItem key={r.id} value={r.id.toString()}>{r.nombre_razon}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <Button
+                    variant="contained" fullWidth onClick={cargarVistaCompleta}
+                    disabled={loading || !selectedSucursal}
+                    startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                    sx={{
+                      py: 1.5, borderRadius: 2, textTransform: 'none', fontWeight: 'bold',
+                      background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                    }}
+                  >
+                    {loading ? 'Cargando...' : 'Consultar'}
+                  </Button>
+                </Grid>
+              </Grid>
+              {loading && <Box sx={{ mt: 2 }}><LinearProgress sx={{ borderRadius: 1, height: 6 }} /></Box>}
+            </Paper>
+          </Fade>
+
+          {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>{error}</Alert>}
+
+          {loading && !data && (
+            <Box display="flex" justifyContent="center" py={8}><CircularProgress size={48} /></Box>
+          )}
+
+          {!data && !loading && (
+            <Fade in>
+              <Paper elevation={0} sx={{ p: 6, textAlign: 'center', borderRadius: 3, border: `2px dashed ${theme.palette.divider}`, background: alpha(theme.palette.primary.main, 0.02) }}>
+                <AnalyticsIcon sx={{ fontSize: 64, color: theme.palette.text.disabled, mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  Seleccione un período y sucursal para ver el estado de resultados
+                </Typography>
+                <Typography variant="body2" color="text.disabled">
+                  Se cargarán datos del sistema y, si existen, gastos manuales ingresados para ese período
+                </Typography>
+              </Paper>
+            </Fade>
+          )}
+
+          {data && (
+            <>
+              <KPIsDisplay data={data} />
+              <Box sx={{ mt: 4 }}>
+                <EstadoResultadosDetallado data={data} datosRemuneraciones={datosRemuneraciones} />
+              </Box>
+              <Box sx={{ mt: 4 }}>
+                <AnalisisFinanciero data={data} />
+              </Box>
+            </>
+          )}
+        </TabPanel>
+
+        {/* Tab 1: Históricos */}
+        <TabPanel value={viewTab} index={1}>
+          <HistoricosTab sucursalesDisponibles={sucursalesDisponibles} />
+        </TabPanel>
       </Box>
     </Box>
   );
