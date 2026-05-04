@@ -5,6 +5,7 @@ import { AbilityBuilder, Ability } from '@casl/ability';
 export const MODULES = {
   DASHBOARD: 'dashboard',
   ESTADO_RESULTADO: 'estado-resultado',
+  ESTADO_RESULTADO_INGRESO: 'estado-resultado/ingreso-gastos',
   MONITOREO: 'monitoreo',
   REMUNERACIONES: 'remuneraciones',
   INVENTARIO: 'inventario',
@@ -124,6 +125,7 @@ export function canAccessRoute(ability, route) {
     '/dashboard': MODULES.DASHBOARD,
 
     '/dashboard/estado-resultado': MODULES.ESTADO_RESULTADO,
+    '/dashboard/estado-resultado/ingreso-gastos': MODULES.ESTADO_RESULTADO_INGRESO,
     '/dashboard/monitoreo': MODULES.MONITOREO,
     '/dashboard/remuneraciones': MODULES.REMUNERACIONES,
     '/dashboard/inventario': MODULES.INVENTARIO,
@@ -144,6 +146,7 @@ export function canAccessRoute(ability, route) {
     '/dashboard/configuracion': MODULES.CONFIGURACION,
 
     '/estado-resultado': MODULES.ESTADO_RESULTADO,
+    '/estado-resultado/ingreso-gastos': MODULES.ESTADO_RESULTADO_INGRESO,
     '/monitoreo': MODULES.MONITOREO,
     '/remuneraciones': MODULES.REMUNERACIONES,
     '/inventario': MODULES.INVENTARIO,

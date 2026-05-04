@@ -16,7 +16,8 @@
 
 module.exports = [
   { nombre: 'Dashboard',             claves: ['dashboard'] },
-  { nombre: 'Estado Resultado',      claves: ['estado-resultado'] },
+  { nombre: 'Estado Resultado',       claves: ['estado-resultado'] },
+  { nombre: 'Estado Resultado Ingreso', claves: ['estado-resultado/ingreso-gastos'] },
   { nombre: 'Monitoreo',             claves: ['monitoreo'] },
   { nombre: 'Remuneraciones',        claves: ['remuneraciones'] },
   { nombre: 'Inventario',            claves: ['inventario'] },

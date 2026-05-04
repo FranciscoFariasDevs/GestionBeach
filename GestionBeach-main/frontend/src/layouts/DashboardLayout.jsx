@@ -205,6 +205,7 @@ export default function DashboardLayout() {
   const [correoOpen, setCorreoOpen] = useState(false);
   const [rrhhOpen, setRrhhOpen] = useState(false);
   const [productosOpen, setProductosOpen] = useState(false);
+  const [estadoResultadoOpen, setEstadoResultadoOpen] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
 
   // Estados para notificaciones de inventario
@@ -280,6 +281,7 @@ export default function DashboardLayout() {
   const toggleCorreo = () => setCorreoOpen(!correoOpen);
   const toggleRrhh = () => setRrhhOpen(!rrhhOpen);
   const toggleProductos = () => setProductosOpen(!productosOpen);
+  const toggleEstadoResultado = () => setEstadoResultadoOpen(!estadoResultadoOpen);
 
   // Handlers para notificaciones
   const handleNotificationsClick = (event) => {
@@ -457,7 +459,18 @@ export default function DashboardLayout() {
   // Definir todos los elementos del menú (ANTES del filtrado)
   const allMenuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard', orangeType: 'light' },
-    { text: 'Estado Resultado', icon: <AssessmentIcon />, path: '/estado-resultado', orangeType: 'dark' },
+    {
+      text: 'Estado Resultado',
+      icon: <AssessmentIcon />,
+      isSubmenu: true,
+      orangeType: 'dark',
+      isOpen: estadoResultadoOpen,
+      toggle: toggleEstadoResultado,
+      subItems: [
+        { text: 'Visualización', path: '/estado-resultado', icon: <AssessmentIcon /> },
+        { text: 'Ingreso de Gastos', path: '/estado-resultado/ingreso-gastos', icon: <AssignmentIcon /> },
+      ],
+    },
     { text: 'Monitoreo', icon: <MonitorIcon />, path: '/monitoreo', orangeType: 'light' },
     { text: 'Remuneraciones', icon: <RemuneracionesIcon />, path: '/remuneraciones', orangeType: 'dark' },
     { text: 'Inventario', icon: <InventoryIcon />, path: '/inventario', orangeType: 'light' },
@@ -549,6 +562,7 @@ export default function DashboardLayout() {
     : {
         '/dashboard': 'Dashboard',
         '/estado-resultado': 'Estado de Resultado',
+        '/estado-resultado/ingreso-gastos': 'Ingreso de Gastos',
         '/monitoreo': 'Monitoreo de Sucursales',
         '/remuneraciones': 'Sistema de Remuneraciones',
         '/inventario': 'Sistema de Gestión de Inventario',

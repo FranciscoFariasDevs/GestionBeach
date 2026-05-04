@@ -52,6 +52,7 @@ import PerfilPage from './pages/PerfilPage';
 import MiPerfilPage from './pages/MiPerfilPage'; // 👤 MI PERFIL PERSONAL
 import SupermercadosPage from './pages/SupermercadosPage';
 import EstadoResultadosPage from './pages/EstadoResultados';
+import IngresoGastosPage from './pages/EstadoResultados/IngresoGastosPage';
 import MonitoreoPage from './pages/MonitoreoPage';
 import EmpleadosPage from './pages/EmpleadosPage';
 import RemuneracionesPage from './pages/RemuneracionesPage';
@@ -248,12 +249,22 @@ function App() {
                   {/* MÓDULO FINANCIERO                          */}
                   {/* ========================================== */}
 
-                  {/* Estado de Resultados */}
+                  {/* Estado de Resultados — Visualización (solo lectura) */}
                   <Route
                     path="/estado-resultado"
                     element={
                       <ProtectedRoute requiredRoute="/estado-resultado">
                         <EstadoResultadosPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Estado de Resultados — Ingreso de Gastos */}
+                  <Route
+                    path="/estado-resultado/ingreso-gastos"
+                    element={
+                      <ProtectedRoute requiredRoute="/estado-resultado/ingreso-gastos">
+                        <IngresoGastosPage />
                       </ProtectedRoute>
                     }
                   />
