@@ -72,6 +72,7 @@ import {
   Info as InfoIcon,
   Search as SearchIcon,
   Build as BuildIcon,
+  Campaign as CampaignIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -80,6 +81,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api/api';
 import ChatWidget from '../components/ChatWidget';
 import BuscadorInteligente from '../components/BuscadorInteligente';
+import BeachBotModal from '../components/BeachBotModal';
 import { registrarPushNotificaciones } from '../services/pushService';
 
 const drawerWidth = 200;
@@ -195,6 +197,7 @@ export default function DashboardLayout() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [open, setOpen] = useState(!isMobile); // Iniciar cerrado en móvil
   const [buscadorOpen, setBuscadorOpen] = useState(false);
+  const [beachbotOpen, setBeachbotOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const { user, logout } = useAuth();
   const { ability, isSuperUser, hasProfile } = usePermissions();
@@ -444,12 +447,12 @@ export default function DashboardLayout() {
     });
   };
 
-  // Atajo global Ctrl+K para abrir el buscador semántico
+  // Atajo global Ctrl+K para abrir BeachBot
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        setBuscadorOpen((v) => !v);
+        setBeachbotOpen((v) => !v);
       }
     };
     window.addEventListener('keydown', handler);
@@ -530,6 +533,7 @@ export default function DashboardLayout() {
     },
     { text: 'Cabañas', icon: <CottageIcon />, path: '/admin/cabanas', orangeType: 'light' },
     { text: 'Códigos Descuento', icon: <ConfirmationNumberIcon />, path: '/codigos-descuento', orangeType: 'dark' },
+    { text: 'Megafonía', icon: <CampaignIcon />, path: '/megafonia/emisor', orangeType: 'light' },
     { text: 'Mantenciones', icon: <BuildIcon />, path: '/mantenciones', orangeType: 'dark' },
     { text: 'Mis Tickets', icon: <AssignmentIcon />, path: '/mis-tickets', orangeType: 'light' },
     { text: 'Usuarios', icon: <PeopleIcon />, path: '/usuarios', orangeType: 'dark' },
@@ -644,10 +648,10 @@ export default function DashboardLayout() {
             />
           )}
 
-          {/* Buscador semántico */}
-          <Tooltip title="Buscar (Ctrl+K)">
+          {/* BeachBot */}
+          <Tooltip title="Pregúntale a BeachBot (Ctrl+K)">
             <Box
-              onClick={() => setBuscadorOpen(true)}
+              onClick={() => setBeachbotOpen(true)}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -663,11 +667,15 @@ export default function DashboardLayout() {
                 transition: 'background 0.2s',
               }}
             >
-              <SearchIcon sx={{ fontSize: 18, opacity: 0.85 }} />
-              <Typography variant="body2" sx={{ opacity: 0.75, fontSize: '0.8rem', display: { xs: 'none', sm: 'block' } }}>
-                Buscar…
+              <Box
+                component="img"
+                src={require('../images/chatbot.png')}
+                alt="BeachBot"
+                sx={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', opacity: 0.9 }}
+              />
+              <Typography variant="body2" sx={{ opacity: 0.85, fontSize: '0.8rem', display: { xs: 'none', sm: 'block' } }}>
+                ¿Buscas algo?
               </Typography>
-              <Chip label="Ctrl K" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: 'rgba(255,255,255,0.15)', color: 'inherit', display: { xs: 'none', md: 'flex' } }} />
             </Box>
           </Tooltip>
 
@@ -1235,8 +1243,11 @@ export default function DashboardLayout() {
       {/* Chat interno en tiempo real */}
       <ChatWidget />
 
-      {/* Buscador semántico global */}
+      {/* Buscador semántico global (mantenido para uso interno) */}
       <BuscadorInteligente open={buscadorOpen} onClose={() => setBuscadorOpen(false)} />
+
+      {/* BeachBot — IA conversacional */}
+      <BeachBotModal open={beachbotOpen} onClose={() => setBeachbotOpen(false)} />
 
       {/* Botón flotante de Reportar Problema */}
       <Tooltip title="Reportar Problema" placement="left">

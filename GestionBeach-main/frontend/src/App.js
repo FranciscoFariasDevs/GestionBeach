@@ -82,6 +82,9 @@ import ProveedoresProductoPage from './pages/ProveedoresProductoPage';
 import OrganigramaPage from './pages/OrganigramaPage';
 import KanbanPage from './pages/KanbanPage';
 import CotizacionesPage from './pages/CotizacionesPage'; // 📄 COTIZACIONES
+import AIConsultaPage from './pages/AIConsultaPage'; // 🤖 CONSULTA IA
+import MegafoniaEmisorPage from './pages/MegafoniaEmisorPage'; // 📢 MEGAFONÍA EMISOR
+import MegafoniaReceptorPage from './pages/MegafoniaReceptorPage'; // 📢 MEGAFONÍA RECEPTOR
 
 // ========================================
 // COMPONENTS
@@ -687,7 +690,33 @@ function App() {
                     }
                   />
 
+                  {/* 🤖 CONSULTA INTELIGENTE IA */}
+                  <Route
+                    path="/ai-consulta"
+                    element={
+                      <ProtectedRoute>
+                        <AIConsultaPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* 📢 MEGAFONÍA IP */}
+                  <Route
+                    path="/megafonia/emisor"
+                    element={
+                      <ProtectedRoute requiredRoute="/megafonia/emisor">
+                        <MegafoniaEmisorPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
                 </Route>
+
+                {/* Receptor: ruta pública (se abre en el parlante de la sucursal, sin login) */}
+                <Route
+                  path="/megafonia/receptor/:sucursalId"
+                  element={<MegafoniaReceptorPage />}
+                />
 
                 {/* ========================================== */}
                 {/* RUTA 404 - NO ENCONTRADO                   */}

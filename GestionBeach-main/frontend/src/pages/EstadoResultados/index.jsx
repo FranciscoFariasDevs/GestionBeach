@@ -260,7 +260,6 @@ const CostosPatronalesCard = ({ data }) => {
           </Grid>
         </Grid>
 
-        {/* 🔥 NUEVO: Mostrar desglose Admin/Ventas */}
         {resumen.administrativos && resumen.ventas && (
           <>
             <Divider sx={{ my: 2 }} />
@@ -269,28 +268,28 @@ const CostosPatronalesCard = ({ data }) => {
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 2, bgcolor: theme.palette.primary.main + '08' }}>
+                <Paper sx={{ p: 2, bgcolor: theme.palette.primary.main + '08', borderLeft: `3px solid ${theme.palette.primary.main}` }}>
                   <Typography variant="caption" color="textSecondary">
-                    💼 ADMINISTRATIVOS ({resumen.administrativos.cantidad_empleados_unicos} empleados)
+                    ADMINISTRATIVOS — {resumen.administrativos.cantidad_empleados_unicos} empleados
                   </Typography>
                   <Typography variant="h6" fontWeight="bold" color="primary">
                     {formatCurrency(resumen.administrativos.total_cargo)}
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    (Empleados con múltiples sucursales - sueldo dividido proporcionalmente)
+                    Empleados con múltiples sucursales — sueldo dividido proporcionalmente
                   </Typography>
                 </Paper>
               </Grid>
               <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 2, bgcolor: theme.palette.success.main + '08' }}>
+                <Paper sx={{ p: 2, bgcolor: theme.palette.success.main + '08', borderLeft: `3px solid ${theme.palette.success.main}` }}>
                   <Typography variant="caption" color="textSecondary">
-                    🛒 VENTAS ({resumen.ventas.cantidad_empleados_unicos} empleados)
+                    VENTAS — {resumen.ventas.cantidad_empleados_unicos} empleados
                   </Typography>
                   <Typography variant="h6" fontWeight="bold" color="success.main">
                     {formatCurrency(resumen.ventas.total_cargo)}
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    (Empleados con una sola sucursal - sueldo 100% asignado)
+                    Empleados con una sola sucursal — sueldo 100% asignado
                   </Typography>
                 </Paper>
               </Grid>
@@ -322,15 +321,29 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [razonesSocialesDisponibles, setRazonesSocialesDisponibles] = useState([]);
 
-  // Filtros
+  // Filtros — persisten en sessionStorage para sobrevivir navegación
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  const [anioFiltro, setAnioFiltro] = useState(currentYear);
-  const [mesFiltro, setMesFiltro] = useState(currentMonth);
-  const [sucursalFiltro, setSucursalFiltro] = useState('');
-  const [razonSocialFiltro, setRazonSocialFiltro] = useState('');
-  const [estadoFiltro, setEstadoFiltro] = useState('');
+  const FILTER_KEY = 'er_historicos_filtros';
+  const savedFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(FILTER_KEY)) || {}; } catch { return {}; }
+  })();
+
+  const [anioFiltro, setAnioFiltro] = useState(savedFilters.anio ?? currentYear);
+  const [mesFiltro, setMesFiltro] = useState(savedFilters.mes ?? currentMonth);
+  const [sucursalFiltro, setSucursalFiltro] = useState(savedFilters.sucursal ?? '');
+  const [razonSocialFiltro, setRazonSocialFiltro] = useState(savedFilters.razonSocial ?? '');
+  const [estadoFiltro, setEstadoFiltro] = useState(savedFilters.estado ?? '');
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTER_KEY, JSON.stringify({
+        anio: anioFiltro, mes: mesFiltro,
+        sucursal: sucursalFiltro, razonSocial: razonSocialFiltro, estado: estadoFiltro,
+      }));
+    } catch {}
+  }, [anioFiltro, mesFiltro, sucursalFiltro, razonSocialFiltro, estadoFiltro]);
 
   // Generar lista de años (últimos 5 años)
   const anios = Array.from({ length: 5 }, (_, i) => currentYear - i);
@@ -375,11 +388,17 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
       if (response.data.success) {
         setHistoricos(response.data.data || []);
       } else {
-        enqueueSnackbar('Error al cargar históricos', { variant: 'error' });
+        const sucNombre = sucursalFiltro
+          ? sucursalesDisponibles.find(s => s.id?.toString() === sucursalFiltro)?.nombre || `sucursal #${sucursalFiltro}`
+          : 'todas las sucursales';
+        enqueueSnackbar(`No se pudieron cargar los históricos de ${sucNombre}. Intente nuevamente.`, { variant: 'error' });
       }
     } catch (error) {
       console.error('Error al cargar históricos:', error);
-      enqueueSnackbar('Error al cargar históricos', { variant: 'error' });
+      const sucNombre = sucursalFiltro
+        ? sucursalesDisponibles.find(s => s.id?.toString() === sucursalFiltro)?.nombre || `sucursal #${sucursalFiltro}`
+        : 'todas las sucursales';
+      enqueueSnackbar(`Error de conexión al consultar ${sucNombre} — ${error.message || 'verifique la red'}`, { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -680,20 +699,34 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
               No se encontraron estados de resultados guardados para los filtros seleccionados.
             </Alert>
           ) : (
-            <TableContainer>
-              <Table>
+            <TableContainer
+              component={Paper}
+              sx={{
+                maxHeight: 520,
+                overflowY: 'auto',
+                overflowX: 'auto',
+                borderRadius: 2,
+                boxShadow: 'none',
+                border: `1px solid ${theme.palette.divider}`,
+                /* scroll visible en tablets/mobile */
+                '&::-webkit-scrollbar': { height: 6, width: 6 },
+                '&::-webkit-scrollbar-track': { bgcolor: 'grey.100' },
+                '&::-webkit-scrollbar-thumb': { bgcolor: 'grey.400', borderRadius: 3 },
+              }}
+            >
+              <Table stickyHeader size="small" sx={{ minWidth: 900 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell><strong>Período</strong></TableCell>
-                    <TableCell><strong>Sucursal</strong></TableCell>
-                    <TableCell><strong>Razón Social</strong></TableCell>
-                    <TableCell align="right"><strong>Ventas</strong></TableCell>
-                    <TableCell align="right"><strong>Costos</strong></TableCell>
-                    <TableCell align="right"><strong>Utilidad Neta</strong></TableCell>
-                    <TableCell align="center"><strong>Estado</strong></TableCell>
-                    <TableCell><strong>Creado Por</strong></TableCell>
-                    <TableCell><strong>Fecha Creación</strong></TableCell>
-                    <TableCell align="center"><strong>Acciones</strong></TableCell>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Período</TableCell>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Sucursal</TableCell>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Razón Social</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Ventas</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Costos</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Utilidad Neta</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Estado</TableCell>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Creado Por</TableCell>
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Fecha Creación</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Acciones</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -778,26 +811,30 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: 3,
-            background: 'linear-gradient(to bottom, #ffffff 0%, #f8f9fa 100%)',
+            borderRadius: 2,
+            bgcolor: 'background.paper',
           }
         }}
       >
         <DialogTitle sx={{
-          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+          bgcolor: theme.palette.primary.dark,
           color: 'white',
-          pb: 3
+          py: 2.5,
+          px: 3,
         }}>
           <Box display="flex" justifyContent="space-between" alignItems="center">
             <Box display="flex" alignItems="center" gap={2}>
-              <BusinessIcon sx={{ fontSize: 40 }} />
+              <BusinessIcon sx={{ fontSize: 32, opacity: 0.85 }} />
               <Box>
-                <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>
+                <Typography variant="overline" sx={{ opacity: 0.75, letterSpacing: 2, fontSize: '0.7rem' }}>
+                  Informe Financiero
+                </Typography>
+                <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2 }}>
                   Estado de Resultados
                 </Typography>
                 {selectedHistorico && (
-                  <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
-                    {selectedHistorico.sucursal_nombre} - {getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}
+                  <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.25 }}>
+                    {selectedHistorico.sucursal_nombre} &mdash; {getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}
                   </Typography>
                 )}
               </Box>
@@ -807,387 +844,261 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
                 <Chip
                   label={selectedHistorico.estado === 'enviado' ? 'Enviado' : 'Borrador'}
                   color={selectedHistorico.estado === 'enviado' ? 'success' : 'warning'}
-                  sx={{
-                    fontWeight: 700,
-                    fontSize: '0.9rem',
-                    px: 1
-                  }}
+                  size="small"
+                  sx={{ fontWeight: 700, fontSize: '0.8rem' }}
                   icon={selectedHistorico.estado === 'enviado' ? <CheckCircleIcon /> : <EditIcon />}
                 />
               )}
               <IconButton
                 onClick={handleCloseDialog}
-                sx={{
-                  color: 'white',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
-                }}
+                size="small"
+                sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}
               >
-                <CloseIcon />
+                <CloseIcon fontSize="small" />
               </IconButton>
             </Box>
           </Box>
         </DialogTitle>
-        <DialogContent dividers id="estado-resultados-print">
+        <DialogContent sx={{ p: 0, bgcolor: '#f5f6f8' }} id="estado-resultados-print">
           {selectedHistorico && (
-            <Box>
-              {/* Resumen Ejecutivo */}
+            <Box sx={{ p: 3 }}>
+
+              {/* Encabezado del informe (visible en PDF) */}
+              <Box sx={{
+                mb: 3,
+                pb: 2.5,
+                borderBottom: '2px solid',
+                borderColor: 'grey.300',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-end',
+              }}>
+                <Box>
+                  <Typography variant="overline" sx={{ color: 'text.disabled', letterSpacing: 2, fontSize: '0.65rem' }}>
+                    Informe Financiero
+                  </Typography>
+                  <Typography variant="h5" fontWeight={700} color="text.primary" sx={{ lineHeight: 1.2, mt: 0.25 }}>
+                    Estado de Resultados
+                  </Typography>
+                  <Typography variant="body1" fontWeight={600} color="text.secondary" sx={{ mt: 0.5 }}>
+                    {selectedHistorico.sucursal_nombre}
+                    {selectedHistorico.razon_social_nombre && ` — ${selectedHistorico.razon_social_nombre}`}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="h6" fontWeight={700} color="text.primary">
+                    {getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}
+                  </Typography>
+                  <Typography variant="caption" color="text.disabled">
+                    Generado: {formatDate(new Date().toISOString())}
+                  </Typography>
+                  <Box sx={{ mt: 0.5 }}>
+                    <Chip
+                      label={selectedHistorico.estado === 'enviado' ? 'Enviado' : 'Borrador'}
+                      size="small"
+                      variant="outlined"
+                      sx={{
+                        fontWeight: 600,
+                        fontSize: '0.7rem',
+                        borderColor: selectedHistorico.estado === 'enviado' ? 'success.main' : 'warning.main',
+                        color: selectedHistorico.estado === 'enviado' ? 'success.dark' : 'warning.dark',
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* Resumen ejecutivo — 4 cifras clave */}
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper sx={{
-                    p: 2,
-                    background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
-                    color: 'white',
-                    borderRadius: 2,
-                    boxShadow: 3
-                  }}>
-                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
-                      💰 Total Ingresos
-                    </Typography>
-                    <Typography variant="h5" fontWeight={900}>
-                      {formatCurrency(selectedHistorico.total_ingresos)}
-                    </Typography>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper sx={{
-                    p: 2,
-                    background: 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
-                    color: 'white',
-                    borderRadius: 2,
-                    boxShadow: 3
-                  }}>
-                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
-                      📦 Total Costos
-                    </Typography>
-                    <Typography variant="h5" fontWeight={900}>
-                      {formatCurrency(selectedHistorico.total_costos)}
-                    </Typography>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper sx={{
-                    p: 2,
-                    background: 'linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%)',
-                    color: 'white',
-                    borderRadius: 2,
-                    boxShadow: 3
-                  }}>
-                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 600 }}>
-                      💼 Gastos Operativos
-                    </Typography>
-                    <Typography variant="h5" fontWeight={900}>
-                      {formatCurrency(selectedHistorico.total_gastos_operativos)}
-                    </Typography>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper sx={{
-                    p: 2,
-                    background: selectedHistorico.utilidad_neta >= 0
-                      ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)'
-                      : 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
-                    color: 'white',
-                    borderRadius: 2,
-                    boxShadow: 4,
-                    border: '2px solid',
-                    borderColor: selectedHistorico.utilidad_neta >= 0 ? '#38ef7d' : '#f45c43'
-                  }}>
-                    <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 700 }}>
-                      {selectedHistorico.utilidad_neta >= 0 ? '✅' : '❌'} UTILIDAD NETA
-                    </Typography>
-                    <Typography variant="h4" fontWeight={900}>
-                      {formatCurrency(selectedHistorico.utilidad_neta)}
-                    </Typography>
-                  </Paper>
-                </Grid>
+                {[
+                  { label: 'Total Ingresos', value: selectedHistorico.total_ingresos },
+                  { label: 'Total Costos', value: selectedHistorico.total_costos },
+                  { label: 'Gastos Operativos', value: selectedHistorico.total_gastos_operativos },
+                  { label: 'Utilidad Neta', value: selectedHistorico.utilidad_neta, highlight: true },
+                ].map((item) => (
+                  <Grid item xs={12} sm={6} md={3} key={item.label}>
+                    <Paper elevation={0} sx={{
+                      p: 2,
+                      border: '1px solid',
+                      borderColor: item.highlight
+                        ? (item.value >= 0 ? 'success.main' : 'error.main')
+                        : 'grey.300',
+                      borderRadius: 1.5,
+                      bgcolor: item.highlight
+                        ? (item.value >= 0 ? alpha('#2e7d32', 0.05) : alpha('#c62828', 0.05))
+                        : '#fff',
+                    }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', mb: 0.5 }}>
+                        {item.label}
+                      </Typography>
+                      <Typography variant="h6" fontWeight={700} sx={{
+                        color: item.highlight
+                          ? (item.value >= 0 ? 'success.dark' : 'error.dark')
+                          : 'text.primary',
+                      }}>
+                        {formatCurrency(item.value)}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                ))}
               </Grid>
 
-              {/* Información General en tabla */}
-              <TableContainer component={Paper} sx={{ mb: 3 }}>
+              {/* Tabla única de Estado de Resultados */}
+              <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'grey.300', borderRadius: 1.5, overflow: 'hidden' }}>
                 <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.100' }}>
-                      <TableCell colSpan={4}>
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          Información General
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600, width: '25%' }}>Período</TableCell>
-                      <TableCell>{getNombreMes(selectedHistorico.mes)} {selectedHistorico.anio}</TableCell>
-                      <TableCell sx={{ fontWeight: 600, width: '25%' }}>Estado</TableCell>
-                      <TableCell>{selectedHistorico.estado === 'enviado' ? 'Enviado' : 'Borrador'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Sucursal</TableCell>
-                      <TableCell>{selectedHistorico.sucursal_nombre || '-'}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Razón Social</TableCell>
-                      <TableCell>{selectedHistorico.razon_social_nombre || 'Sin especificar'}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
 
-              {/* INGRESOS */}
-              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'success.main' }}>
-                <Table size="small">
+                  {/* INGRESOS */}
                   <TableHead>
-                    <TableRow sx={{ bgcolor: 'success.main' }}>
-                      <TableCell colSpan={2}>
-                        <Typography variant="subtitle1" fontWeight={800} color="white">
-                          💰 INGRESOS
-                        </Typography>
+                    <TableRow sx={{ bgcolor: '#263238' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Ingresos
                       </TableCell>
+                      <TableCell align="right" sx={{ color: 'white', fontWeight: 700, width: 180 }} />
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Ventas</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, color: 'success.dark', fontSize: '1.1rem' }}>
-                        {formatCurrency(selectedHistorico.ventas)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Ventas</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatCurrency(selectedHistorico.ventas)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Otros Ingresos (Fletes)</TableCell>
-                      <TableCell align="right" sx={{ color: 'success.main' }}>
-                        {formatCurrency(selectedHistorico.otros_ingresos_fletes || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Otros Ingresos (Fletes)</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.otros_ingresos_fletes || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Otros Ingresos Financieros</TableCell>
-                      <TableCell align="right" sx={{ color: 'success.main' }}>
-                        {formatCurrency(selectedHistorico.otros_ingresos_financieros || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Otros Ingresos Financieros</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.otros_ingresos_financieros || 0)}</TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'success.dark' }}>
-                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL INGRESOS</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
-                        {formatCurrency(selectedHistorico.total_ingresos)}
-                      </TableCell>
+                    <TableRow sx={{ bgcolor: '#eceff1' }}>
+                      <TableCell sx={{ fontWeight: 700, pl: 3 }}>Total Ingresos</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatCurrency(selectedHistorico.total_ingresos)}</TableCell>
                     </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
 
-              {/* COSTOS */}
-              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'error.main' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'error.main' }}>
-                      <TableCell colSpan={2}>
-                        <Typography variant="subtitle1" fontWeight={800} color="white">
-                          📦 COSTOS
-                        </Typography>
+                    {/* COSTOS */}
+                    <TableRow sx={{ bgcolor: '#263238' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Costos
                       </TableCell>
+                      <TableCell align="right" sx={{ color: 'white' }} />
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Costo de Ventas</TableCell>
-                      <TableCell align="right" sx={{ color: 'error.dark', fontWeight: 700 }}>
-                        {formatCurrency(selectedHistorico.costo_ventas || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Costo de Ventas</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatCurrency(selectedHistorico.costo_ventas || 0)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Compras Totales</TableCell>
-                      <TableCell align="right" sx={{ color: 'error.main' }}>
-                        {formatCurrency(selectedHistorico.compras_totales || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Compras Totales</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.compras_totales || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Merma de Venta</TableCell>
-                      <TableCell align="right" sx={{ color: 'error.main' }}>
-                        {formatCurrency(selectedHistorico.merma_venta || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Merma de Venta</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.merma_venta || 0)}</TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'error.dark' }}>
-                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL COSTOS</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
-                        {formatCurrency(selectedHistorico.total_costos)}
-                      </TableCell>
+                    <TableRow sx={{ bgcolor: '#eceff1' }}>
+                      <TableCell sx={{ fontWeight: 700, pl: 3 }}>Total Costos</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatCurrency(selectedHistorico.total_costos)}</TableCell>
                     </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
 
-              {/* GASTOS ADMINISTRATIVOS */}
-              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'warning.main' }}>
-                      <TableCell colSpan={2}>
-                        <Typography variant="subtitle1" fontWeight={800} color="white">
-                          🏢 GASTOS ADMINISTRATIVOS
-                        </Typography>
+                    {/* GASTOS ADMINISTRATIVOS */}
+                    <TableRow sx={{ bgcolor: '#263238' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Gastos Administrativos
                       </TableCell>
+                      <TableCell align="right" sx={{ color: 'white' }} />
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Sueldos Admin.</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.dark', fontWeight: 700 }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_sueldos || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Sueldos Administrativos</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatCurrency(selectedHistorico.gastos_admin_sueldos || 0)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Seguros</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_seguros || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Seguros</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_seguros || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Gastos Comunes</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_gastos_comunes || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Gastos Comunes</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_gastos_comunes || 0)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Electricidad</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_electricidad || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Electricidad</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_electricidad || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Agua</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_agua || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Agua</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_agua || 0)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Telefonía</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_telefonia || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Telefonía</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_telefonia || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Otros Admin.</TableCell>
-                      <TableCell align="right" sx={{ color: 'warning.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_otros || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Otros Administrativos</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_admin_otros || 0)}</TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'warning.dark' }}>
-                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS ADMINISTRATIVOS</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
-                        {formatCurrency(selectedHistorico.gastos_admin_total || 0)}
-                      </TableCell>
+                    <TableRow sx={{ bgcolor: '#eceff1' }}>
+                      <TableCell sx={{ fontWeight: 700, pl: 3 }}>Total Gastos Administrativos</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatCurrency(selectedHistorico.gastos_admin_total || 0)}</TableCell>
                     </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
 
-              {/* GASTOS DE VENTA */}
-              <TableContainer component={Paper} sx={{ mb: 3, border: '2px solid', borderColor: 'info.main' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'info.main' }}>
-                      <TableCell colSpan={2}>
-                        <Typography variant="subtitle1" fontWeight={800} color="white">
-                          🛒 GASTOS DE VENTA
-                        </Typography>
+                    {/* GASTOS DE VENTA */}
+                    <TableRow sx={{ bgcolor: '#263238' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Gastos de Venta
                       </TableCell>
+                      <TableCell align="right" sx={{ color: 'white' }} />
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Sueldos Ventas</TableCell>
-                      <TableCell align="right" sx={{ color: 'info.dark', fontWeight: 700 }}>
-                        {formatCurrency(selectedHistorico.gastos_venta_sueldos || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Sueldos de Venta</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{formatCurrency(selectedHistorico.gastos_venta_sueldos || 0)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 600 }}>Fletes</TableCell>
-                      <TableCell align="right" sx={{ color: 'info.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_venta_fletes || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Fletes</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_venta_fletes || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Publicidad</TableCell>
-                      <TableCell align="right" sx={{ color: 'info.main' }}>
-                        {formatCurrency(selectedHistorico.gastos_venta_publicidad || 0)}
-                      </TableCell>
+                      <TableCell sx={{ pl: 3 }}>Publicidad</TableCell>
+                      <TableCell align="right">{formatCurrency(selectedHistorico.gastos_venta_publicidad || 0)}</TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'info.dark' }}>
-                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS DE VENTA</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.1rem' }}>
-                        {formatCurrency(selectedHistorico.gastos_venta_total || 0)}
-                      </TableCell>
+                    <TableRow sx={{ bgcolor: '#eceff1' }}>
+                      <TableCell sx={{ fontWeight: 700, pl: 3 }}>Total Gastos de Venta</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>{formatCurrency(selectedHistorico.gastos_venta_total || 0)}</TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'secondary.dark' }}>
-                      <TableCell sx={{ fontWeight: 900, color: 'white' }}>TOTAL GASTOS OPERATIVOS</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, color: 'white', fontSize: '1.2rem' }}>
-                        {formatCurrency(selectedHistorico.total_gastos_operativos)}
-                      </TableCell>
+                    <TableRow sx={{ bgcolor: '#455a64' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, pl: 3 }}>Total Gastos Operativos</TableCell>
+                      <TableCell align="right" sx={{ color: 'white', fontWeight: 700 }}>{formatCurrency(selectedHistorico.total_gastos_operativos)}</TableCell>
                     </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
 
-              {/* UTILIDADES */}
-              <TableContainer component={Paper} sx={{
-                mb: 3,
-                border: '3px solid',
-                borderColor: selectedHistorico.utilidad_neta >= 0 ? 'success.main' : 'error.main',
-                boxShadow: 4
-              }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: selectedHistorico.utilidad_neta >= 0 ? 'success.main' : 'error.main' }}>
-                      <TableCell colSpan={2}>
-                        <Typography variant="h6" fontWeight={900} color="white">
-                          📊 UTILIDADES
-                        </Typography>
+                    {/* UTILIDADES */}
+                    <TableRow sx={{ bgcolor: '#263238' }}>
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Utilidades
                       </TableCell>
+                      <TableCell align="right" sx={{ color: 'white' }} />
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Bruta</TableCell>
-                      <TableCell align="right" sx={{
-                        color: selectedHistorico.utilidad_bruta >= 0 ? 'success.dark' : 'error.dark',
-                        fontWeight: 800,
-                        fontSize: '1.1rem'
-                      }}>
-                        {selectedHistorico.utilidad_bruta >= 0 ? '📈 ' : '📉 '}
+                    <TableRow>
+                      <TableCell sx={{ pl: 3 }}>Utilidad Bruta</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600, color: selectedHistorico.utilidad_bruta >= 0 ? 'success.dark' : 'error.dark' }}>
                         {formatCurrency(selectedHistorico.utilidad_bruta)}
                       </TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Operativa</TableCell>
-                      <TableCell align="right" sx={{
-                        color: selectedHistorico.utilidad_operativa >= 0 ? 'success.dark' : 'error.dark',
-                        fontWeight: 800,
-                        fontSize: '1.1rem'
-                      }}>
-                        {selectedHistorico.utilidad_operativa >= 0 ? '📈 ' : '📉 '}
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ pl: 3 }}>Utilidad Operativa</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600, color: selectedHistorico.utilidad_operativa >= 0 ? 'success.dark' : 'error.dark' }}>
                         {formatCurrency(selectedHistorico.utilidad_operativa)}
                       </TableCell>
                     </TableRow>
-                    <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 700 }}>Utilidad Antes Impuestos</TableCell>
-                      <TableCell align="right" sx={{
-                        color: (selectedHistorico.utilidad_antes_impuestos || 0) >= 0 ? 'success.dark' : 'error.dark',
-                        fontWeight: 800,
-                        fontSize: '1.1rem'
-                      }}>
-                        {(selectedHistorico.utilidad_antes_impuestos || 0) >= 0 ? '📈 ' : '📉 '}
+                    <TableRow>
+                      <TableCell sx={{ pl: 3 }}>Utilidad Antes de Impuestos</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600, color: (selectedHistorico.utilidad_antes_impuestos || 0) >= 0 ? 'success.dark' : 'error.dark' }}>
                         {formatCurrency(selectedHistorico.utilidad_antes_impuestos || 0)}
                       </TableCell>
                     </TableRow>
                     <TableRow sx={{
-                      bgcolor: selectedHistorico.utilidad_neta >= 0 ? 'success.dark' : 'error.dark',
+                      bgcolor: selectedHistorico.utilidad_neta >= 0 ? '#1b5e20' : '#b71c1c',
                       '& td': { borderBottom: 'none' }
                     }}>
-                      <TableCell sx={{ fontWeight: 900, fontSize: '1.3rem', color: 'white', py: 2 }}>
-                        💰 UTILIDAD NETA
+                      <TableCell sx={{ color: 'white', fontWeight: 700, fontSize: '0.95rem', pl: 3, py: 1.75 }}>
+                        Utilidad Neta
                       </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, fontSize: '1.5rem', color: 'white', py: 2 }}>
-                        {selectedHistorico.utilidad_neta >= 0 ? '✅ ' : '❌ '}
+                      <TableCell align="right" sx={{ color: 'white', fontWeight: 800, fontSize: '1.1rem', py: 1.75 }}>
                         {formatCurrency(selectedHistorico.utilidad_neta)}
                       </TableCell>
                     </TableRow>
@@ -1196,117 +1107,78 @@ const HistoricosTab = ({ sucursalesDisponibles }) => {
               </TableContainer>
 
               {/* Información Adicional */}
-              <TableContainer component={Paper} sx={{ mb: 3 }}>
+              <TableContainer component={Paper} elevation={0} sx={{ mt: 3, border: '1px solid', borderColor: 'grey.300', borderRadius: 1.5, overflow: 'hidden' }}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.100' }}>
-                      <TableCell colSpan={4}>
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          INFORMACIÓN ADICIONAL
-                        </Typography>
+                    <TableRow sx={{ bgcolor: '#455a64' }}>
+                      <TableCell colSpan={4} sx={{ color: 'white', fontWeight: 700, fontSize: '0.75rem', letterSpacing: 1, textTransform: 'uppercase', py: 1.25 }}>
+                        Información Adicional
                       </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Número de Facturas</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', width: '25%', fontSize: '0.8rem' }}>Número de Facturas</TableCell>
                       <TableCell>{selectedHistorico.numero_facturas || 0}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Número de Ventas</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', width: '25%', fontSize: '0.8rem' }}>Número de Ventas</TableCell>
                       <TableCell>{selectedHistorico.numero_ventas || 0}</TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Empleados Admin.</TableCell>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.8rem' }}>Empleados Administrativos</TableCell>
                       <TableCell>{selectedHistorico.empleados_admin || 0}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Empleados Ventas</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.8rem' }}>Empleados de Venta</TableCell>
                       <TableCell>{selectedHistorico.empleados_ventas || 0}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Total Compras (Valor)</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.8rem' }}>Total Compras</TableCell>
                       <TableCell>{formatCurrency(selectedHistorico.total_compras_valor || 0)}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Total Remuneraciones (Valor)</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.8rem' }}>Total Remuneraciones</TableCell>
                       <TableCell>{formatCurrency(selectedHistorico.total_remuneraciones_valor || 0)}</TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
 
-              {selectedHistorico.observaciones && (
-                <TableContainer component={Paper} sx={{ mb: 2 }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'warning.50' }}>
-                        <TableCell>
-                          <Typography variant="subtitle2" fontWeight={700} color="warning.dark">
-                            Observaciones
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell>{selectedHistorico.observaciones}</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-
-              {selectedHistorico.notas && (
-                <TableContainer component={Paper} sx={{ mb: 2 }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'info.50' }}>
-                        <TableCell>
-                          <Typography variant="subtitle2" fontWeight={700} color="info.dark">
-                            Notas
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell>{selectedHistorico.notas}</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+              {(selectedHistorico.observaciones || selectedHistorico.notas) && (
+                <Box sx={{ mt: 3, p: 2.5, border: '1px solid', borderColor: 'grey.300', borderRadius: 1.5, bgcolor: '#fff' }}>
+                  {selectedHistorico.observaciones && (
+                    <Box sx={{ mb: selectedHistorico.notas ? 2 : 0 }}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', mb: 0.5 }}>
+                        Observaciones
+                      </Typography>
+                      <Typography variant="body2" color="text.primary">{selectedHistorico.observaciones}</Typography>
+                    </Box>
+                  )}
+                  {selectedHistorico.notas && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', mb: 0.5 }}>
+                        Notas
+                      </Typography>
+                      <Typography variant="body2" color="text.primary">{selectedHistorico.notas}</Typography>
+                    </Box>
+                  )}
+                </Box>
               )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, bgcolor: 'grey.50', gap: 1 }}>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: '#fff', gap: 1 }}>
           <Button
             onClick={handleExportarPDF}
             variant="contained"
             startIcon={<PictureAsPdfIcon />}
-            sx={{
-              background: 'linear-gradient(135deg, #e53935 0%, #c62828 100%)',
-              color: 'white',
-              fontWeight: 700,
-              '&:hover': {
-                background: 'linear-gradient(135deg, #c62828 0%, #b71c1c 100%)',
-                transform: 'translateY(-2px)',
-                boxShadow: 4,
-              },
-              transition: 'all 0.3s ease',
-            }}
+            color="error"
+            sx={{ fontWeight: 600 }}
           >
-            Exportar a PDF
+            Exportar PDF
           </Button>
           <Box sx={{ flexGrow: 1 }} />
           <Button
             onClick={handleCloseDialog}
             variant="outlined"
             startIcon={<CloseIcon />}
-            sx={{
-              fontWeight: 600,
-              borderWidth: 2,
-              '&:hover': {
-                borderWidth: 2,
-                transform: 'translateY(-2px)',
-              },
-              transition: 'all 0.3s ease',
-            }}
+            color="inherit"
+            sx={{ fontWeight: 600 }}
           >
             Cerrar
           </Button>
@@ -1536,9 +1408,13 @@ const EstadoResultadosPage = () => {
     setData(null);
     setSavedRecord(null);
     try {
-      const [comprasResult, remuneracionesResult, ventasResult, costosResult] = await Promise.all([
+      const [comprasRes, remuneracionesRes, ventasRes, costosRes] = await Promise.allSettled([
         loadComprasData(), loadRemuneracionesData(), loadVentasData(), loadCostosVenta()
       ]);
+      const comprasResult      = comprasRes.status      === 'fulfilled' ? comprasRes.value      : { data: [], total: 0, cantidad: 0 };
+      const remuneracionesResult = remuneracionesRes.status === 'fulfilled' ? remuneracionesRes.value : { data: [], total: 0, total_cargo: 0, cantidad: 0, resumen: null, porcentajes_aplicados: null };
+      const ventasResult       = ventasRes.status       === 'fulfilled' ? ventasRes.value       : { data: [], total: 0 };
+      const costosResult       = costosRes.status       === 'fulfilled' ? costosRes.value       : { costos: 0 };
       let estado = construirEstadoResultados({ compras: comprasResult, remuneraciones: remuneracionesResult, ventas: ventasResult, costos: costosResult });
       // Look for saved manual gastos for this period
       try {

@@ -192,6 +192,8 @@ const optionalRoutes = [
   { path: './routes/pushRoutes', route: '/api/push' },
   // 🔍 BÚSQUEDA SEMÁNTICA UNIFICADA
   { path: './routes/busquedaRoutes', route: '/api/busqueda' },
+  // 🤖 CONSULTA IA — LLAMA 3.3 VÍA GROQ
+  { path: './routes/aiConsultaRoutes', route: '/api/ai-consulta' },
 ];
 
 optionalRoutes.forEach(({ path, route }) => {
@@ -490,15 +492,9 @@ const startServer = async () => {
         // Importar la función de sincronización directamente
         const { sql } = require('./config/db');
 
-        // Lista de módulos del sistema
-        const modulosDelSistema = [
-          'Dashboard', 'Estado Resultado', 'Monitoreo', 'Remuneraciones',
-          'Inventario', 'Ventas', 'Productos', 'Supermercados', 'Ferreterías',
-          'Multitiendas', 'Compras', 'Centros de Costos', 'Facturas XML',
-          'Tarjeta Empleado', 'Empleados', 'Cabañas', 'Usuarios', 'Perfiles',
-          'Módulos', 'Configuración', 'Correo Electrónico', 'MonitorOrdenes', 'Ajustes',
-          'Organigrama', 'Kanban', 'Los Más Vendidos'
-        ];
+        // Usar modulosConfig como única fuente de verdad
+        const modulosConfig = require('./config/modulosConfig');
+        const modulosDelSistema = modulosConfig.map(m => m.nombre);
 
         // Verificar si modulos tiene IDENTITY
         const identityResult = await pool.request()
@@ -656,15 +652,21 @@ const startServer = async () => {
       const io = setupSocketIO(server);
       app.set('io', io); // Disponible en rutas si se necesita
 
+      // 📢 MEGAFONÍA IP — namespace /megafonia
+      const setupMegafonia = require('./sockets/megafoniaSocket');
+      setupMegafonia(io);
+
       // 🔔 Notificaciones: registrar io singleton y arrancar cron jobs
       const ioInstance = require('./config/ioInstance');
       ioInstance.setIO(io);
       const { asegurarTabla } = require('./services/notificacionesService');
       asegurarTabla().catch(e => console.warn('⚠️ Error creando tabla notificaciones:', e.message));
-      const { iniciarJob: iniciarPlanifJob } = require('./jobs/planificacionNotificaciones');
-      const { iniciarJob: iniciarKanbanJob } = require('./jobs/kanbanNotificaciones');
+      const { iniciarJob: iniciarPlanifJob }  = require('./jobs/planificacionNotificaciones');
+      const { iniciarJob: iniciarKanbanJob }  = require('./jobs/kanbanNotificaciones');
+      const { iniciarJob: iniciarFoliosJob }  = require('./jobs/foliosAlertaJob');
       iniciarPlanifJob();
       iniciarKanbanJob();
+      iniciarFoliosJob();
 
       // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
       server.listen(PORT, '0.0.0.0', () => {

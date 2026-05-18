@@ -38,6 +38,7 @@ import {
   ShowChart as CurvedIcon,
   TrendingFlat as StraightIcon,
   AccountTree as ElbowIcon,
+  ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 import api, { getStaticFileURL } from '../api/api';
 import html2canvas from 'html2canvas';
@@ -1109,6 +1110,9 @@ export default function OrganigramaPage() {
   const [newBoardCopiar, setNewBoardCopiar] = useState(true);
   const [creatingBoard, setCreatingBoard] = useState(false);
   const [deleteBoardDialog, setDeleteBoardDialog] = useState(false);
+  const [duplicateBoardDialogOpen, setDuplicateBoardDialogOpen] = useState(false);
+  const [duplicateBoardName, setDuplicateBoardName] = useState('');
+  const [duplicatingBoard, setDuplicatingBoard] = useState(false);
   // Picker de trabajadores existentes
   const [allWorkers, setAllWorkers] = useState([]);
   const [workersLoading, setWorkersLoading] = useState(false);
@@ -1271,6 +1275,32 @@ export default function OrganigramaPage() {
       toast('Organigrama eliminado');
     } catch {
       toast('Error al eliminar organigrama', 'error');
+    }
+  };
+
+  const openDuplicateDialog = () => {
+    const boardActual = boards.find(b => b.id === currentBoardId);
+    setDuplicateBoardName(boardActual ? `${boardActual.nombre} (copia)` : 'Copia');
+    setDuplicateBoardDialogOpen(true);
+  };
+
+  const handleDuplicarBoard = async () => {
+    if (currentBoardId == null || !duplicateBoardName.trim()) return;
+    try {
+      setDuplicatingBoard(true);
+      const res = await api.post(`/organigrama/boards/${currentBoardId}/duplicar`, {
+        nombre: duplicateBoardName.trim(),
+      });
+      if (res.data.success) {
+        setDuplicateBoardDialogOpen(false);
+        await loadBoards();
+        await switchBoard(res.data.board.id);
+        toast(`Organigrama duplicado: "${res.data.board.nombre}"`);
+      }
+    } catch {
+      toast('Error al duplicar organigrama', 'error');
+    } finally {
+      setDuplicatingBoard(false);
     }
   };
 
@@ -2050,14 +2080,22 @@ export default function OrganigramaPage() {
 
         <Box sx={{ flex: 1 }} />
 
-        {/* Eliminar board actual (solo si no es el general) */}
+        {/* Duplicar / Eliminar board actual (solo si no es el general) */}
         {currentBoardId != null && (
-          <Tooltip title="Eliminar este organigrama">
-            <IconButton size="small" onClick={() => setDeleteBoardDialog(true)}
-              sx={{ color: 'rgba(255,80,80,0.5)', '&:hover': { color: '#ef5350' } }}>
-              <DeleteIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
+          <>
+            <Tooltip title="Duplicar este organigrama">
+              <IconButton size="small" onClick={openDuplicateDialog}
+                sx={{ color: 'rgba(100,180,255,0.5)', '&:hover': { color: '#64b5f6' } }}>
+                <CopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Eliminar este organigrama">
+              <IconButton size="small" onClick={() => setDeleteBoardDialog(true)}
+                sx={{ color: 'rgba(255,80,80,0.5)', '&:hover': { color: '#ef5350' } }}>
+                <DeleteIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </>
         )}
       </Box>
 
@@ -3053,6 +3091,41 @@ export default function OrganigramaPage() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDeleteBoardDialog(false)} sx={{ color: 'rgba(255,255,255,0.5)' }}>Cancelar</Button>
           <Button onClick={handleEliminarBoard} color="error" variant="contained">Eliminar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Duplicar board ── */}
+      <Dialog open={duplicateBoardDialogOpen} onClose={() => setDuplicateBoardDialogOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { background: 'linear-gradient(135deg,#0d0d1a,#1a1a2e)', border: '1px solid rgba(100,180,255,0.2)', borderRadius: 3 } }}>
+        <DialogTitle sx={{ color: '#fff', display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+          <CopyIcon sx={{ color: '#64b5f6' }} />
+          Duplicar organigrama
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem' }}>
+            Se creará una copia exacta con todos sus nodos y conexiones.
+          </Typography>
+          <TextField
+            label="Nombre de la copia"
+            value={duplicateBoardName}
+            onChange={e => setDuplicateBoardName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleDuplicarBoard()}
+            size="small" autoFocus fullWidth
+            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+            InputProps={{ sx: { color: '#fff', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button onClick={() => setDuplicateBoardDialogOpen(false)} sx={{ color: 'rgba(255,255,255,0.5)' }}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleDuplicarBoard}
+            disabled={!duplicateBoardName.trim() || duplicatingBoard}
+            startIcon={duplicatingBoard ? <CircularProgress size={14} color="inherit" /> : <CopyIcon />}
+            sx={{ bgcolor: '#1565c0', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
+          >
+            Duplicar
+          </Button>
         </DialogActions>
       </Dialog>
 

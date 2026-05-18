@@ -68,4 +68,5 @@ module.exports = [
   { nombre: 'Kanban',               claves: ['kanban'] },
   { nombre: 'Cotizaciones',         claves: ['cotizaciones'] },
   { nombre: 'Los Más Vendidos',     claves: ['los-mas-vendidos'] },
+  { nombre: 'Megafonía',            claves: ['megafonia/emisor'] },
 ];

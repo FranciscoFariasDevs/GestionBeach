@@ -73,6 +73,8 @@ const IngresoGastosPage = () => {
   const [selectedSucursal, setSelectedSucursal] = useState('');
   const [selectedRazonSocial, setSelectedRazonSocial] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -266,16 +268,81 @@ const IngresoGastosPage = () => {
   const loadResultadosData = async () => {
     if (!selectedSucursal) return;
     setLoading(true);
+    setLoadingStep('');
+    setLoadingProgress(0);
     setError(null);
+    const sucursalNombreCarga = sucursalesDisponibles.find(s => s.id?.toString() === selectedSucursal)?.nombre || `sucursal #${selectedSucursal}`;
     try {
-      const comprasResult = await loadComprasData();
-      const remuneracionesResult = await loadRemuneracionesData();
-      const ventasResult = await loadVentasData();
-      const costosResult = await loadCostosVenta();
-      const estadoResultados = construirEstadoResultados({ compras: comprasResult, remuneraciones: remuneracionesResult, ventas: ventasResult, costos: costosResult });
+      setLoadingStep(`Cargando ventas de ${sucursalNombreCarga}…`);
+      setLoadingProgress(10);
+      const [comprasResult, remuneracionesResult, ventasResult, costosResult] = await Promise.allSettled([
+        loadComprasData().then(r => { setLoadingStep(`Cargando compras de ${sucursalNombreCarga}…`); setLoadingProgress(35); return r; }),
+        loadRemuneracionesData().then(r => { setLoadingStep(`Cargando remuneraciones de ${sucursalNombreCarga}…`); setLoadingProgress(60); return r; }),
+        loadVentasData().then(r => { setLoadingStep(`Calculando costos de ${sucursalNombreCarga}…`); setLoadingProgress(80); return r; }),
+        loadCostosVenta(),
+      ]).then(results => results.map((r, i) => r.status === 'fulfilled' ? r.value : [
+        { data: [], total: 0, cantidad: 0 },
+        { data: [], total: 0, total_cargo: 0, cantidad: 0, resumen: null },
+        { data: [], total: 0 },
+        { costos: 0, utilidad: 0 },
+      ][i]));
+
+      let estadoResultados = construirEstadoResultados({ compras: comprasResult, remuneraciones: remuneracionesResult, ventas: ventasResult, costos: costosResult });
+
+      // Restaurar gastos manuales guardados previamente para este período
+      try {
+        const mes = selectedMonth.getMonth() + 1;
+        const anio = selectedMonth.getFullYear();
+        const savedRes = await api.get('/estado-resultados', { params: { anio, mes, sucursal_id: selectedSucursal } });
+        if (savedRes.data.success && savedRes.data.data.length > 0) {
+          const rec = savedRes.data.data[0];
+          estadoResultados.id = rec.id;
+          estadoResultados.estado = rec.estado;
+          const ga = estadoResultados.gastosOperativos.gastosAdministrativos;
+          const gv = estadoResultados.gastosOperativos.gastosVenta;
+          ga.seguros        = Number(rec.gastos_admin_seguros) || 0;
+          ga.gastosComunes  = Number(rec.gastos_admin_gastos_comunes) || 0;
+          ga.electricidad   = Number(rec.gastos_admin_electricidad) || 0;
+          ga.agua           = Number(rec.gastos_admin_agua) || 0;
+          ga.telefonia      = Number(rec.gastos_admin_telefonia) || 0;
+          ga.alarma         = Number(rec.gastos_admin_alarma) || 0;
+          ga.internet       = Number(rec.gastos_admin_internet) || 0;
+          ga.facturasNet    = Number(rec.gastos_admin_facturas_net) || 0;
+          ga.transbank      = Number(rec.gastos_admin_transbank) || 0;
+          ga.patenteMunicipal = Number(rec.gastos_admin_patente_municipal) || 0;
+          ga.contribuciones = Number(rec.gastos_admin_contribuciones) || 0;
+          ga.petroleo       = Number(rec.gastos_admin_petroleo) || 0;
+          ga.otros          = Number(rec.gastos_admin_otros) || 0;
+          gv.fletes         = Number(rec.gastos_venta_fletes) || 0;
+          gv.finiquitos     = Number(rec.gastos_venta_finiquitos) || 0;
+          gv.mantenciones   = Number(rec.gastos_venta_mantenciones) || 0;
+          gv.publicidad     = Number(rec.gastos_venta_publicidad) || 0;
+          estadoResultados.costos.mermaVenta           = Number(rec.merma_venta) || 0;
+          estadoResultados.costoArriendo               = Number(rec.costo_arriendo) || 0;
+          estadoResultados.ingresos.otrosIngresos.fletes = Number(rec.otros_ingresos_fletes) || 0;
+          estadoResultados.otrosIngresosFinancieros    = Number(rec.otros_ingresos_financieros) || 0;
+          const adminFields = ['seguros','gastosComunes','electricidad','agua','telefonia','alarma','internet','facturasNet','transbank','patenteMunicipal','contribuciones','petroleo','otros'];
+          ga.total = adminFields.reduce((s, k) => s + (ga[k] || 0), 0) + ga.sueldos;
+          const ventaFields = ['fletes','finiquitos','mantenciones','publicidad'];
+          gv.total = ventaFields.reduce((s, k) => s + (gv[k] || 0), 0) + gv.sueldos;
+          estadoResultados.gastosOperativos.totalGastosOperativos = ga.total + gv.total;
+          estadoResultados.costos.totalCostos = estadoResultados.costos.costoVentas + estadoResultados.costos.mermaVenta;
+          estadoResultados.ingresos.otrosIngresos.total = estadoResultados.ingresos.otrosIngresos.fletes;
+          estadoResultados.ingresos.totalIngresos = estadoResultados.ingresos.ventas + estadoResultados.ingresos.otrosIngresos.total;
+          estadoResultados.utilidadBruta = estadoResultados.ingresos.totalIngresos - estadoResultados.costos.totalCostos;
+          estadoResultados.utilidadOperativa = estadoResultados.utilidadBruta - estadoResultados.gastosOperativos.totalGastosOperativos;
+          estadoResultados.utilidadAntesImpuestos = estadoResultados.utilidadOperativa - estadoResultados.costoArriendo + estadoResultados.otrosIngresosFinancieros;
+          estadoResultados.impuestos = Math.max(0, Math.round(estadoResultados.utilidadAntesImpuestos * 0.19));
+          estadoResultados.utilidadNeta = estadoResultados.utilidadAntesImpuestos - estadoResultados.impuestos;
+        }
+      } catch {}
+
+      setLoadingStep('Construyendo estado de resultados…');
+      setLoadingProgress(95);
       setData(estadoResultados);
       initializeExpensesFromData(estadoResultados);
       setHasChanges(false);
+      setLoadingProgress(100);
       const sucursalNombre = sucursalesDisponibles.find(s => s.id.toString() === selectedSucursal)?.nombre || selectedSucursal;
       if (ventasResult.total === 0 && comprasResult.total === 0 && remuneracionesResult.total === 0) {
         enqueueSnackbar(`Sin datos para ${sucursalNombre} en el período seleccionado`, { variant: 'info' });
@@ -283,8 +350,8 @@ const IngresoGastosPage = () => {
         enqueueSnackbar(`${sucursalNombre}: datos cargados correctamente`, { variant: 'success' });
       }
     } catch (err) {
-      setError(`Error al cargar los datos: ${err.message}`);
-      enqueueSnackbar(`Error al conectar con el servidor: ${err.message}`, { variant: 'error' });
+      setError(`Error al cargar los datos de ${sucursalNombreCarga}: ${err.message}`);
+      enqueueSnackbar(`Error al conectar con ${sucursalNombreCarga} — ${err.message || 'verifique la red'}`, { variant: 'error' });
       const estadoVacio = construirEstadoResultados({
         compras: { data: [], total: 0 },
         remuneraciones: { data: [], total: 0, total_cargo: 0, resumen: null },
@@ -295,6 +362,8 @@ const IngresoGastosPage = () => {
       initializeExpensesFromData(estadoVacio);
     } finally {
       setLoading(false);
+      setLoadingStep('');
+      setLoadingProgress(0);
     }
   };
 
@@ -355,7 +424,7 @@ const IngresoGastosPage = () => {
   };
 
   const initializeExpensesFromData = (data) => {
-    const adminKeys = ['gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma', 'internet', 'facturasNet', 'transbank', 'patenteMunicipal', 'contribuciones', 'petroleo', 'otros'];
+    const adminKeys = ['seguros', 'gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma', 'internet', 'facturasNet', 'transbank', 'patenteMunicipal', 'contribuciones', 'petroleo', 'otros'];
     const adminExpenses = adminKeys.filter(k => data.gastosOperativos.gastosAdministrativos[k] > 0).map(k => ({
       id: k, label: getExpenseLabel('administrativos', k), amount: data.gastosOperativos.gastosAdministrativos[k]
     }));
@@ -376,12 +445,13 @@ const IngresoGastosPage = () => {
   const getExpenseLabel = (category, id) => {
     const catalog = {
       administrativos: [
-        { id: 'gastosComunes', label: 'Gastos Comunes' }, { id: 'electricidad', label: 'Electricidad' },
-        { id: 'agua', label: 'Agua' }, { id: 'telefonia', label: 'Telefonía Celular' },
-        { id: 'alarma', label: 'Alarma' }, { id: 'internet', label: 'Internet' },
-        { id: 'facturasNet', label: 'Facturas Net' }, { id: 'transbank', label: 'Transbank' },
-        { id: 'patenteMunicipal', label: 'Patente Municipal' }, { id: 'contribuciones', label: 'Contribuciones' },
-        { id: 'petroleo', label: 'Petróleo' }, { id: 'otros', label: 'Otros Gastos' },
+        { id: 'seguros', label: 'Seguros' }, { id: 'gastosComunes', label: 'Gastos Comunes' },
+        { id: 'electricidad', label: 'Electricidad' }, { id: 'agua', label: 'Agua' },
+        { id: 'telefonia', label: 'Telefonía Celular' }, { id: 'alarma', label: 'Alarma' },
+        { id: 'internet', label: 'Internet' }, { id: 'facturasNet', label: 'Facturas Net' },
+        { id: 'transbank', label: 'Transbank' }, { id: 'patenteMunicipal', label: 'Patente Municipal' },
+        { id: 'contribuciones', label: 'Contribuciones' }, { id: 'petroleo', label: 'Petróleo' },
+        { id: 'otros', label: 'Otros Gastos' },
       ],
       venta: [
         { id: 'fletes', label: 'Costo por Fletes' }, { id: 'finiquitos', label: 'Finiquitos' },
@@ -402,28 +472,28 @@ const IngresoGastosPage = () => {
       return null;
     }
     const newData = JSON.parse(JSON.stringify(data));
-    const adminFields = ['gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma', 'internet', 'facturasNet', 'transbank', 'patenteMunicipal', 'contribuciones', 'petroleo', 'otros'];
+    const adminFields = ['seguros', 'gastosComunes', 'electricidad', 'agua', 'telefonia', 'alarma', 'internet', 'facturasNet', 'transbank', 'patenteMunicipal', 'contribuciones', 'petroleo', 'otros'];
     adminFields.forEach(f => { newData.gastosOperativos.gastosAdministrativos[f] = 0; });
     const ventaFields = ['fletes', 'finiquitos', 'mantenciones', 'publicidad'];
     ventaFields.forEach(f => { newData.gastosOperativos.gastosVenta[f] = 0; });
     gastosAdministrativos.forEach(e => {
-      if (adminFields.includes(e.id)) newData.gastosOperativos.gastosAdministrativos[e.id] = e.amount;
+      if (adminFields.includes(e.id)) newData.gastosOperativos.gastosAdministrativos[e.id] = Number(e.amount) || 0;
     });
     gastosVenta.forEach(e => {
-      if (ventaFields.includes(e.id)) newData.gastosOperativos.gastosVenta[e.id] = e.amount;
+      if (ventaFields.includes(e.id)) newData.gastosOperativos.gastosVenta[e.id] = Number(e.amount) || 0;
     });
     otrosGastos.forEach(e => {
-      if (e.id === 'mermaVenta') newData.costos.mermaVenta = e.amount;
-      else if (e.id === 'costoArriendo') newData.costoArriendo = e.amount;
-      else if (e.id === 'ingresoFletes') newData.ingresos.otrosIngresos.fletes = e.amount;
-      else if (e.id === 'otrosIngresos') newData.otrosIngresosFinancieros = e.amount;
+      if (e.id === 'mermaVenta') newData.costos.mermaVenta = Number(e.amount) || 0;
+      else if (e.id === 'costoArriendo') newData.costoArriendo = Number(e.amount) || 0;
+      else if (e.id === 'ingresoFletes') newData.ingresos.otrosIngresos.fletes = Number(e.amount) || 0;
+      else if (e.id === 'otrosIngresos') newData.otrosIngresosFinancieros = Number(e.amount) || 0;
     });
     newData.gastosOperativos.gastosAdministrativos.total =
-      adminFields.reduce((sum, k) => sum + (newData.gastosOperativos.gastosAdministrativos[k] || 0), 0) +
-      newData.gastosOperativos.gastosAdministrativos.sueldos;
+      adminFields.reduce((sum, k) => sum + (Number(newData.gastosOperativos.gastosAdministrativos[k]) || 0), 0) +
+      (Number(newData.gastosOperativos.gastosAdministrativos.sueldos) || 0);
     newData.gastosOperativos.gastosVenta.total =
-      ventaFields.reduce((sum, k) => sum + (newData.gastosOperativos.gastosVenta[k] || 0), 0) +
-      newData.gastosOperativos.gastosVenta.sueldos;
+      ventaFields.reduce((sum, k) => sum + (Number(newData.gastosOperativos.gastosVenta[k]) || 0), 0) +
+      (Number(newData.gastosOperativos.gastosVenta.sueldos) || 0);
     newData.gastosOperativos.totalGastosOperativos =
       newData.gastosOperativos.gastosAdministrativos.total + newData.gastosOperativos.gastosVenta.total;
     newData.costos.totalCostos = newData.costos.costoVentas + newData.costos.mermaVenta;
@@ -570,6 +640,23 @@ const IngresoGastosPage = () => {
   return (
     <Box sx={{ position: 'relative', minHeight: '100vh' }}>
       <WeatherBar />
+      {/* Barra de progreso superior — visible cuando recarga con datos ya presentes */}
+      {loading && data && (
+        <Box sx={{ position: 'sticky', top: 0, zIndex: 1200 }}>
+          <LinearProgress
+            variant={loadingProgress > 0 ? 'determinate' : 'indeterminate'}
+            value={loadingProgress}
+            sx={{ height: 3 }}
+          />
+          {loadingStep && (
+            <Box sx={{ bgcolor: 'primary.main', px: 2, py: 0.5 }}>
+              <Typography variant="caption" color="white">
+                {loadingStep}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
       <Box sx={{ py: 4, mt: 4 }}>
 
         {/* Header */}
@@ -664,8 +751,22 @@ const IngresoGastosPage = () => {
         )}
 
         {loading && !data && (
-          <Box display="flex" justifyContent="center" alignItems="center" py={8}>
-            <CircularProgress size={48} />
+          <Box py={8} px={2}>
+            <Box display="flex" flexDirection="column" alignItems="center" gap={3}>
+              <CircularProgress size={48} />
+              {loadingStep && (
+                <Box sx={{ width: '100%', maxWidth: 420 }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={loadingProgress}
+                    sx={{ height: 6, borderRadius: 3, mb: 1.5 }}
+                  />
+                  <Typography variant="body2" color="text.secondary" textAlign="center">
+                    {loadingStep}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
           </Box>
         )}
 

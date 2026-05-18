@@ -1,4 +1,4 @@
-// src/pages/EstadoResultados/components/DynamicExpenseSection.jsx
+// src/components/DynamicExpenseSection.jsx
 import React, { useState } from 'react';
 import {
   Box,
@@ -17,10 +17,10 @@ import {
   InputLabel,
   TextField,
   IconButton,
+  InputAdornment,
   Dialog,
   DialogActions,
   DialogContent,
-  DialogContentText,
   DialogTitle,
   Tooltip,
 } from '@mui/material';
@@ -29,10 +29,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import { formatCurrency } from '../pages/EstadoResultados/utils';
 
-
-// Catálogo de gastos disponibles por categoría
 const expenseCatalog = {
   administrativos: [
+    { id: 'seguros', label: 'Seguros' },
     { id: 'gastosComunes', label: 'Gastos Comunes' },
     { id: 'electricidad', label: 'Electricidad' },
     { id: 'agua', label: 'Agua' },
@@ -57,87 +56,122 @@ const expenseCatalog = {
     { id: 'costoArriendo', label: 'Costo de Arriendo' },
     { id: 'ingresoFletes', label: 'Ingresos por Fletes' },
     { id: 'otrosIngresos', label: 'Otros Ingresos Financieros' },
-  ]
+  ],
 };
 
-/**
- * Componente para gestionar gastos de forma dinámica
- */
-const DynamicExpenseSection = ({ 
+// Devuelve solo dígitos como entero
+const parseClp = (str) =>
+  parseInt(String(str).replace(/\./g, '').replace(/[^\d]/g, ''), 10) || 0;
+
+// Formatea un número entero con puntos de miles (es-CL)
+const formatClp = (n) => {
+  const num = Math.round(Math.abs(n) || 0);
+  if (num === 0) return '';
+  return num.toLocaleString('es-CL');
+};
+
+// Hook interno para manejar un campo de monto con formato CLP
+const useClpInput = (initialValue = 0) => {
+  const [display, setDisplay] = useState(initialValue > 0 ? formatClp(initialValue) : '');
+  const [value, setValue] = useState(initialValue);
+
+  const onChange = (e) => {
+    const raw = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+    const num = parseInt(raw, 10) || 0;
+    setValue(num);
+    setDisplay(num === 0 ? '' : formatClp(num));
+  };
+
+  const reset = (newValue = 0) => {
+    setValue(newValue);
+    setDisplay(newValue > 0 ? formatClp(newValue) : '');
+  };
+
+  return { display, value, onChange, reset };
+};
+
+const DynamicExpenseSection = ({
   category,
-  title, 
-  description, 
-  existingExpenses = [], 
-  onAddExpense, 
+  title,
+  description,
+  existingExpenses = [],
+  onAddExpense,
   onUpdateExpense,
   onRemoveExpense,
-  disabled = false 
+  disabled = false,
 }) => {
   const [selectedExpenseType, setSelectedExpenseType] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [expenseAmount, setExpenseAmount] = useState('');
   const [editingExpense, setEditingExpense] = useState(null);
+  const [customLabel, setCustomLabel] = useState('');
 
-  // Filtrar los gastos disponibles (que no están ya añadidos)
+  const addAmount = useClpInput(0);
+  const editAmount = useClpInput(0);
+
   const availableExpenses = expenseCatalog[category]
-    ? expenseCatalog[category].filter(expense => 
-        !existingExpenses.find(e => e.id === expense.id))
+    ? expenseCatalog[category].filter(
+        (expense) => !existingExpenses.find((e) => e.id === expense.id)
+      )
     : [];
 
-  // Manejar la selección de un nuevo tipo de gasto
-  const handleSelectChange = (event) => {
-    setSelectedExpenseType(event.target.value);
-  };
+  const selectedCatalogItem = expenseCatalog[category]?.find(
+    (e) => e.id === selectedExpenseType
+  );
 
-  // Abrir diálogo para añadir un gasto
+  // Si el tipo seleccionado es 'otros' en cualquier categoría, se permite nombre libre
+  const allowsCustomName = selectedExpenseType === 'otros' || selectedExpenseType === 'otrosIngresos';
+
   const handleOpenAddDialog = () => {
     if (!selectedExpenseType) return;
-    setExpenseAmount('0');
+    addAmount.reset(0);
+    setCustomLabel('');
     setDialogOpen(true);
   };
 
-  // Añadir un nuevo gasto
   const handleAddExpense = () => {
-    if (!expenseCatalog[category]) return;
-    
-    const selectedExpense = expenseCatalog[category].find(e => e.id === selectedExpenseType);
-    if (selectedExpense) {
-      onAddExpense({
-        id: selectedExpense.id,
-        label: selectedExpense.label,
-        amount: Number(expenseAmount) || 0
-      });
-      setDialogOpen(false);
-      setSelectedExpenseType('');
-      setExpenseAmount('');
-    }
+    if (!selectedCatalogItem) return;
+    const label =
+      allowsCustomName && customLabel.trim()
+        ? customLabel.trim()
+        : selectedCatalogItem.label;
+    onAddExpense({
+      id: selectedCatalogItem.id,
+      label,
+      amount: addAmount.value,
+    });
+    setDialogOpen(false);
+    setSelectedExpenseType('');
+    addAmount.reset(0);
+    setCustomLabel('');
   };
 
-  // Abrir diálogo de edición
   const handleOpenEditDialog = (expense) => {
     setEditingExpense(expense);
-    setExpenseAmount(expense.amount.toString());
+    editAmount.reset(expense.amount);
+    setCustomLabel(expense.label);
     setEditDialogOpen(true);
   };
 
-  // Guardar edición de gasto
   const handleSaveEdit = () => {
-    if (editingExpense) {
-      onUpdateExpense({
-        ...editingExpense,
-        amount: Number(expenseAmount) || 0
-      });
-      setEditDialogOpen(false);
-      setEditingExpense(null);
-      setExpenseAmount('');
-    }
+    if (!editingExpense) return;
+    const catalogItem = expenseCatalog[category]?.find((e) => e.id === editingExpense.id);
+    const defaultLabel = catalogItem?.label || editingExpense.label;
+    const isOtros = editingExpense.id === 'otros' || editingExpense.id === 'otrosIngresos';
+    const label =
+      isOtros && customLabel.trim() ? customLabel.trim() : defaultLabel;
+    onUpdateExpense({
+      ...editingExpense,
+      label,
+      amount: editAmount.value,
+    });
+    setEditDialogOpen(false);
+    setEditingExpense(null);
+    editAmount.reset(0);
+    setCustomLabel('');
   };
 
-  // Eliminar un gasto
-  const handleRemoveExpense = (expense) => {
-    onRemoveExpense(expense);
-  };
+  const total = existingExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
   return (
     <Box sx={{ mb: 4 }}>
@@ -150,16 +184,18 @@ const DynamicExpenseSection = ({
         </Typography>
       )}
 
-      {/* Sección para agregar nuevos gastos */}
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <FormControl sx={{ minWidth: 250 }} size="small" disabled={disabled || availableExpenses.length === 0}>
-          <InputLabel id={`select-expense-${category}-label`}>Seleccione un tipo de gasto</InputLabel>
+      {/* Selector + botón agregar */}
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <FormControl
+          sx={{ minWidth: 260 }}
+          size="small"
+          disabled={disabled || availableExpenses.length === 0}
+        >
+          <InputLabel>Seleccione un tipo de gasto</InputLabel>
           <Select
-            labelId={`select-expense-${category}-label`}
-            id={`select-expense-${category}`}
             value={selectedExpenseType}
             label="Seleccione un tipo de gasto"
-            onChange={handleSelectChange}
+            onChange={(e) => setSelectedExpenseType(e.target.value)}
           >
             {availableExpenses.map((expense) => (
               <MenuItem key={expense.id} value={expense.id}>
@@ -168,10 +204,10 @@ const DynamicExpenseSection = ({
             ))}
           </Select>
         </FormControl>
-        <Button 
-          variant="contained" 
-          color="primary" 
-          startIcon={<AddIcon />} 
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<AddIcon />}
           onClick={handleOpenAddDialog}
           disabled={!selectedExpenseType || disabled}
         >
@@ -179,35 +215,37 @@ const DynamicExpenseSection = ({
         </Button>
       </Box>
 
-      {/* Tabla de gastos actuales */}
+      {/* Tabla */}
       <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
         <Table size="small">
           <TableHead>
             <TableRow sx={{ backgroundColor: 'action.hover' }}>
-              <TableCell sx={{ fontWeight: 'bold' }}>Tipo de Gasto</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>Concepto</TableCell>
               <TableCell align="right" sx={{ fontWeight: 'bold' }}>Monto</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 'bold', width: 120 }}>Acciones</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 'bold', width: 100 }}>
+                Acciones
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {existingExpenses.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} align="center" sx={{ py: 2 }}>
+                <TableCell colSpan={3} align="center" sx={{ py: 3 }}>
                   <Typography variant="body2" color="text.secondary">
-                    No hay gastos agregados. Utilice el selector para añadir nuevos gastos.
+                    Sin gastos agregados. Use el selector para añadir.
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
               existingExpenses.map((expense) => (
-                <TableRow key={expense.id}>
+                <TableRow key={expense.id} hover>
                   <TableCell>{expense.label}</TableCell>
                   <TableCell align="right">{formatCurrency(expense.amount)}</TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                      <Tooltip title="Editar monto">
-                        <IconButton 
-                          size="small" 
+                      <Tooltip title="Editar">
+                        <IconButton
+                          size="small"
                           onClick={() => handleOpenEditDialog(expense)}
                           disabled={disabled}
                         >
@@ -215,10 +253,10 @@ const DynamicExpenseSection = ({
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Eliminar">
-                        <IconButton 
-                          size="small" 
-                          color="error" 
-                          onClick={() => handleRemoveExpense(expense)}
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => onRemoveExpense(expense)}
                           disabled={disabled}
                         >
                           <DeleteIcon fontSize="small" />
@@ -230,40 +268,50 @@ const DynamicExpenseSection = ({
               ))
             )}
             {existingExpenses.length > 0 && (
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>Total</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                  {formatCurrency(existingExpenses.reduce((sum, expense) => sum + expense.amount, 0))}
+              <TableRow sx={{ bgcolor: 'grey.50' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Total</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700 }}>
+                  {formatCurrency(total)}
                 </TableCell>
-                <TableCell></TableCell>
+                <TableCell />
               </TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
 
-      {/* Diálogo para agregar nuevo gasto */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
-        <DialogTitle>Agregar nuevo gasto</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            Ingrese el monto para: <strong>{
-              selectedExpenseType && expenseCatalog[category]
-                ? expenseCatalog[category].find(e => e.id === selectedExpenseType)?.label
-                : ''
-            }</strong>
-          </DialogContentText>
+      {/* Diálogo agregar */}
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Agregar gasto</DialogTitle>
+        <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {allowsCustomName && (
+            <TextField
+              label="Nombre del gasto"
+              fullWidth
+              size="small"
+              value={customLabel}
+              onChange={(e) => setCustomLabel(e.target.value)}
+              placeholder={selectedCatalogItem?.label || 'Ej: Gastos de limpieza'}
+              helperText="Puede personalizar el nombre de este concepto"
+            />
+          )}
+          {!allowsCustomName && (
+            <Typography variant="body2" color="text.secondary">
+              Concepto: <strong>{selectedCatalogItem?.label}</strong>
+            </Typography>
+          )}
           <TextField
-            autoFocus
+            autoFocus={!allowsCustomName}
             label="Monto"
-            type="number"
             fullWidth
-            variant="outlined"
-            value={expenseAmount}
-            onChange={(e) => setExpenseAmount(e.target.value)}
+            size="small"
+            value={addAmount.display}
+            onChange={addAmount.onChange}
+            inputProps={{ inputMode: 'numeric' }}
             InputProps={{
-              startAdornment: <Box component="span" sx={{ mr: 1 }}>$</Box>,
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
             }}
+            helperText="Ingrese el valor en pesos chilenos"
           />
         </DialogContent>
         <DialogActions>
@@ -274,24 +322,42 @@ const DynamicExpenseSection = ({
         </DialogActions>
       </Dialog>
 
-      {/* Diálogo para editar gasto */}
-      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)}>
+      {/* Diálogo editar */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Editar gasto</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            Actualice el monto para: <strong>{editingExpense?.label}</strong>
-          </DialogContentText>
+        <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {(editingExpense?.id === 'otros' || editingExpense?.id === 'otrosIngresos') && (
+            <TextField
+              label="Nombre del gasto"
+              fullWidth
+              size="small"
+              value={customLabel}
+              onChange={(e) => setCustomLabel(e.target.value)}
+              helperText="Puede personalizar el nombre"
+            />
+          )}
+          {!(editingExpense?.id === 'otros' || editingExpense?.id === 'otrosIngresos') && (
+            <Typography variant="body2" color="text.secondary">
+              Concepto: <strong>{editingExpense?.label}</strong>
+            </Typography>
+          )}
           <TextField
             autoFocus
             label="Monto"
-            type="number"
             fullWidth
-            variant="outlined"
-            value={expenseAmount}
-            onChange={(e) => setExpenseAmount(e.target.value)}
+            size="small"
+            value={editAmount.display}
+            onChange={editAmount.onChange}
+            inputProps={{ inputMode: 'numeric' }}
             InputProps={{
-              startAdornment: <Box component="span" sx={{ mr: 1 }}>$</Box>,
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
             }}
+            helperText="Ingrese el valor en pesos chilenos"
           />
         </DialogContent>
         <DialogActions>

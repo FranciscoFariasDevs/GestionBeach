@@ -32,6 +32,7 @@ const upload = multer({
 // Boards (antes de /:id para que no haya conflicto de rutas)
 router.get('/boards',                  authMiddleware, ctrl.getBoards);
 router.post('/boards',                 authMiddleware, ctrl.crearBoard);
+router.post('/boards/:id/duplicar',    authMiddleware, ctrl.duplicarBoard);
 router.put('/boards/:id',              authMiddleware, ctrl.actualizarBoard);
 router.delete('/boards/:id',           authMiddleware, ctrl.eliminarBoard);
 

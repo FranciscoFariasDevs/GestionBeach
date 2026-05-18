@@ -466,3 +466,97 @@ exports.eliminarRelacion = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─── Duplicar Board ───────────────────────────────────────────────────────────
+
+// POST /api/organigrama/boards/:id/duplicar
+exports.duplicarBoard = async (req, res) => {
+  try {
+    const sourceId = parseInt(req.params.id);
+    const pool = await poolPromise;
+    await asegurarTabla(pool);
+
+    const sourceBoard = await pool.request()
+      .input('id', sql.Int, sourceId)
+      .query('SELECT nombre, descripcion, departamento, fondo FROM organigrama_boards WHERE id = @id');
+
+    if (sourceBoard.recordset.length === 0)
+      return res.status(404).json({ success: false, message: 'Organigrama no encontrado' });
+
+    const src = sourceBoard.recordset[0];
+    const nuevoNombre = (req.body.nombre || '').trim() || `${src.nombre} (copia)`;
+
+    const ins = await pool.request()
+      .input('nombre',       sql.NVarChar(200), nuevoNombre)
+      .input('descripcion',  sql.NVarChar(500), src.descripcion || null)
+      .input('departamento', sql.NVarChar(100), src.departamento || null)
+      .input('fondo',        sql.NVarChar(50),  src.fondo || 'corporate_dark')
+      .query(`INSERT INTO organigrama_boards (nombre, descripcion, departamento, fondo)
+              OUTPUT INSERTED.id
+              VALUES (@nombre, @descripcion, @departamento, @fondo)`);
+
+    const newBoardId = ins.recordset[0].id;
+
+    // Copiar nodos
+    const nodos = await pool.request()
+      .input('board_id', sql.Int, sourceId)
+      .query(`SELECT id, nombre, cargo, departamento, color, foto_url, parent_id, pos_x, pos_y, sin_flecha
+              FROM organigrama_nodos WHERE activo = 1 AND board_id = @board_id`);
+
+    const idMap = {};
+    for (const n of nodos.recordset) {
+      const result = await pool.request()
+        .input('board_id',     sql.Int,          newBoardId)
+        .input('nombre',       sql.NVarChar(200), n.nombre)
+        .input('cargo',        sql.NVarChar(200), n.cargo)
+        .input('departamento', sql.NVarChar(100), n.departamento)
+        .input('color',        sql.NVarChar(20),  n.color)
+        .input('foto_url',     sql.NVarChar(500), n.foto_url || null)
+        .input('pos_x',        sql.Float,         n.pos_x)
+        .input('pos_y',        sql.Float,         n.pos_y)
+        .input('sin_flecha',   sql.Bit,            n.sin_flecha ? 1 : 0)
+        .query(`INSERT INTO organigrama_nodos
+                  (board_id, nombre, cargo, departamento, color, foto_url, parent_id, pos_x, pos_y, sin_flecha)
+                OUTPUT INSERTED.id
+                VALUES (@board_id,@nombre,@cargo,@departamento,@color,@foto_url,NULL,@pos_x,@pos_y,@sin_flecha)`);
+      idMap[n.id] = result.recordset[0].id;
+    }
+
+    // Restaurar jerarquía parent_id con los nuevos IDs
+    for (const n of nodos.recordset) {
+      if (n.parent_id && idMap[n.parent_id]) {
+        await pool.request()
+          .input('id',        sql.Int, idMap[n.id])
+          .input('parent_id', sql.Int, idMap[n.parent_id])
+          .query('UPDATE organigrama_nodos SET parent_id = @parent_id WHERE id = @id');
+      }
+    }
+
+    // Copiar relaciones
+    const relaciones = await pool.request()
+      .input('board_id', sql.Int, sourceId)
+      .query('SELECT nodo_a, nodo_b, sin_flecha FROM organigrama_relaciones WHERE board_id = @board_id');
+
+    for (const r of relaciones.recordset) {
+      const newA = idMap[r.nodo_a];
+      const newB = idMap[r.nodo_b];
+      if (newA && newB) {
+        await pool.request()
+          .input('board_id',   sql.Int, newBoardId)
+          .input('nodo_a',     sql.Int, newA)
+          .input('nodo_b',     sql.Int, newB)
+          .input('sin_flecha', sql.Bit, r.sin_flecha ? 1 : 0)
+          .query('INSERT INTO organigrama_relaciones (board_id, nodo_a, nodo_b, sin_flecha) VALUES (@board_id,@nodo_a,@nodo_b,@sin_flecha)');
+      }
+    }
+
+    const newBoard = await pool.request()
+      .input('id', sql.Int, newBoardId)
+      .query('SELECT id, nombre, descripcion, departamento, fondo FROM organigrama_boards WHERE id = @id');
+
+    res.json({ success: true, board: newBoard.recordset[0] });
+  } catch (error) {
+    console.error('Error duplicarBoard:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

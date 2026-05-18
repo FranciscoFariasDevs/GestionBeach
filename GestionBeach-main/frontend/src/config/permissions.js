@@ -47,6 +47,7 @@ export const MODULES = {
   KANBAN: 'kanban',
   COTIZACIONES: 'cotizaciones',
   LOS_MAS_VENDIDOS: 'los-mas-vendidos',
+  MEGAFONIA: 'megafonia/emisor',
 };
 
 // Definir acciones
@@ -114,7 +115,7 @@ export function defineAbilitiesFor(user, modulosList) {
 // Función auxiliar para verificar si un usuario puede acceder a una ruta
 export function canAccessRoute(ability, route) {
   // RUTAS PÚBLICAS (accesibles para TODOS los usuarios autenticados)
-  const publicRoutes = ['/welcome', '/mi-perfil'];
+  const publicRoutes = ['/welcome', '/mi-perfil', '/ai-consulta'];
   if (publicRoutes.includes(route)) {
     return true;
   }
@@ -217,6 +218,8 @@ export function canAccessRoute(ability, route) {
     '/dashboard/mantenciones': MODULES.MANTENCIONES,
     '/mis-tickets': MODULES.TICKETS,
     '/dashboard/mis-tickets': MODULES.TICKETS,
+    '/megafonia/emisor': MODULES.MEGAFONIA,
+    '/dashboard/megafonia/emisor': MODULES.MEGAFONIA,
   };
 
   const module = routeToModule[route];
