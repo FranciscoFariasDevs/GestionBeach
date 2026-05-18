@@ -410,7 +410,7 @@ async function exportarCotizacionPDF(cotizacion) {
 }
 
 // ─── Modal: ver cotización ────────────────────────────────────────────────────
-function ModalVer({ open, onClose, cotizacion, perfilId, isSuperAdmin, onAprobar, onRechazar, onComprar, onAnular }) {
+function ModalVer({ open, onClose, cotizacion, perfilId, isSuperAdmin, onAprobar, onRechazar, onComprar, onAnular, onEliminar }) {
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [rechazando, setRechazando]       = useState(false);
   const [anulando, setAnulando]           = useState(false);
@@ -543,6 +543,19 @@ function ModalVer({ open, onClose, cotizacion, perfilId, isSuperAdmin, onAprobar
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+        {/* Botón eliminar — solo gerencia/superadmin, esquina izquierda */}
+        {(isSuperAdmin || PERFILES_GERENTE.includes(perfilId)) && (
+          <Tooltip title="Eliminar cotización" arrow>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => onEliminar(cotizacion.id)}
+              sx={{ mr: 'auto', opacity: 0.6, '&:hover': { opacity: 1 } }}
+            >
+              <Delete fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Button onClick={onClose} variant="outlined">Cerrar</Button>
 
         {(isSuperAdmin || PERFILES_GERENTE.includes(perfilId) || PERFILES_FINANZAS.includes(perfilId)) && (
@@ -898,6 +911,19 @@ export default function CotizacionesPage() {
     }
   };
 
+  // ── Eliminar ───────────────────────────────────────────────────────────────
+  const handleEliminar = async (id) => {
+    if (!window.confirm('¿Eliminar esta cotización? Esta acción no se puede deshacer.')) return;
+    try {
+      await api.delete(`/cotizaciones/${id}`);
+      enqueueSnackbar('Cotización eliminada', { variant: 'success' });
+      setCotSeleccionada(null);
+      cargarCotizaciones();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Error al eliminar', { variant: 'error' });
+    }
+  };
+
   // ── Contadores de estado ───────────────────────────────────────────────────
   const pendientes = cotizaciones.filter(c => c.estado === 'pendiente').length;
   const aprobadas  = cotizaciones.filter(c => c.estado === 'aprobada').length;
@@ -1183,6 +1209,7 @@ export default function CotizacionesPage() {
         onRechazar={handleRechazar}
         onComprar={handleComprar}
         onAnular={handleAnular}
+        onEliminar={handleEliminar}
       />
     </Box>
   );

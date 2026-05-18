@@ -22,4 +22,7 @@ router.put('/:id/rechazar', ctrl.rechazarCotizacion);
 router.put('/:id/comprar', ctrl.comprarCotizacion);
 router.put('/:id/anular',  ctrl.anularCotizacion);
 
+// Eliminar (solo Gerencia y SuperAdmin)
+router.delete('/:id', ctrl.eliminarCotizacion);
+
 module.exports = router;

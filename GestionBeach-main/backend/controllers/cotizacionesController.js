@@ -407,6 +407,44 @@ exports.comprarCotizacion = async (req, res) => {
   }
 };
 
+// ─── ELIMINAR COTIZACIÓN (Gerencia + SuperAdmin) ─────────────────────────────
+exports.eliminarCotizacion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario  = req.user;
+    const perfilId = usuario.perfilId;
+    const isSuperAdmin = usuario.superadmin === true || usuario.superadmin === 1;
+
+    if (!PERFILES_GERENTE.includes(perfilId) && !isSuperAdmin) {
+      return res.status(403).json({ success: false, message: 'Sin permisos para eliminar cotizaciones' });
+    }
+
+    const pool = await poolPromise;
+
+    const r = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id FROM cotizaciones WHERE id = @id');
+
+    if (r.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: 'Cotización no encontrada' });
+    }
+
+    // Eliminar ítems primero (FK constraint)
+    await pool.request().input('id', sql.Int, id)
+      .query('DELETE FROM cotizacion_items WHERE cotizacion_id = @id');
+
+    await pool.request().input('id', sql.Int, id)
+      .query('DELETE FROM cotizaciones WHERE id = @id');
+
+    console.log(`🗑️ Cotización #${id} eliminada por ${usuario.nombre || usuario.username}`);
+    res.json({ success: true, message: 'Cotización eliminada' });
+
+  } catch (error) {
+    console.error('❌ Error al eliminar cotización:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar cotización', error: error.message });
+  }
+};
+
 // ─── ANULAR COTIZACIÓN (solo Finanzas) ───────────────────────────────────────
 exports.anularCotizacion = async (req, res) => {
   try {
