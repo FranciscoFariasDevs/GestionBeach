@@ -1962,11 +1962,11 @@ exports.eliminarTicket = async (req, res) => {
     }
 
     // Eliminar datos relacionados antes del ticket (FK)
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_imagenes      WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_respuestas    WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_notificaciones WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_dept_asignaciones WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM tickets WHERE id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_historial          WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_respuestas         WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_notificaciones     WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_dept_asignaciones  WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM tickets                   WHERE id = @id');
 
     console.log(`🗑️ Ticket #${id} eliminado por ${usuario.nombre || usuario.username}`);
     res.json({ success: true, message: 'Ticket eliminado' });
