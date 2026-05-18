@@ -23,7 +23,6 @@ import {
   Image as ImageIcon,
   Reply as ReplyIcon,
   ViewList as ListIcon,
-  GridView as GridIcon,
   Assignment as AssignmentIcon,
   ElectricBolt as ElectricIcon,
   Computer as ComputerIcon,
@@ -190,7 +189,8 @@ export default function MantencionesDashboard() {
   const { enqueueSnackbar } = useSnackbar();
   const { user } = useContext(AuthContext);
   const isSuperAdmin = user?.superadmin === true || user?.superadmin === 1 || user?.username === 'NOVLUI';
-  const puedeEliminar = isSuperAdmin || user?.perfilId === 11;
+  const esGerente = user?.perfilId === 11 || (user?.perfil || '').toLowerCase().includes('gerencia');
+  const puedeEliminar = isSuperAdmin || esGerente;
 
   // Data
   const [tickets,   setTickets]   = useState([]);
@@ -201,7 +201,7 @@ export default function MantencionesDashboard() {
   const [loadingAna, setLoadingAna] = useState(false);
 
   // UI
-  const [vista,     setVista]     = useState('tabla');   // tabla | cards | kanban
+  const [vista,     setVista]     = useState('tabla');   // tabla | kanban
   const [tabActual, setTabActual] = useState(0);         // 0=solicitudes 1=analytics 2=leaderboard
   const [diasAnalytics, setDiasAnalytics] = useState(30);
 
@@ -435,7 +435,6 @@ export default function MantencionesDashboard() {
               <Grid size={{ xs: 12, sm: 'auto' }}>
                 <ToggleButtonGroup size="small" value={vista} exclusive onChange={(_, v) => v && setVista(v)}>
                   <ToggleButton value="tabla"><Tooltip title="Tabla"><ListIcon fontSize="small" /></Tooltip></ToggleButton>
-                  <ToggleButton value="cards"><Tooltip title="Cards"><GridIcon fontSize="small" /></Tooltip></ToggleButton>
                   <ToggleButton value="kanban"><Tooltip title="Kanban"><KanbanIcon fontSize="small" /></Tooltip></ToggleButton>
                 </ToggleButtonGroup>
               </Grid>
@@ -514,24 +513,6 @@ export default function MantencionesDashboard() {
             )}
 
             {/* Vista Cards */}
-            {vista === 'cards' && (
-              <Grid container spacing={2}>
-                {tickets.length === 0 && !loading && (
-                  <Grid size={12}>
-                    <Paper sx={{ p: 5, textAlign: 'center', color: 'text.secondary', borderRadius: 2 }}>
-                      <AssignmentIcon sx={{ fontSize: 48, color: '#ddd', mb: 1 }} /><br />
-                      No hay solicitudes con los filtros seleccionados
-                    </Paper>
-                  </Grid>
-                )}
-                {tickets.map(t => (
-                  <Grid key={t.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                    <Fade in timeout={300}><TicketCard t={t} onClick={() => abrirDetalle(t.id)} /></Fade>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-
             {/* Vista Kanban */}
             {vista === 'kanban' && (
               <Grid container spacing={2} sx={{ minHeight: 400 }}>
