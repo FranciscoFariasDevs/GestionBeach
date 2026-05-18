@@ -416,6 +416,14 @@ function ModalVer({ open, onClose, cotizacion, perfilId, isSuperAdmin, onAprobar
   const [anulando, setAnulando]           = useState(false);
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
 
+  // Resetear flujos de rechazo/anulación cada vez que se abre una cotización distinta
+  useEffect(() => {
+    setRechazando(false);
+    setAnulando(false);
+    setMotivoRechazo('');
+    setMotivoAnulacion('');
+  }, [cotizacion?.id]);
+
   if (!cotizacion) return null;
 
   const puedeAprobar   = PERFILES_GERENTE.includes(perfilId) && cotizacion.estado === 'pendiente';
