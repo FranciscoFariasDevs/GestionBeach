@@ -1934,3 +1934,43 @@ exports.obtenerMisDepartamentos = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error :(', error: error.message });
   }
 };
+
+// ─── ELIMINAR TICKET (Gerencia + SuperAdmin) ──────────────────────────────────
+exports.eliminarTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario   = req.user;
+    const isSuperAdmin = usuario.superadmin === true || usuario.superadmin === 1;
+    const perfilId  = usuario.perfilId;
+
+    // Perfiles gerencia: 11 (Gerencia). SuperAdmin también puede.
+    const GERENCIA = [11];
+    if (!GERENCIA.includes(perfilId) && !isSuperAdmin) {
+      return res.status(403).json({ success: false, message: 'Sin permisos para eliminar tickets' });
+    }
+
+    const pool = await poolPromise;
+
+    const r = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id FROM tickets WHERE id = @id');
+
+    if (r.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
+    }
+
+    // Eliminar datos relacionados antes del ticket (FK)
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_imagenes      WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_respuestas    WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_notificaciones WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_dept_asignaciones WHERE ticket_id = @id');
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM tickets WHERE id = @id');
+
+    console.log(`🗑️ Ticket #${id} eliminado por ${usuario.nombre || usuario.username}`);
+    res.json({ success: true, message: 'Ticket eliminado' });
+
+  } catch (error) {
+    console.error('❌ Error al eliminar ticket:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar ticket', error: error.message });
+  }
+};

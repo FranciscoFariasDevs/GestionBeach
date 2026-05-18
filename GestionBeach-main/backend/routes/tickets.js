@@ -42,4 +42,7 @@ router.post('/:id/imagen',        authMiddleware, ticketController.uploadMiddlew
 // ── Entregar parte de departamento ────────────────────────────────────────────
 router.put('/:ticket_id/dept/:dept_id/entregar', authMiddleware, ticketController.marcarDeptEntregado);
 
+// ── Eliminar ticket (Gerencia + SuperAdmin) ───────────────────────────────────
+router.delete('/:id', authMiddleware, ticketController.eliminarTicket);
+
 module.exports = router;

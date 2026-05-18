@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Avatar,
   TextField, InputAdornment, Select, MenuItem, FormControl, InputLabel,
@@ -43,6 +43,8 @@ import {
 } from 'recharts';
 import { useSnackbar } from 'notistack';
 import api, { getStaticFileURL } from '../api/api';
+import AuthContext from '../contexts/AuthContext';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const DEPT_COLORS = {
@@ -186,6 +188,9 @@ function TicketCard({ t, onClick }) {
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function MantencionesDashboard() {
   const { enqueueSnackbar } = useSnackbar();
+  const { user } = useContext(AuthContext);
+  const isSuperAdmin = user?.superadmin === true || user?.superadmin === 1 || user?.username === 'NOVLUI';
+  const puedeEliminar = isSuperAdmin || user?.perfilId === 11;
 
   // Data
   const [tickets,   setTickets]   = useState([]);
@@ -267,6 +272,18 @@ export default function MantencionesDashboard() {
   const cerrarDetalle = () => {
     setDetalle(null); setRespuesta(''); setArchivoResp(null);
     if (previewArchivoResp) { URL.revokeObjectURL(previewArchivoResp); setPreviewArchivoResp(null); }
+  };
+
+  const eliminarTicket = async (id) => {
+    if (!window.confirm('¿Eliminar este ticket? Esta acción no se puede deshacer.')) return;
+    try {
+      await api.delete(`/tickets/${id}`);
+      enqueueSnackbar('Ticket eliminado', { variant: 'success' });
+      cerrarDetalle();
+      cargar();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Error al eliminar', { variant: 'error' });
+    }
   };
 
   const seleccionarFotoResp = (file) => {
@@ -847,6 +864,17 @@ export default function MantencionesDashboard() {
                     </Stack>
                     <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>{t.asunto}</Typography>
                   </Box>
+                  {puedeEliminar && (
+                    <Tooltip title="Eliminar ticket" arrow>
+                      <IconButton
+                        size="small"
+                        onClick={() => eliminarTicket(t.id)}
+                        sx={{ color: 'rgba(255,255,255,0.6)', mt: -0.5, '&:hover': { color: '#ff5252' } }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <IconButton onClick={cerrarDetalle} sx={{ color: 'white', mt: -0.5 }}><CloseIcon /></IconButton>
                 </Stack>
               </Box>
