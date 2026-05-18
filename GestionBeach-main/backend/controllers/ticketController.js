@@ -604,8 +604,10 @@ exports.obtenerDetalleTicket = async (req, res) => {
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
+                    perfilId === 11 ||   // Gerencia puede ver todos los tickets
                     perfilNombre.toLowerCase().includes('superadmin') ||
-                    perfilNombre.toLowerCase().includes('administrador');
+                    perfilNombre.toLowerCase().includes('administrador') ||
+                    perfilNombre.toLowerCase().includes('gerencia');
 
     // Verificar si el usuario pertenece a algún departamento asignado al ticket
     let tieneAccesoDepto = false;

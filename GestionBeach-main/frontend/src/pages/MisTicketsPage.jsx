@@ -145,7 +145,9 @@ const MisTicketsPage = () => {
   const API_BASE = api.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
 
   // Estados
-  const [tabActual, setTabActual] = useState(0);
+  const esGerenciaInicial = user?.perfilId === 11 ||
+    (user?.perfil || '').toLowerCase().includes('gerencia');
+  const [tabActual, setTabActual] = useState(esGerenciaInicial ? 5 : 0);
   const [tickets, setTickets] = useState([]);
   const [estadisticas, setEstadisticas] = useState(null);
   const [loading, setLoading] = useState(false);
