@@ -777,12 +777,13 @@ exports.createEmpleado = async (req, res) => {
                 id_empleado INT NOT NULL,
                 id_sucursal INT NOT NULL,
                 activo BIT DEFAULT 1,
+                fecha_inicio DATE NULL,
+                fecha_fin DATE NULL,
                 created_at DATETIME DEFAULT GETDATE(),
-                CONSTRAINT FK_empleados_sucursales_empleado 
+                CONSTRAINT FK_empleados_sucursales_empleado
                   FOREIGN KEY (id_empleado) REFERENCES empleados(id) ON DELETE CASCADE,
-                CONSTRAINT FK_empleados_sucursales_sucursal 
-                  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id) ON DELETE CASCADE,
-                CONSTRAINT UC_empleado_sucursal UNIQUE (id_empleado, id_sucursal)
+                CONSTRAINT FK_empleados_sucursales_sucursal
+                  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id) ON DELETE CASCADE
               )
             END
           `);
@@ -1123,50 +1124,35 @@ exports.updateEmpleado = async (req, res) => {
       if (datosRecibidos.sucursales_ids && Array.isArray(datosRecibidos.sucursales_ids)) {
         try {
           console.log('🏢 Actualizando sucursales:', datosRecibidos.sucursales_ids);
-          
-          // Marcar como inactivas las sucursales actuales
+
+          // Cerrar período actual al último día del mes en curso
           await transaction.request()
             .input('id_empleado', sql.Int, id)
-            .query('UPDATE empleados_sucursales SET activo = 0 WHERE id_empleado = @id_empleado');
-          
-          // Insertar o reactivar nuevas sucursales
+            .query(`
+              UPDATE empleados_sucursales
+              SET activo = 0, fecha_fin = EOMONTH(GETDATE())
+              WHERE id_empleado = @id_empleado AND activo = 1
+            `);
+
+          // Nueva asignación efectiva desde el 1° del próximo mes
           for (const sucursalId of datosRecibidos.sucursales_ids) {
             const sucursalIdNum = parseInt(sucursalId);
             if (!isNaN(sucursalIdNum)) {
-              // Verificar si ya existe la relación
-              const existeResult = await transaction.request()
+              await transaction.request()
                 .input('id_empleado', sql.Int, id)
                 .input('id_sucursal', sql.Int, sucursalIdNum)
                 .query(`
-                  SELECT COUNT(*) as count 
-                  FROM empleados_sucursales 
-                  WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
+                  INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, fecha_inicio, created_at)
+                  VALUES (
+                    @id_empleado, @id_sucursal, 1,
+                    DATEADD(MONTH, 1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)),
+                    GETDATE()
+                  )
                 `);
-              
-              if (existeResult.recordset[0].count > 0) {
-                // Reactivar relación existente
-                await transaction.request()
-                  .input('id_empleado', sql.Int, id)
-                  .input('id_sucursal', sql.Int, sucursalIdNum)
-                  .query(`
-                    UPDATE empleados_sucursales
-                    SET activo = 1
-                    WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
-                  `);
-              } else {
-                // Crear nueva relación
-                await transaction.request()
-                  .input('id_empleado', sql.Int, id)
-                  .input('id_sucursal', sql.Int, sucursalIdNum)
-                  .query(`
-                    INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, created_at)
-                    VALUES (@id_empleado, @id_sucursal, 1, GETDATE())
-                  `);
-              }
             }
           }
-          
-          console.log('✅ Sucursales actualizadas correctamente');
+
+          console.log('✅ Sucursales actualizadas correctamente (efectivas desde el 1° del próximo mes)');
         } catch (sucursalError) {
           console.warn('⚠️ No se pudieron actualizar sucursales:', sucursalError.message);
         }
@@ -1487,53 +1473,38 @@ exports.updateEmpleadoSucursales = async (req, res) => {
     await transaction.begin();
     
     try {
-      // Marcar como inactivos las sucursales actuales
+      // Cerrar período actual al último día del mes en curso
       await transaction.request()
         .input('id_empleado', sql.Int, id)
-        .query('UPDATE empleados_sucursales SET activo = 0 WHERE id_empleado = @id_empleado');
-      
-      // Insertar o reactivar sucursales
+        .query(`
+          UPDATE empleados_sucursales
+          SET activo = 0, fecha_fin = EOMONTH(GETDATE())
+          WHERE id_empleado = @id_empleado AND activo = 1
+        `);
+
+      // Nueva asignación efectiva desde el 1° del próximo mes
       for (const sucursalId of sucursales_ids) {
         const sucursalIdNum = parseInt(sucursalId);
         if (!isNaN(sucursalIdNum)) {
-          // Verificar si ya existe la relación
-          const existeResult = await transaction.request()
+          await transaction.request()
             .input('id_empleado', sql.Int, id)
             .input('id_sucursal', sql.Int, sucursalIdNum)
             .query(`
-              SELECT COUNT(*) as count 
-              FROM empleados_sucursales 
-              WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
+              INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, fecha_inicio, created_at)
+              VALUES (
+                @id_empleado, @id_sucursal, 1,
+                DATEADD(MONTH, 1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)),
+                GETDATE()
+              )
             `);
-          
-          if (existeResult.recordset[0].count > 0) {
-            // Reactivar relación existente
-            await transaction.request()
-              .input('id_empleado', sql.Int, id)
-              .input('id_sucursal', sql.Int, sucursalIdNum)
-              .query(`
-                UPDATE empleados_sucursales
-                SET activo = 1
-                WHERE id_empleado = @id_empleado AND id_sucursal = @id_sucursal
-              `);
-          } else {
-            // Crear nueva relación
-            await transaction.request()
-              .input('id_empleado', sql.Int, id)
-              .input('id_sucursal', sql.Int, sucursalIdNum)
-              .query(`
-                INSERT INTO empleados_sucursales (id_empleado, id_sucursal, activo, created_at)
-                VALUES (@id_empleado, @id_sucursal, 1, GETDATE())
-              `);
-          }
         }
       }
-      
+
       await transaction.commit();
-      
-      return res.json({ 
-        success: true, 
-        message: 'Sucursales del empleado actualizadas correctamente' 
+
+      return res.json({
+        success: true,
+        message: 'Sucursales del empleado actualizadas correctamente (efectivas desde el 1° del próximo mes)'
       });
       
     } catch (error) {

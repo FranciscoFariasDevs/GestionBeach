@@ -100,17 +100,20 @@ exports.obtenerPeriodos = async (req, res) => {
       LEFT JOIN empleados emp
         ON REPLACE(REPLACE(REPLACE(UPPER(emp.rut), '.', ''), '-', ''), ' ', '') =
            REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-      -- 🔥 NUEVO: Subquery para contar sucursales activas de cada empleado
-      LEFT JOIN (
-        SELECT id_empleado, COUNT(*) as num_sucursales
-        FROM empleados_sucursales
-        WHERE activo = 1
-        GROUP BY id_empleado
-      ) emp_suc_count ON emp_suc_count.id_empleado = emp.id
+      -- Contar sucursales vigentes en el período del registro (date-aware)
+      CROSS APPLY (
+        SELECT COUNT(DISTINCT es2.id_sucursal) AS num_sucursales
+        FROM empleados_sucursales es2
+        WHERE es2.id_empleado = emp.id
+          AND es2.fecha_inicio <= EOMONTH(DATEFROMPARTS(p.anio, p.mes, 1))
+          AND (es2.fecha_fin IS NULL OR es2.fecha_fin >= DATEFROMPARTS(p.anio, p.mes, 1))
+      ) emp_suc_count
       LEFT JOIN razones_sociales RS
         ON RS.id = emp.id_razon_social
       LEFT JOIN empleados_sucursales ESU
-        ON ESU.id_empleado = emp.id AND ESU.activo = 1
+        ON ESU.id_empleado = emp.id
+        AND ESU.fecha_inicio <= EOMONTH(DATEFROMPARTS(p.anio, p.mes, 1))
+        AND (ESU.fecha_fin IS NULL OR ESU.fecha_fin >= DATEFROMPARTS(p.anio, p.mes, 1))
       LEFT JOIN sucursales SU
         ON SU.id = ESU.id_sucursal
     `;

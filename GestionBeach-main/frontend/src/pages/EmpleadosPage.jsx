@@ -202,6 +202,8 @@ const EmpleadosPage = () => {
   const [openRazonSocialMasiva, setOpenRazonSocialMasiva] = useState(false);
   const [openDetalles, setOpenDetalles] = useState(false);
   const [openImportDialog, setOpenImportDialog] = useState(false);
+  const [openConfirmSucursal, setOpenConfirmSucursal] = useState(false);
+  const [sucursalesOriginales, setSucursalesOriginales] = useState([]);
   const [selectedEmpleado, setSelectedEmpleado] = useState(null);
   
   // Estados específicos para asignación masiva de razón social
@@ -786,7 +788,8 @@ const EmpleadosPage = () => {
             ...prev,
             sucursales_ids: sucursalesIds
           }));
-          
+          setSucursalesOriginales(sucursalesIds);
+
           console.log('🏢 Sucursales cargadas en edición:', sucursalesIds);
         } catch (error) {
           console.error('❌ Error al cargar sucursales para edición:', error);
@@ -1013,8 +1016,10 @@ const EmpleadosPage = () => {
     setOpenDeleteMultiple(false);
     setOpenRazonSocialMasiva(false);
     setOpenDetalles(false);
+    setOpenConfirmSucursal(false);
     setSelectedEmpleado(null);
     setRazonSocialSeleccionada('');
+    setSucursalesOriginales([]);
     resetFormData();
     setFormErrors({});
   }, [resetFormData]);
@@ -1192,6 +1197,16 @@ const EmpleadosPage = () => {
       return;
     }
 
+    // Si es edición y cambiaron las sucursales → pedir confirmación antes de guardar
+    if (selectedEmpleado) {
+      const idsNuevos = [...(formData.sucursales_ids || [])].sort().join(',');
+      const idsOriginales = [...sucursalesOriginales].sort().join(',');
+      if (idsNuevos !== idsOriginales) {
+        setOpenConfirmSucursal(true);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       
@@ -1238,7 +1253,34 @@ const EmpleadosPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [formData, selectedEmpleado, validateForm, fetchEmpleados, handleCloseDialogs, showSnackbar]);
+  }, [formData, selectedEmpleado, sucursalesOriginales, validateForm, fetchEmpleados, handleCloseDialogs, showSnackbar]);
+
+  // Confirmar cambio de sucursal con efecto diferido al próximo mes
+  const handleConfirmCambioSucursal = useCallback(async () => {
+    setOpenConfirmSucursal(false);
+    try {
+      setLoading(true);
+      const empleadoData = {
+        ...formData,
+        fecha_nacimiento: formData.fecha_nacimiento ? formatDateForBackend(formData.fecha_nacimiento) : null,
+        fecha_ingreso: formData.fecha_ingreso ? formatDateForBackend(formData.fecha_ingreso) : null,
+        fecha_termino: formData.fecha_termino ? formatDateForBackend(formData.fecha_termino) : null,
+        sucursales_ids: formData.sucursales_ids || []
+      };
+      const response = await empleadosAPI.actualizarEmpleado(selectedEmpleado.id, empleadoData);
+      if (response.data?.success) {
+        showSnackbar('Empleado actualizado. El cambio de sucursal será efectivo desde el 1° del próximo mes.', 'success');
+        await fetchEmpleados();
+        handleCloseDialogs();
+      } else {
+        throw new Error(response.data?.message || 'Error desconocido');
+      }
+    } catch (error) {
+      showSnackbar(error.response?.data?.message || error.message || 'Error al guardar el empleado', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [formData, selectedEmpleado, fetchEmpleados, handleCloseDialogs, showSnackbar]);
 
   const handleDeleteEmpleado = useCallback(async () => {
     if (!selectedEmpleado) return;
@@ -3023,7 +3065,7 @@ const EmpleadosPage = () => {
           onClose={handleCloseSnackbar}
           severity={snackbar.severity}
           variant="filled"
-          sx={{ 
+          sx={{
             width: '100%',
             boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
           }}
@@ -3031,6 +3073,88 @@ const EmpleadosPage = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Diálogo de confirmación: cambio de sucursal diferido */}
+      <Dialog
+        open={openConfirmSucursal}
+        onClose={() => setOpenConfirmSucursal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: '#f37d16', color: 'white' }}>
+          <BusinessIcon />
+          Cambio de sucursal
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Los registros históricos del Estado de Resultados <strong>no serán modificados</strong>.
+          </Alert>
+          <DialogContentText sx={{ mb: 2 }}>
+            El empleado <strong>{selectedEmpleado?.nombre} {selectedEmpleado?.apellido}</strong> cambiará de sucursal:
+          </DialogContentText>
+          <Card sx={{ mb: 2, backgroundColor: 'rgba(243, 125, 22, 0.06)', border: '1px solid rgba(243,125,22,0.3)' }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Antes
+                  </Typography>
+                  {sucursalesOriginales.length > 0 ? sucursalesOriginales.map(id => {
+                    const suc = sucursales.find(s => s.id === id);
+                    return (
+                      <Typography key={id} variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                        • {suc?.nombre || `Sucursal ${id}`}
+                      </Typography>
+                    );
+                  }) : (
+                    <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>Sin sucursal</Typography>
+                  )}
+                </Box>
+                <Typography variant="h5" sx={{ color: '#f37d16', alignSelf: 'center' }}>→</Typography>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: '#f37d16' }}>
+                    Ahora
+                  </Typography>
+                  {(formData.sucursales_ids || []).map(id => {
+                    const suc = sucursales.find(s => s.id === id);
+                    return (
+                      <Typography key={id} variant="body2" sx={{ fontWeight: 600, color: '#f37d16', mt: 0.5 }}>
+                        • {suc?.nombre || `Sucursal ${id}`}
+                      </Typography>
+                    );
+                  })}
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+          <DialogContentText>
+            Este cambio será efectivo a partir del <strong>1° de {(() => {
+              const d = new Date();
+              d.setMonth(d.getMonth() + 1);
+              return d.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+            })()}</strong>. ¿Estás de acuerdo con este cambio?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button
+            onClick={() => setOpenConfirmSucursal(false)}
+            variant="outlined"
+            color="secondary"
+            disabled={loading}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleConfirmCambioSucursal}
+            variant="contained"
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : null}
+            sx={{ backgroundColor: '#f37d16', '&:hover': { backgroundColor: '#e06c00' } }}
+          >
+            {loading ? 'Guardando...' : 'Sí, confirmar cambio'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -508,11 +508,15 @@ exports.obtenerRemuneraciones = async (req, res) => {
       INNER JOIN empleados AS e ON
         REPLACE(REPLACE(REPLACE(UPPER(e.rut), '.', ''), '-', ''), ' ', '') =
         REPLACE(REPLACE(REPLACE(UPPER(dr.rut_empleado), '.', ''), '-', ''), ' ', '')
-      LEFT JOIN empleados_sucursales AS es ON es.id_empleado = e.id AND es.activo = 1 AND es.id_sucursal = @sucursal_id
+      LEFT JOIN empleados_sucursales AS es ON es.id_empleado = e.id
+        AND es.id_sucursal = @sucursal_id
+        AND es.fecha_inicio <= EOMONTH(DATEFROMPARTS(@anio, @mes, 1))
+        AND (es.fecha_fin IS NULL OR es.fecha_fin >= DATEFROMPARTS(@anio, @mes, 1))
       LEFT JOIN (
-        SELECT id_empleado, COUNT(*) as num_sucursales
+        SELECT id_empleado, COUNT(DISTINCT id_sucursal) as num_sucursales
         FROM empleados_sucursales
-        WHERE activo = 1
+        WHERE fecha_inicio <= EOMONTH(DATEFROMPARTS(@anio, @mes, 1))
+          AND (fecha_fin IS NULL OR fecha_fin >= DATEFROMPARTS(@anio, @mes, 1))
         GROUP BY id_empleado
       ) ems ON ems.id_empleado = e.id
       LEFT JOIN sucursales s ON es.id_sucursal = s.id
@@ -1156,6 +1160,7 @@ exports.actualizarEstadoResultados = async (req, res) => {
       .input('utilidad_neta', sql.Decimal(18, 2), utilidadNeta)
 
       // Gastos Administrativos
+      .input('gastos_admin_seguros', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.seguros || 0)
       .input('gastos_admin_gastos_comunes', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.gastosComunes || 0)
       .input('gastos_admin_electricidad', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.electricidad || 0)
       .input('gastos_admin_agua', sql.Decimal(18, 2), gastosOperativos.gastosAdministrativos?.agua || 0)
@@ -1202,6 +1207,7 @@ exports.actualizarEstadoResultados = async (req, res) => {
           utilidad_operativa = @utilidad_operativa,
           utilidad_antes_impuestos = @utilidad_antes_impuestos,
           utilidad_neta = @utilidad_neta,
+          gastos_admin_seguros = @gastos_admin_seguros,
           gastos_admin_gastos_comunes = @gastos_admin_gastos_comunes,
           gastos_admin_electricidad = @gastos_admin_electricidad,
           gastos_admin_agua = @gastos_admin_agua,
