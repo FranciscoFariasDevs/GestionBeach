@@ -157,14 +157,52 @@ function ItemRow({ item, index, onChange, onRemove, onUploadFoto }) {
   );
 }
 
+// ─── Helper: URL → base64 para incrustar imágenes en jsPDF ──────────────────
+function urlToBase64(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const SIZE = 120;
+      const canvas = document.createElement('canvas');
+      canvas.width  = SIZE;
+      canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#f5f7fa';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const r = Math.min(SIZE / img.width, SIZE / img.height);
+      const w = img.width * r, h = img.height * r;
+      ctx.drawImage(img, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 // ─── Exportar cotización a PDF ────────────────────────────────────────────────
-function exportarCotizacionPDF(cotizacion) {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  const primary = [22, 93, 170];   // azul corporativo
+async function exportarCotizacionPDF(cotizacion) {
+  // Pre-cargar todas las imágenes a base64 antes de generar el PDF
+  const imageCache = {};
+  await Promise.all(
+    (cotizacion.items || []).map(async (item) => {
+      if (!item.foto_url) return;
+      try {
+        const fullUrl = item.foto_url.startsWith('http')
+          ? item.foto_url
+          : `${window.location.origin}${item.foto_url}`;
+        imageCache[item.foto_url] = await urlToBase64(fullUrl);
+      } catch { /* imagen no disponible, se omite */ }
+    })
+  );
+
+  const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW  = doc.internal.pageSize.getWidth();
+  const primary = [22, 93, 170];
   const dark    = [30, 30, 30];
   const gray    = [120, 120, 120];
   const light   = [245, 247, 250];
+  const linkBlue = [25, 118, 210];
 
   // ── Banda superior ──────────────────────────────────────────────────────────
   doc.setFillColor(...primary);
@@ -178,7 +216,6 @@ function exportarCotizacionPDF(cotizacion) {
   doc.setFont('helvetica', 'normal');
   doc.text('Gestión de Cotizaciones', 14, 19);
 
-  // Número de cotización (derecha)
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
   doc.text(`COT-${String(cotizacion.id).padStart(4, '0')}`, pageW - 14, 16, { align: 'right' });
@@ -187,47 +224,30 @@ function exportarCotizacionPDF(cotizacion) {
   doc.setTextColor(...dark);
   let y = 36;
 
-  // Cuadro izquierdo: datos cotización
   doc.setFillColor(...light);
   doc.roundedRect(14, y, 115, 36, 2, 2, 'F');
 
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...gray);
+  doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray);
   doc.text('ASUNTO', 18, y + 7);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...dark);
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(...dark);
   doc.text(cotizacion.asunto || '—', 18, y + 13, { maxWidth: 107 });
 
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...gray);
+  doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray);
   doc.text('SOLICITANTE', 18, y + 23);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...dark);
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dark);
   doc.text(cotizacion.creado_por_nombre || '—', 18, y + 28);
 
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...gray);
+  doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...gray);
   doc.text('FECHA', 80, y + 23);
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...dark);
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(...dark);
   const fechaStr = cotizacion.fecha_creacion
     ? new Date(cotizacion.fecha_creacion).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
     : '—';
   doc.text(fechaStr, 80, y + 28);
 
-  // Cuadro derecho: estado y total
   const estadoColores = {
-    pendiente: [255, 152, 0],
-    aprobada:  [46, 125, 50],
-    rechazada: [198, 40, 40],
-    comprado:  [21, 101, 192],
-    anulado:   [97, 97, 97],
+    pendiente: [255, 152, 0], aprobada: [46, 125, 50], rechazada: [198, 40, 40],
+    comprado:  [21, 101, 192], anulado: [97, 97, 97],
   };
   const estadoLabels = {
     pendiente: 'PENDIENTE', aprobada: 'APROBADA', rechazada: 'RECHAZADA',
@@ -237,73 +257,134 @@ function exportarCotizacionPDF(cotizacion) {
 
   doc.setFillColor(...color);
   doc.roundedRect(133, y, 63, 17, 2, 2, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(11); doc.setFont('helvetica', 'bold');
   doc.text(estadoLabels[cotizacion.estado] || cotizacion.estado?.toUpperCase() || '—', 164, y + 11, { align: 'center' });
 
   doc.setFillColor(...light);
   doc.roundedRect(133, y + 20, 63, 16, 2, 2, 'F');
-  doc.setTextColor(...gray);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...gray); doc.setFontSize(7); doc.setFont('helvetica', 'bold');
   doc.text('TOTAL', 164, y + 26, { align: 'center' });
-  doc.setTextColor(...primary);
-  doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...primary); doc.setFontSize(13); doc.setFont('helvetica', 'bold');
   doc.text(fmtPeso(cotizacion.total), 164, y + 33, { align: 'center' });
 
   y += 44;
 
-  // ── Descripción (si existe) ─────────────────────────────────────────────────
+  // ── Descripción ─────────────────────────────────────────────────────────────
   if (cotizacion.descripcion) {
     doc.setFillColor(255, 248, 225);
     doc.roundedRect(14, y, 182, 10, 2, 2, 'F');
-    doc.setTextColor(120, 80, 0);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(120, 80, 0); doc.setFontSize(8); doc.setFont('helvetica', 'italic');
     doc.text(`Observaciones: ${cotizacion.descripcion}`, 18, y + 7, { maxWidth: 174 });
     y += 14;
   }
 
   // ── Tabla de ítems ──────────────────────────────────────────────────────────
-  const rows = (cotizacion.items || []).map((item, i) => [
-    i + 1,
-    item.producto || '—',
-    item.destino  || '—',
-    item.cantidad,
-    new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.precio_unitario || 0),
-    new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(item.subtotal || 0),
-  ]);
+  const items = cotizacion.items || [];
+  const hayFotos = items.some(it => imageCache[it.foto_url]);
+
+  // Columnas dinámicas según si hay fotos
+  // Con fotos:  # | Foto | Producto | Destino | Cant. | P. Unit. | Subtotal
+  // Sin fotos:  # | Producto        | Destino | Cant. | P. Unit. | Subtotal
+  const COL_FOTO = hayFotos ? 1 : -1;
+  const COL_PROD = hayFotos ? 2 : 1;
+
+  const head = hayFotos
+    ? [['#', 'Foto', 'Producto', 'Destino', 'Cant.', 'P. Unitario', 'Subtotal']]
+    : [['#', 'Producto', 'Destino', 'Cant.', 'P. Unitario', 'Subtotal']];
+
+  const rows = items.map((item, i) => {
+    const base = [
+      i + 1,
+      item.producto || '—',
+      item.destino  || '—',
+      item.cantidad,
+      fmtPeso(item.precio_unitario || 0),
+      fmtPeso(item.subtotal        || 0),
+    ];
+    if (hayFotos) base.splice(1, 0, ''); // celda vacía para la foto (la dibuja didDrawCell)
+    return base;
+  });
+
+  const colStylesBase = hayFotos ? {
+    0: { halign: 'center', cellWidth: 8 },
+    1: { halign: 'center', cellWidth: 18 },  // Foto
+    2: { cellWidth: 'auto' },                 // Producto
+    3: { cellWidth: 28 },                     // Destino
+    4: { halign: 'center', cellWidth: 12 },   // Cant.
+    5: { halign: 'right',  cellWidth: 27 },   // P. Unitario
+    6: { halign: 'right',  cellWidth: 27, fontStyle: 'bold' }, // Subtotal
+  } : {
+    0: { halign: 'center', cellWidth: 10 },
+    3: { halign: 'center', cellWidth: 16 },
+    4: { halign: 'right',  cellWidth: 32 },
+    5: { halign: 'right',  cellWidth: 32, fontStyle: 'bold' },
+  };
 
   autoTable(doc, {
     startY: y,
-    head: [['#', 'Producto', 'Destino', 'Cant.', 'P. Unitario', 'Subtotal']],
+    head,
     body: rows,
-    styles: { fontSize: 9, cellPadding: 3 },
-    headStyles: {
-      fillColor: primary,
-      textColor: 255,
-      fontStyle: 'bold',
-      halign: 'left',
-    },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10 },
-      3: { halign: 'center', cellWidth: 16 },
-      4: { halign: 'right',  cellWidth: 32 },
-      5: { halign: 'right',  cellWidth: 32, fontStyle: 'bold' },
-    },
+    styles:      { fontSize: 8.5, cellPadding: { top: 3, right: 3, bottom: 3, left: 3 } },
+    headStyles:  { fillColor: primary, textColor: 255, fontStyle: 'bold', halign: 'left' },
+    columnStyles: colStylesBase,
     alternateRowStyles: { fillColor: [249, 250, 252] },
     margin: { left: 14, right: 14 },
+
+    didParseCell(data) {
+      if (data.section !== 'body') return;
+      const item = items[data.row.index];
+      // Filas con imagen o con link necesitan más altura
+      const tieneImg  = hayFotos && imageCache[item?.foto_url];
+      const tieneLink = !!item?.link;
+      if (tieneImg || tieneLink) {
+        data.cell.styles.minCellHeight = tieneImg ? 22 : 16;
+      }
+    },
+
+    didDrawCell(data) {
+      if (data.section !== 'body') return;
+      const item = items[data.row.index];
+      if (!item) return;
+
+      // ── Miniatura de foto ─────────────────────────────────────────────────
+      if (data.column.index === COL_FOTO && imageCache[item.foto_url]) {
+        const imgSize = 14;
+        const ix = data.cell.x + (data.cell.width  - imgSize) / 2;
+        const iy = data.cell.y + (data.cell.height - imgSize) / 2;
+        // Borde sutil alrededor de la miniatura
+        doc.setDrawColor(200, 210, 220);
+        doc.setLineWidth(0.3);
+        doc.rect(ix, iy, imgSize, imgSize);
+        doc.addImage(imageCache[item.foto_url], 'JPEG', ix, iy, imgSize, imgSize);
+      }
+
+      // ── Icono de link bajo el nombre del producto ─────────────────────────
+      if (data.column.index === COL_PROD && item.link) {
+        const lx = data.cell.x + 3;
+        const ly = data.cell.y + data.cell.height - 3.5;
+        doc.setFontSize(6.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...linkBlue);
+        // Pequeño cuadrado como icono de enlace
+        doc.setFillColor(...linkBlue);
+        doc.rect(lx, ly - 2.8, 2.2, 2.2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(4.5);
+        doc.text('>', lx + 0.3, ly - 1.1);
+        // Texto clickeable
+        doc.setFontSize(6.5);
+        doc.setTextColor(...linkBlue);
+        doc.textWithLink('ver enlace', lx + 3, ly - 0.8, { url: item.link });
+        doc.setTextColor(...dark);
+      }
+    },
   });
 
   // ── Fila de total ──────────────────────────────────────────────────────────
   const finalY = doc.lastAutoTable.finalY + 4;
   doc.setFillColor(...primary);
   doc.roundedRect(pageW - 14 - 80, finalY, 80, 12, 2, 2, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
   doc.text('TOTAL:', pageW - 14 - 55, finalY + 8);
   doc.text(fmtPeso(cotizacion.total), pageW - 16, finalY + 8, { align: 'right' });
 
@@ -312,9 +393,7 @@ function exportarCotizacionPDF(cotizacion) {
     const my = finalY + 18;
     doc.setFillColor(255, 235, 238);
     doc.roundedRect(14, my, 182, 10, 2, 2, 'F');
-    doc.setTextColor(198, 40, 40);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(198, 40, 40); doc.setFontSize(8); doc.setFont('helvetica', 'italic');
     doc.text(`Motivo de rechazo: ${cotizacion.motivo_rechazo}`, 18, my + 7, { maxWidth: 174 });
   }
 
@@ -322,18 +401,16 @@ function exportarCotizacionPDF(cotizacion) {
   const pageH = doc.internal.pageSize.getHeight();
   doc.setFillColor(...primary);
   doc.rect(0, pageH - 12, pageW, 12, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(7); doc.setFont('helvetica', 'normal');
   const now = new Date().toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
   doc.text(`Generado el ${now} · Beach Market Gestión`, 14, pageH - 4);
-  doc.text(`Pág. 1`, pageW - 14, pageH - 4, { align: 'right' });
+  doc.text('Pág. 1', pageW - 14, pageH - 4, { align: 'right' });
 
   doc.save(`Cotizacion-${String(cotizacion.id).padStart(4, '0')}-${cotizacion.asunto?.replace(/\s+/g, '_').slice(0, 30) || 'sin_asunto'}.pdf`);
 }
 
 // ─── Modal: ver cotización ────────────────────────────────────────────────────
-function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar, onComprar, onAnular }) {
+function ModalVer({ open, onClose, cotizacion, perfilId, isSuperAdmin, onAprobar, onRechazar, onComprar, onAnular }) {
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [rechazando, setRechazando]       = useState(false);
   const [anulando, setAnulando]           = useState(false);
@@ -460,7 +537,7 @@ function ModalVer({ open, onClose, cotizacion, perfilId, onAprobar, onRechazar, 
       <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
         <Button onClick={onClose} variant="outlined">Cerrar</Button>
 
-        {(PERFILES_GERENTE.includes(perfilId) || PERFILES_FINANZAS.includes(perfilId)) && (
+        {(isSuperAdmin || PERFILES_GERENTE.includes(perfilId) || PERFILES_FINANZAS.includes(perfilId)) && (
           <Button
             startIcon={<PictureAsPdf />}
             color="secondary"
@@ -579,7 +656,8 @@ function FilaCotizacion({ c, onVer }) {
 export default function CotizacionesPage() {
   const { user } = useContext(AuthContext);
   const { enqueueSnackbar } = useSnackbar();
-  const perfilId = user?.perfilId;
+  const perfilId     = user?.perfilId;
+  const isSuperAdmin = user?.superadmin === true || user?.superadmin === 1 || user?.username === 'NOVLUI';
 
   const [cotizaciones, setCotizaciones] = useState([]);
   const [loading, setLoading]           = useState(false);
@@ -1092,6 +1170,7 @@ export default function CotizacionesPage() {
         onClose={() => setCotSeleccionada(null)}
         cotizacion={cotSeleccionada}
         perfilId={perfilId}
+        isSuperAdmin={isSuperAdmin}
         onAprobar={handleAprobar}
         onRechazar={handleRechazar}
         onComprar={handleComprar}

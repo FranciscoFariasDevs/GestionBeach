@@ -714,6 +714,10 @@ function App() {
 
                 {/* Receptor: ruta pública (se abre en el parlante de la sucursal, sin login) */}
                 <Route
+                  path="/megafonia/receptor"
+                  element={<MegafoniaReceptorPage />}
+                />
+                <Route
                   path="/megafonia/receptor/:sucursalId"
                   element={<MegafoniaReceptorPage />}
                 />

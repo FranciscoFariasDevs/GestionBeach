@@ -16,18 +16,21 @@
 //   para "saltar" al frente y mantener latencia baja.
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import {
   Box, Button, Typography, Chip, Stack, Paper, Fade,
-  useTheme, alpha, keyframes,
+  useTheme, alpha, keyframes, CircularProgress, TextField, InputAdornment,
 } from '@mui/material';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import RadioIcon from '@mui/icons-material/Radio';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+import SearchIcon from '@mui/icons-material/Search';
 import { styled } from '@mui/material/styles';
+import api from '../api/api';
 
 // ─── Configuración ────────────────────────────────────────────────────────────
 const MIME_TYPE          = 'audio/webm;codecs=opus';
@@ -88,10 +91,143 @@ const toArrayBuffer = (data) => {
   return new Uint8Array(data).buffer;
 };
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-const MegafoniaReceptorPage = () => {
-  const theme       = useTheme();
-  const { sucursalId } = useParams();
+// ─── Selector de sucursal (cuando no se conoce el ID) ─────────────────────────
+const SucursalSelector = () => {
+  const navigate = useNavigate();
+  const [sucursales, setSucursales] = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [busqueda,   setBusqueda]   = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get('/sucursales');
+        setSucursales(Array.isArray(r.data) ? r.data : (r.data?.data || []));
+      } catch {
+        try {
+          const r = await api.get('/facturas-xml/lista/sucursales');
+          setSucursales(r.data?.data || []);
+        } catch {}
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const filtradas = sucursales.filter(s =>
+    s.nombre?.toLowerCase().includes(busqueda.toLowerCase())
+  );
+
+  return (
+    <Box sx={{
+      minHeight: '100vh',
+      bgcolor: '#f1f5f9',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'flex-start', pt: { xs: 4, sm: 8 }, px: 2,
+    }}>
+      <Fade in>
+        <Box sx={{ width: '100%', maxWidth: 520 }}>
+
+          {/* Header */}
+          <Box sx={{ textAlign: 'center', mb: 4 }}>
+            <Box sx={{
+              width: 64, height: 64, borderRadius: '50%', mx: 'auto', mb: 2,
+              bgcolor: '#1e293b',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <RadioIcon sx={{ color: '#fff', fontSize: 32 }} />
+            </Box>
+            <Typography variant="h5" fontWeight={800} color="#1e293b">
+              Megafonía IP
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Selecciona tu sucursal para activar el parlante
+            </Typography>
+          </Box>
+
+          {/* Buscador */}
+          <TextField
+            fullWidth
+            placeholder="Buscar sucursal…"
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            size="small"
+            sx={{ mb: 2, bgcolor: '#fff', borderRadius: 2 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: '#94a3b8', fontSize: 18 }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          {/* Lista */}
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {filtradas.length === 0 && (
+                <Typography color="text.secondary" textAlign="center" sx={{ py: 4 }}>
+                  No se encontraron sucursales
+                </Typography>
+              )}
+              {filtradas.map(suc => {
+                const [calle = suc.nombre, ciudad = ''] = suc.nombre.split(',');
+                return (
+                  <Paper
+                    key={suc.id}
+                    elevation={0}
+                    onClick={() => navigate(`/megafonia/receptor/${suc.id}`)}
+                    sx={{
+                      p: '14px 18px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 2,
+                      transition: 'all 0.13s',
+                      '&:hover': {
+                        borderColor: '#3b82f6',
+                        bgcolor: '#eff6ff',
+                        transform: 'translateX(4px)',
+                      },
+                    }}
+                  >
+                    <Box sx={{
+                      width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                      bgcolor: '#f1f5f9',
+                      border: '1px solid #e2e8f0',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <StorefrontIcon sx={{ fontSize: 18, color: '#64748b' }} />
+                    </Box>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography fontWeight={700} fontSize="0.9rem" noWrap color="#1e293b">
+                        {calle.trim()}
+                      </Typography>
+                      {ciudad && (
+                        <Typography fontSize="0.75rem" color="text.secondary" noWrap>
+                          {ciudad.trim()}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Typography sx={{ ml: 'auto', fontSize: '0.7rem', color: '#cbd5e1', fontFamily: 'monospace' }}>
+                      #{suc.id}
+                    </Typography>
+                  </Paper>
+                );
+              })}
+            </Box>
+          )}
+        </Box>
+      </Fade>
+    </Box>
+  );
+};
+
+// ─── Receptor activo (con hooks — solo se monta cuando hay sucursalId) ────────
+const ReceptorActivo = ({ sucursalId }) => {
+  const theme = useTheme();
 
   const [activated,   setActivated]   = useState(false);
   const [connected,   setConnected]   = useState(false);
@@ -467,6 +603,12 @@ const MegafoniaReceptorPage = () => {
       </Fade>
     </Box>
   );
+};
+
+// ─── Wrapper principal — decide qué mostrar según si hay sucursalId ───────────
+const MegafoniaReceptorPage = () => {
+  const { sucursalId } = useParams();
+  return sucursalId ? <ReceptorActivo sucursalId={sucursalId} /> : <SucursalSelector />;
 };
 
 export default MegafoniaReceptorPage;
