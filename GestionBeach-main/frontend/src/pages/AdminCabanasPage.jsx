@@ -43,6 +43,9 @@ import {
   ImageList,
   ImageListItem,
   ImageListItemBar,
+  Switch,
+  FormControlLabel,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -74,6 +77,7 @@ import {
   Build as BuildIcon,
   Warning as WarningIcon,
   ConfirmationNumber as ConfirmationNumberIcon,
+  Payment as PaymentIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -241,6 +245,10 @@ const AdminCabanasPage = () => {
 
   // Estados principales
   const [tabValue, setTabValue] = useState(0);
+
+  // Estado de pasarela de pago
+  const [pasarelaPago, setPasarelaPago] = useState('khipu');
+  const [loadingPasarela, setLoadingPasarela] = useState(false);
 
   // Estados de Cabañas
   const [cabanas, setCabanas] = useState([]);
@@ -548,6 +556,7 @@ const AdminCabanasPage = () => {
   useEffect(() => {
     // Cargar temporada actual al montar el componente
     cargarTemporadaActual();
+    cargarPasarela();
 
     if (tabValue === 0) {
       cargarCabanas();
@@ -593,6 +602,32 @@ const AdminCabanasPage = () => {
     } catch (error) {
       console.error('Error al cargar temporada:', error);
       // Si falla, mantener el valor por defecto 'baja'
+    }
+  };
+
+  const cargarPasarela = async () => {
+    try {
+      const response = await api.get('/configuracion/pasarela');
+      if (response.data.success) setPasarelaPago(response.data.pasarela);
+    } catch (error) {
+      console.error('Error al cargar pasarela:', error);
+    }
+  };
+
+  const cambiarPasarela = async (nuevaPasarela) => {
+    try {
+      setLoadingPasarela(true);
+      await api.put('/configuracion/pasarela', { pasarela: nuevaPasarela });
+      setPasarelaPago(nuevaPasarela);
+      enqueueSnackbar(`✅ Pasarela de pago cambiada a ${nuevaPasarela === 'khipu' ? 'Khipu 💚' : 'Webpay 💳'}`, {
+        variant: 'success',
+        autoHideDuration: 4000
+      });
+    } catch (error) {
+      console.error('Error al cambiar pasarela:', error);
+      enqueueSnackbar('Error al actualizar la pasarela de pago', { variant: 'error' });
+    } finally {
+      setLoadingPasarela(false);
     }
   };
 
@@ -2520,6 +2555,96 @@ const AdminCabanasPage = () => {
 
 
   // ============================================
+  // RENDER TAB CONFIGURACIÓN - PASARELA DE PAGO
+  // ============================================
+  const renderTabConfiguracion = () => (
+    <Fade in>
+      <Box>
+        <Paper elevation={4} sx={{ p: 4, borderRadius: 3, maxWidth: 600, mx: 'auto', mt: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+            <Avatar sx={{ bgcolor: '#667eea', width: 56, height: 56 }}>
+              <PaymentIcon sx={{ fontSize: 30 }} />
+            </Avatar>
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 800 }}>Pasarela de Pago</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Selecciona qué sistema de pago online verán los clientes
+              </Typography>
+            </Box>
+          </Box>
+
+          <Grid container spacing={3}>
+            {/* Tarjeta Khipu */}
+            <Grid item xs={12} sm={6}>
+              <Paper
+                elevation={pasarelaPago === 'khipu' ? 6 : 1}
+                onClick={() => cambiarPasarela('khipu')}
+                sx={{
+                  p: 3,
+                  cursor: 'pointer',
+                  border: pasarelaPago === 'khipu' ? '3px solid #00C853' : '2px solid #E0E0E0',
+                  borderRadius: 3,
+                  bgcolor: pasarelaPago === 'khipu' ? '#F1FFF6' : 'white',
+                  transition: 'all 0.3s',
+                  textAlign: 'center',
+                  '&:hover': { borderColor: '#00C853', boxShadow: 4 }
+                }}
+              >
+                <Typography variant="h4" sx={{ mb: 1 }}>💚</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 800, color: '#00C853' }}>Khipu</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Transferencia inmediata desde app bancaria
+                </Typography>
+                {pasarelaPago === 'khipu' && (
+                  <Chip label="ACTIVA" size="small" sx={{ bgcolor: '#00C853', color: 'white', fontWeight: 700 }} />
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Tarjeta Webpay */}
+            <Grid item xs={12} sm={6}>
+              <Paper
+                elevation={pasarelaPago === 'webpay' ? 6 : 1}
+                onClick={() => cambiarPasarela('webpay')}
+                sx={{
+                  p: 3,
+                  cursor: 'pointer',
+                  border: pasarelaPago === 'webpay' ? '3px solid #1565C0' : '2px solid #E0E0E0',
+                  borderRadius: 3,
+                  bgcolor: pasarelaPago === 'webpay' ? '#E3F2FD' : 'white',
+                  transition: 'all 0.3s',
+                  textAlign: 'center',
+                  '&:hover': { borderColor: '#1565C0', boxShadow: 4 }
+                }}
+              >
+                <Typography variant="h4" sx={{ mb: 1 }}>💳</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 800, color: '#1565C0' }}>Webpay</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Tarjeta de crédito/débito con Transbank
+                </Typography>
+                {pasarelaPago === 'webpay' && (
+                  <Chip label="ACTIVA" size="small" sx={{ bgcolor: '#1565C0', color: 'white', fontWeight: 700 }} />
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {loadingPasarela && (
+            <Box sx={{ textAlign: 'center', mt: 3 }}>
+              <CircularProgress size={28} />
+              <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>Guardando...</Typography>
+            </Box>
+          )}
+
+          <Alert severity="info" sx={{ mt: 3 }}>
+            El cambio es inmediato. Los clientes verán la nueva pasarela al recargar la página de reservas.
+          </Alert>
+        </Paper>
+      </Box>
+    </Fade>
+  );
+
+  // ============================================
   // RENDER PRINCIPAL
   // ============================================
   return (
@@ -2728,6 +2853,11 @@ const AdminCabanasPage = () => {
             label="Códigos Descuento"
             iconPosition="start"
           />
+          <Tab
+            icon={<PaymentIcon />}
+            label="Configuración"
+            iconPosition="start"
+          />
         </Tabs>
       </Paper>
 
@@ -2737,6 +2867,7 @@ const AdminCabanasPage = () => {
         {tabValue === 1 && renderTabReservas()}
         {tabValue === 2 && renderTabTimeline()}
         {tabValue === 3 && <CodigosDescuentoPage />}
+        {tabValue === 4 && renderTabConfiguracion()}
       </Box>
 
       {/* Input oculto para seleccionar archivos */}

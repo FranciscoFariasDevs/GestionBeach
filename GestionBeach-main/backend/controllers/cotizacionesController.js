@@ -134,7 +134,7 @@ exports.crearCotizacion = async (req, res) => {
       await crearNotificacion({
         usuarioId: g.id,
         tipo:      'cotizacion_nueva',
-        titulo:    `📋 Nueva cotización: ${asunto}`,
+        titulo:    `Nueva cotización: ${asunto}`,
         mensaje:   `${usuario.nombre || usuario.username} creó una cotización por $${total.toLocaleString('es-CL')}.`,
         ruta:      '/cotizaciones',
         icono:     'request_quote',

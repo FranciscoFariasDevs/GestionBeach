@@ -53,6 +53,7 @@ const ConsultarProductoPage = () => {
   const [loading, setLoading] = useState(false);
   const [loadingSucursales, setLoadingSucursales] = useState(true);
   const [error, setError] = useState(null);
+  const [busquedaCodigo, setBusquedaCodigo] = useState('');
   const [sortField, setSortField] = useState('');
   const [sortDir,   setSortDir]   = useState('asc');
 
@@ -105,14 +106,27 @@ const ConsultarProductoPage = () => {
   // Filtrado memoizado - no se recalcula cuando cambia el modal
   const productosFiltrados = useMemo(() => {
     if (!data?.productos) return [];
-    if (!busqueda) return data.productos;
-    const term = busqueda.toLowerCase();
-    return data.productos.filter(p =>
-      (p.codigo || '').toLowerCase().includes(term) ||
-      (p.descripcion || '').toLowerCase().includes(term) ||
-      (p.familia || '').toLowerCase().includes(term)
-    );
-  }, [data, busqueda]);
+    let result = data.productos;
+
+    // Filtro por nombre (descripción / familia)
+    if (busqueda) {
+      const term = busqueda.toLowerCase();
+      result = result.filter(p =>
+        (p.descripcion || '').toLowerCase().includes(term) ||
+        (p.familia || '').toLowerCase().includes(term)
+      );
+    }
+
+    // Filtro por código — comparación exacta/parcial sobre el código limpio
+    if (busquedaCodigo) {
+      const term = busquedaCodigo.trim().toLowerCase();
+      result = result.filter(p =>
+        (p.codigo || '').toString().trim().toLowerCase().includes(term)
+      );
+    }
+
+    return result;
+  }, [data, busqueda, busquedaCodigo]);
 
   const totalValorizadoFiltrado = useMemo(() =>
     productosFiltrados.reduce((sum, p) => sum + (p.valorizado || 0), 0),
@@ -162,7 +176,7 @@ const ConsultarProductoPage = () => {
     const sheetData = [
       [`CONSULTAR PRODUCTO - ${sucNombre}`],
       [`Filtro: ${filtro === 'vigente' ? 'Vigentes' : filtro === 'no_vigente' ? 'No Vigentes' : 'Limpio (sin cero)'}`],
-      [busqueda ? `Busqueda: ${busqueda}` : ''],
+      [busqueda ? `Busqueda nombre: ${busqueda}` : busquedaCodigo ? `Busqueda codigo: ${busquedaCodigo}` : ''],
       [''],
       ['Codigo', 'Descripcion', 'Stock', 'Familia', 'P.Compra', 'Margen', 'Neto', 'Precio Final', 'Valorizado'],
     ];
@@ -223,10 +237,40 @@ const ConsultarProductoPage = () => {
           </ToggleButton>
         </ToggleButtonGroup>
         <TextField
-          size="small" placeholder="Buscar por codigo, descripcion o familia..."
-          value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: '#999' }} /></InputAdornment>, sx: { borderRadius: 2 } }}
-          sx={{ minWidth: 320 }}
+          size="small"
+          label="Buscar por nombre"
+          placeholder="Descripcion o familia..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          InputProps={{
+            startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: '#999' }} /></InputAdornment>,
+            sx: { borderRadius: 2 }
+          }}
+          sx={{ minWidth: 240 }}
+        />
+        <TextField
+          size="small"
+          label="Buscar por código"
+          placeholder="Ej: 001234 o ABC..."
+          value={busquedaCodigo}
+          onChange={(e) => setBusquedaCodigo(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ color: '#FF9800' }} />
+              </InputAdornment>
+            ),
+            sx: { borderRadius: 2, fontFamily: 'monospace' }
+          }}
+          sx={{
+            minWidth: 200,
+            '& .MuiOutlinedInput-root': {
+              '& fieldset': { borderColor: busquedaCodigo ? '#FF9800' : undefined },
+              '&:hover fieldset': { borderColor: '#FF9800' },
+              '&.Mui-focused fieldset': { borderColor: '#FF9800' },
+            },
+            '& .MuiInputLabel-root.Mui-focused': { color: '#FF9800' },
+          }}
         />
       </Box>
 
@@ -331,6 +375,7 @@ const ConsultarProductoPage = () => {
             totalProductos={data.total_productos}
             totalValorizado={totalValorizadoFiltrado}
             busqueda={busqueda}
+            busquedaCodigo={busquedaCodigo}
             onVerDetalle={handleVerDetalle}
             sortField={sortField}
             sortDir={sortDir}
@@ -368,7 +413,7 @@ const TABLA_COLS = [
   { label: 'Valorizado',  field: 'valorizado',  align: 'right' },
 ];
 
-const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalValorizado, busqueda, onVerDetalle, sortField, sortDir, onSort }) => (
+const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalValorizado, busqueda, busquedaCodigo, onVerDetalle, sortField, sortDir, onSort }) => (
   <Paper sx={{ borderRadius: 3, boxShadow: '0 2px 16px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
     <TableContainer sx={{ maxHeight: 'calc(100vh - 400px)' }}>
       <Table size="small" stickyHeader>
@@ -404,7 +449,11 @@ const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalV
           {productos.length === 0 ? (
             <TableRow>
               <TableCell colSpan={9} align="center" sx={{ py: 6, color: 'text.secondary' }}>
-                {busqueda ? 'Sin resultados para la busqueda' : 'Sin productos para este filtro'}
+                {busquedaCodigo
+                ? `Sin productos con código "${busquedaCodigo}"`
+                : busqueda
+                  ? `Sin resultados para "${busqueda}"`
+                  : 'Sin productos para este filtro'}
               </TableCell>
             </TableRow>
           ) : (
@@ -435,7 +484,7 @@ const TablaProductos = memo(({ productos, totalFiltrados, totalProductos, totalV
         {productos.length < totalFiltrados
           ? `Mostrando ${productos.length.toLocaleString()} de ${totalFiltrados.toLocaleString()} productos (usa el buscador para filtrar)`
           : `${totalFiltrados.toLocaleString()} productos`}
-        {busqueda && ` (filtrado de ${totalProductos.toLocaleString()})`}
+        {(busqueda || busquedaCodigo) && ` (filtrado de ${totalProductos.toLocaleString()})`}
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Typography variant="body1" fontWeight={700} fontSize="0.95rem" color="#333">TOTAL VALORIZADO</Typography>

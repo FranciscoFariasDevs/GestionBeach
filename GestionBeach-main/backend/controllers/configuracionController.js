@@ -86,3 +86,52 @@ exports.actualizarTemporada = async (req, res) => {
     });
   }
 };
+
+const CACHE_KEY_PASARELA = 'gb:config:pasarela_pago';
+
+exports.getPasarelaPago = async (req, res) => {
+  try {
+    const cached = await cache.get(CACHE_KEY_PASARELA);
+    if (cached) return res.json({ success: true, pasarela: cached });
+
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT valor FROM configuracion_sistema WHERE clave = 'pasarela_pago'
+    `);
+
+    const pasarela = result.recordset.length > 0 ? result.recordset[0].valor : 'khipu';
+    await cache.set(CACHE_KEY_PASARELA, pasarela, 3600);
+
+    return res.json({ success: true, pasarela });
+  } catch (error) {
+    console.error('❌ Error al obtener pasarela:', error);
+    return res.status(500).json({ success: false, message: 'Error al obtener pasarela', error: error.message });
+  }
+};
+
+exports.actualizarPasarelaPago = async (req, res) => {
+  try {
+    const { pasarela } = req.body;
+    if (!pasarela || !['webpay', 'khipu'].includes(pasarela)) {
+      return res.status(400).json({ success: false, message: 'Pasarela inválida. Debe ser "webpay" o "khipu"' });
+    }
+
+    const pool = await poolPromise;
+    await pool.request()
+      .input('valor', sql.NVarChar, pasarela)
+      .query(`
+        IF EXISTS (SELECT 1 FROM configuracion_sistema WHERE clave = 'pasarela_pago')
+          UPDATE configuracion_sistema SET valor = @valor, fecha_actualizacion = GETDATE() WHERE clave = 'pasarela_pago'
+        ELSE
+          INSERT INTO configuracion_sistema (clave, valor, fecha_actualizacion) VALUES ('pasarela_pago', @valor, GETDATE())
+      `);
+
+    await cache.del(CACHE_KEY_PASARELA);
+    console.log(`✅ Pasarela de pago actualizada a: ${pasarela}`);
+
+    return res.json({ success: true, message: `Pasarela actualizada a ${pasarela}`, pasarela });
+  } catch (error) {
+    console.error('❌ Error al actualizar pasarela:', error);
+    return res.status(500).json({ success: false, message: 'Error al actualizar pasarela', error: error.message });
+  }
+};

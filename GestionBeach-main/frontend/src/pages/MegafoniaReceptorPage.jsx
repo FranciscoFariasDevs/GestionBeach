@@ -229,10 +229,11 @@ const SucursalSelector = () => {
 const ReceptorActivo = ({ sucursalId }) => {
   const theme = useTheme();
 
-  const [activated,   setActivated]   = useState(false);
-  const [connected,   setConnected]   = useState(false);
-  const [receiving,   setReceiving]   = useState(false);
-  const [error,       setError]       = useState('');
+  const [connected,    setConnected]    = useState(false);
+  const [receiving,    setReceiving]    = useState(false);
+  const [error,        setError]        = useState('');
+  // audioBlocked = true solo si el navegador rechaza autoplay (requiere un tap)
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   // Refs para el pipeline MSE — ninguno causa re-render
   const audioRef        = useRef(null);
@@ -323,7 +324,10 @@ const ReceptorActivo = ({ sucursalId }) => {
 
             // Arrancar playback si estaba pausado y ya hay datos suficientes
             if (audio.paused && audio.readyState >= 2) {
-              audio.play().catch(() => {});
+              audio.play().catch((e) => {
+                                // NotAllowedError = navegador bloqueó autoplay sin interacción
+                                if (e.name === 'NotAllowedError') setAudioBlocked(true);
+                              });
             }
 
             // Limpiar el buffer ya reproducido para liberar memoria
@@ -426,26 +430,29 @@ const ReceptorActivo = ({ sucursalId }) => {
     }
   }, []);
 
-  // ─── Activar parlante (primer click del usuario → desbloquea autoplay) ────
-  const handleActivate = useCallback(() => {
-    setActivated(true);
-
-    // El click garantiza que el navegador permita autoplay en audioRef
+  // ─── Auto-inicio al montar: conectar socket sin esperar interacción ─────
+  useEffect(() => {
     const audio = audioRef.current;
     audio.volume = 1.0;
     audio.muted  = false;
-
     initSocket();
-  }, [initSocket]);
 
-  // ─── Cleanup al desmontar ─────────────────────────────────────────────────
-  useEffect(() => {
     return () => {
       socketRef.current?.disconnect();
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       _stopAlarm();
     };
+  // initSocket cambia si cambia sucursalId (navegación entre sucursales)
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sucursalId]);
+
+  // ─── Handler para el tap de desbloqueo de autoplay ───────────────────────
+  const handleUnblock = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.play().catch(() => {});
+    }
+    setAudioBlocked(false);
   }, []);
 
   return (
@@ -526,63 +533,50 @@ const ReceptorActivo = ({ sucursalId }) => {
             Sucursal #{sucursalId}
           </Typography>
 
-          {!activated ? (
-            /* ── Pantalla inicial: cumplir política autoplay del navegador ── */
-            <>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Pulsa el botón para activar el parlante.
-                Recibirás el audio automáticamente cuando alguien transmita.
-              </Typography>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={<RadioIcon />}
-                onClick={handleActivate}
-                sx={{
-                  py: 2,
-                  px: 5,
-                  borderRadius: 50,
-                  fontSize: '1rem',
-                  fontWeight: 700,
-                }}
-              >
-                Activar Parlante
-              </Button>
-            </>
-          ) : (
-            /* ── Pantalla de escucha activa ── */
-            <>
-              {/* Estado de conexión */}
-              <Stack direction="row" justifyContent="center" spacing={1} sx={{ mb: 3 }}>
-                <Chip
-                  icon={connected ? <WifiIcon /> : <WifiOffIcon />}
-                  label={connected ? 'Conectado' : 'Reconectando…'}
-                  color={connected ? 'success' : 'warning'}
-                  variant="outlined"
-                  size="small"
-                />
-              </Stack>
+          {/* ── Pantalla de escucha activa (siempre visible) ── */}
+          {/* Estado de conexión */}
+          <Stack direction="row" justifyContent="center" spacing={1} sx={{ mb: 3 }}>
+            <Chip
+              icon={connected ? <WifiIcon /> : <WifiOffIcon />}
+              label={connected ? 'Conectado' : 'Reconectando…'}
+              color={connected ? 'success' : 'warning'}
+              variant="outlined"
+              size="small"
+            />
+          </Stack>
 
-              {/* Estado de audio */}
-              <Box sx={{ minHeight: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                {receiving ? (
-                  <AudioBars />
-                ) : (
-                  <Typography variant="h6" color="text.disabled" fontWeight={500}>
-                    En espera…
-                  </Typography>
-                )}
-              </Box>
-
-              <Typography
-                variant="body2"
-                color={receiving ? 'primary.main' : 'text.disabled'}
-                fontWeight={receiving ? 700 : 400}
-                sx={{ transition: 'color 0.3s' }}
-              >
-                {receiving ? 'Recibiendo transmisión' : 'Sin transmisión activa'}
+          {/* Estado de audio */}
+          <Box sx={{ minHeight: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+            {receiving ? (
+              <AudioBars />
+            ) : (
+              <Typography variant="h6" color="text.disabled" fontWeight={500}>
+                En espera…
               </Typography>
-            </>
+            )}
+          </Box>
+
+          <Typography
+            variant="body2"
+            color={receiving ? 'primary.main' : 'text.disabled'}
+            fontWeight={receiving ? 700 : 400}
+            sx={{ transition: 'color 0.3s' }}
+          >
+            {receiving ? 'Recibiendo transmisión' : 'Sin transmisión activa'}
+          </Typography>
+
+          {/* Banner de desbloqueo de autoplay — solo aparece si el navegador bloqueó el audio */}
+          {audioBlocked && (
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              startIcon={<VolumeUpIcon />}
+              onClick={handleUnblock}
+              sx={{ mt: 3, borderRadius: 50, fontSize: '0.8rem' }}
+            >
+              Toca para activar el sonido
+            </Button>
           )}
 
           {/* Error */}

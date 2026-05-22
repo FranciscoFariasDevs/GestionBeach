@@ -177,8 +177,11 @@ const ReservaCabanasPage = () => {
   const [validandoCodigo, setValidandoCodigo] = useState(false);
   const [errorCodigo, setErrorCodigo] = useState('');
 
+  // Pasarela de pago activa (khipu o webpay, cargado desde config)
+  const [pasarelaPago, setPasarelaPago] = useState('khipu');
+
   // Estado para método de pago seleccionado
-  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState(null); // 'transferencia' o 'webpay'
+  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState(null); // 'transferencia', 'webpay' o 'khipu'
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [reservaTransferenciaConfirmada, setReservaTransferenciaConfirmada] = useState(false);
   const [transferenciaHabilitada, setTransferenciaHabilitada] = useState(true); // Control de horario transferencias
@@ -228,6 +231,11 @@ const ReservaCabanasPage = () => {
   
   React.useEffect(() => {
     document.title = 'Reservas';
+
+    // Cargar pasarela de pago activa
+    api.get('/configuracion/pasarela')
+      .then(r => { if (r.data.success) setPasarelaPago(r.data.pasarela); })
+      .catch(() => {});
 
     // Verificar parámetros de URL para mensaje de pago
     const urlParams = new URLSearchParams(window.location.search);
@@ -281,6 +289,43 @@ const ReservaCabanasPage = () => {
           // Limpiar parámetros de URL incluso si hay error
           window.history.replaceState({}, document.title, window.location.pathname);
         });
+    } else if (pagoEstado === 'khipu_exitoso') {
+      const paymentId = urlParams.get('payment_id');
+      console.log(`💚 Pago Khipu detectado. payment_id=${paymentId}`);
+
+      if (paymentId) {
+        api.get(`/khipu/verificar/${paymentId}`)
+          .then(response => {
+            window.history.replaceState({}, document.title, window.location.pathname);
+            if (response.data.success && response.data.reserva_id) {
+              return api.get(`/cabanas/reservas/${response.data.reserva_id}`);
+            }
+            enqueueSnackbar('✅ ¡Pago exitoso con Khipu! Tu reserva está siendo procesada. Revisa tu email.', {
+              variant: 'success', autoHideDuration: 8000
+            });
+            return null;
+          })
+          .then(response => {
+            if (response?.data?.reserva) {
+              setDatosComprobante(response.data.reserva);
+              setMostrarComprobante(true);
+              enqueueSnackbar('✅ ¡Pago Khipu exitoso! Tu reserva ha sido confirmada.', {
+                variant: 'success', autoHideDuration: 5000
+              });
+            }
+          })
+          .catch(() => {
+            window.history.replaceState({}, document.title, window.location.pathname);
+            enqueueSnackbar('✅ ¡Pago exitoso con Khipu! Tu reserva está siendo procesada. Revisa tu email.', {
+              variant: 'success', autoHideDuration: 8000
+            });
+          });
+      }
+    } else if (pagoEstado === 'khipu_cancelado') {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      enqueueSnackbar('❌ Pago con Khipu cancelado. Puedes intentarlo nuevamente.', {
+        variant: 'warning', autoHideDuration: 6000
+      });
     } else if (pagoEstado === 'error') {
       const codigo = urlParams.get('codigo');
       const error = urlParams.get('error');
@@ -2040,6 +2085,71 @@ const ReservaCabanasPage = () => {
     }
   };
 
+  const handlePagoKhipu = async () => {
+    try {
+      setProcesandoPago(true);
+
+      const fechaInicio = new Date(formData.fecha_inicio);
+      const fechaFin = new Date(formData.fecha_fin);
+      const diffTime = Math.abs(fechaFin - fechaInicio);
+      const cantidadNoches = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const precioNoche = getPrecioActual(selectedCabana);
+      const costoPersonasExtra = calcularCostoPersonasExtra();
+      const subtotalSinDescuento = calcularPrecioTotal();
+      const descuento = calcularDescuento(subtotalSinDescuento);
+      const precioTotal = subtotalSinDescuento - descuento;
+      const capacidad = selectedCabana.capacidad_personas || 0;
+      const personasExtra = Math.max(0, formData.cantidad_personas - capacidad);
+      const montoPagar = formData.tipo_pago === 'mitad' ? precioTotal / 2 : precioTotal;
+
+      const reservaData = {
+        cabana_id: selectedCabana.id,
+        cliente_nombre: formData.cliente_nombre,
+        cliente_apellido: formData.cliente_apellido,
+        cliente_telefono: formData.cliente_telefono,
+        cliente_email: formData.cliente_email,
+        cliente_rut: formData.cliente_rut,
+        procedencia: formData.procedencia,
+        tiene_auto: formData.tiene_auto,
+        matriculas_auto: formData.matriculas_auto.filter(m => m.trim() !== ''),
+        fecha_inicio: formatDateForServer(formData.fecha_inicio),
+        fecha_fin: formatDateForServer(formData.fecha_fin),
+        cantidad_personas: formData.cantidad_personas,
+        personas_extra: personasExtra,
+        costo_personas_extra: costoPersonasExtra,
+        cantidad_noches: cantidadNoches,
+        precio_noche: precioNoche,
+        precio_total: precioTotal,
+        descuento_aplicado: descuento,
+        codigo_descuento: codigoValidado?.codigo || null,
+        tipo_pago: formData.tipo_pago,
+        notas: formData.notas,
+        tinajas: formData.tinajas_seleccionadas.map(t => ({
+          tinaja_id: t.tinaja_id,
+          fecha_uso: formatDateForServer(t.fecha_uso),
+          precio_dia: t.precio_dia,
+        })),
+      };
+
+      const pagoResponse = await api.post('/khipu/crear', {
+        monto: montoPagar,
+        descripcion: `Reserva Cabaña ${selectedCabana.nombre} - ${formData.cliente_nombre} ${formData.cliente_apellido}`,
+        reservaData,
+      });
+
+      const { payment_url } = pagoResponse.data.data;
+      window.location.href = payment_url;
+
+    } catch (error) {
+      console.error('Error al procesar pago Khipu:', error);
+      enqueueSnackbar(
+        error.response?.data?.message || 'Error al procesar el pago con Khipu',
+        { variant: 'error' }
+      );
+      setProcesandoPago(false);
+    }
+  };
+
   const handleCrearReserva = async () => {
     try {
       const fechaInicio = new Date(formData.fecha_inicio);
@@ -3049,7 +3159,74 @@ const ReservaCabanasPage = () => {
                   )}
                 </Paper>
 
-                {/* Opción 2: Webpay — deshabilitada temporalmente hasta contrato */}
+                {/* Opción 2: Khipu / Webpay (según config admin) */}
+                {pasarelaPago === 'khipu' ? (
+                  <Paper
+                    elevation={metodoPagoSeleccionado === 'khipu' ? 4 : 0}
+                    onClick={() => setMetodoPagoSeleccionado('khipu')}
+                    sx={{
+                      p: 2,
+                      mb: 2,
+                      cursor: 'pointer',
+                      border: metodoPagoSeleccionado === 'khipu' ? '3px solid #00C853' : '2px solid #E0E0E0',
+                      borderRadius: 2,
+                      bgcolor: metodoPagoSeleccionado === 'khipu' ? '#F1FFF6' : 'white',
+                      transition: 'all 0.3s',
+                      '&:hover': { borderColor: '#00C853', boxShadow: 3 }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                      <Avatar sx={{ bgcolor: '#00C853', width: 40, height: 40, fontSize: '1.2rem' }}>💚</Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={700} color="#00C853">
+                          Pagar con Khipu
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Transferencia inmediata desde tu app bancaria
+                        </Typography>
+                      </Box>
+                      {metodoPagoSeleccionado === 'khipu' && (
+                        <CheckCircleIcon sx={{ fontSize: 28, color: '#00C853' }} />
+                      )}
+                    </Box>
+                    <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
+                      Pago seguro e inmediato. La reserva se confirma al instante.
+                    </Alert>
+                  </Paper>
+                ) : (
+                  <Paper
+                    elevation={metodoPagoSeleccionado === 'webpay' ? 4 : 0}
+                    onClick={() => setMetodoPagoSeleccionado('webpay')}
+                    sx={{
+                      p: 2,
+                      mb: 2,
+                      cursor: 'pointer',
+                      border: metodoPagoSeleccionado === 'webpay' ? '3px solid #1565C0' : '2px solid #E0E0E0',
+                      borderRadius: 2,
+                      bgcolor: metodoPagoSeleccionado === 'webpay' ? '#E3F2FD' : 'white',
+                      transition: 'all 0.3s',
+                      '&:hover': { borderColor: '#1565C0', boxShadow: 3 }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                      <Avatar sx={{ bgcolor: '#1565C0', width: 40, height: 40, fontSize: '1.2rem' }}>💳</Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={700} color="#1565C0">
+                          Pagar con Webpay
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Tarjeta de crédito o débito (Transbank)
+                        </Typography>
+                      </Box>
+                      {metodoPagoSeleccionado === 'webpay' && (
+                        <CheckCircleIcon sx={{ fontSize: 28, color: '#1565C0' }} />
+                      )}
+                    </Box>
+                    <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+                      Pago seguro con tarjeta. Serás redirigido a Webpay.
+                    </Alert>
+                  </Paper>
+                )}
 
                 {/* Botón para confirmar el método seleccionado */}
                 {!reservaTransferenciaConfirmada && (
@@ -3063,29 +3240,33 @@ const ReservaCabanasPage = () => {
                       (metodoPagoSeleccionado === 'transferencia' && !transferenciaHabilitada)
                     }
                     onClick={() => {
-                      if (metodoPagoSeleccionado === 'transferencia') {
-                        handlePagoTransferencia();
-                      }
+                      if (metodoPagoSeleccionado === 'transferencia') handlePagoTransferencia();
+                      else if (metodoPagoSeleccionado === 'khipu') handlePagoKhipu();
+                      else if (metodoPagoSeleccionado === 'webpay') handlePagoWebpay();
                     }}
                     sx={{
                       py: 1.5,
                       fontWeight: 900,
                       fontSize: '1rem',
                       borderRadius: 2,
-                      background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                      background: metodoPagoSeleccionado === 'khipu'
+                        ? 'linear-gradient(135deg, #00C853 0%, #009624 100%)'
+                        : metodoPagoSeleccionado === 'webpay'
+                          ? 'linear-gradient(135deg, #1565C0 0%, #003c8f 100%)'
+                          : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
                       boxShadow: 4,
-                      '&:hover': {
-                        boxShadow: 6
-                      },
-                      '&:disabled': {
-                        background: '#E0E0E0'
-                      }
+                      '&:hover': { boxShadow: 6 },
+                      '&:disabled': { background: '#E0E0E0' }
                     }}
                   >
                     {procesandoPago ? (
                       <CircularProgress size={24} color="inherit" />
                     ) : metodoPagoSeleccionado === 'transferencia' ? (
                       '🏦 Confirmar Reserva'
+                    ) : metodoPagoSeleccionado === 'khipu' ? (
+                      '💚 Pagar con Khipu'
+                    ) : metodoPagoSeleccionado === 'webpay' ? (
+                      '💳 Pagar con Webpay'
                     ) : (
                       'Selecciona un Método de Pago'
                     )}
@@ -3485,207 +3666,200 @@ const ReservaCabanasPage = () => {
                               e.target.style.display = 'none';
                             }}
                           />
-                          {/* Overlay con gradiente para mejor legibilidad */}
+                          {/* Overlay con gradiente + CTA superpuesto */}
                           <Box
                             sx={{
                               position: 'absolute',
                               bottom: 0,
                               left: 0,
                               right: 0,
-                              height: '50%',
-                              background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%)',
+                              height: '65%',
+                              background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)',
                               pointerEvents: 'none',
                             }}
                           />
+                          {/* CTA superpuesto sobre el carrusel */}
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              bottom: { xs: 24, sm: 40 },
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              textAlign: 'center',
+                              zIndex: 5,
+                              width: '90%',
+                            }}
+                          >
+                            <Typography
+                              variant="h3"
+                              sx={{
+                                color: 'white',
+                                fontWeight: 900,
+                                fontSize: { xs: '1.6rem', sm: '2.8rem' },
+                                textShadow: '0 2px 12px rgba(0,0,0,0.7)',
+                                mb: { xs: 1, sm: 2 },
+                                letterSpacing: '-0.01em',
+                              }}
+                            >
+                              Cabañas El Mirador
+                            </Typography>
+                            <Typography
+                              variant="body1"
+                              sx={{
+                                color: 'rgba(255,255,255,0.88)',
+                                fontSize: { xs: '0.85rem', sm: '1.1rem' },
+                                mb: { xs: 2, sm: 3 },
+                                textShadow: '0 1px 6px rgba(0,0,0,0.6)',
+                              }}
+                            >
+                              Frente al mar · Dichato · Tinajas · Pago online
+                            </Typography>
+                            <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.97 }}>
+                              <Button
+                                variant="contained"
+                                size="large"
+                                onClick={() => mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                sx={{
+                                  py: { xs: 1.5, sm: 2.5 },
+                                  px: { xs: 4, sm: 8 },
+                                  fontSize: { xs: '1.1rem', sm: '1.6rem' },
+                                  fontWeight: 900,
+                                  background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
+                                  color: '#FFFFFF',
+                                  borderRadius: { xs: 2, sm: 3 },
+                                  border: '3px solid rgba(255,255,255,0.4)',
+                                  boxShadow: '0 8px 32px rgba(255, 107, 0, 0.5)',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.06em',
+                                  backdropFilter: 'blur(4px)',
+                                  pointerEvents: 'auto',
+                                  '&:hover': {
+                                    background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)',
+                                    boxShadow: '0 12px 40px rgba(255, 107, 0, 0.7)',
+                                  },
+                                }}
+                              >
+                                🏖️ RESERVA YA
+                              </Button>
+                            </motion.div>
+                          </Box>
                         </Box>
                       ))}
                     </Carousel>
                   </Box>
                 ) : null}
 
-                {/* Contenido Textual */}
-                <Box sx={{ p: 6, pt: heroCarouselImages.length > 0 ? 2 : 6 }}>
-                  <Typography
-                    variant="h2"
-                    sx={{
-                      fontWeight: 900,
-                      background: 'linear-gradient(135deg, #1976D2 0%, #2196F3 50%, #64B5F6 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                      mb: 3,
-                      letterSpacing: '-0.02em',
-                    }}
+                {/* Contenido Textual — compacto */}
+                <Box sx={{ px: { xs: 3, sm: 6 }, py: { xs: 3, sm: 4 }, pt: heroCarouselImages.length > 0 ? { xs: 2, sm: 3 } : { xs: 4, sm: 6 } }}>
+                  {/* Título solo si no hay carrusel */}
+                  {heroCarouselImages.length === 0 && (
+                    <Typography
+                      variant="h2"
+                      sx={{
+                        fontWeight: 900,
+                        background: 'linear-gradient(135deg, #1976D2 0%, #2196F3 50%, #64B5F6 100%)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                        mb: 2,
+                        letterSpacing: '-0.02em',
+                      }}
+                    >
+                      Bienvenidos a Cabañas El Mirador
+                    </Typography>
+                  )}
+
+                  {/* Strip de beneficios */}
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={{ xs: 1.5, sm: 3 }}
+                    justifyContent="center"
+                    alignItems="center"
+                    sx={{ mb: 3, flexWrap: 'wrap', gap: { xs: 1, sm: 0 } }}
                   >
-                    Bienvenidos a Cabañas El Mirador
-                  </Typography>
-                  <Typography
-                    variant="h5"
-                    sx={{
-                      color: '#455A64',
-                      fontWeight: 400,
-                      lineHeight: 1.6,
-                      maxWidth: '900px',
-                      margin: '0 auto',
-                      mb: 4,
-                    }}
-                  >
-                    Experimenta la comodidad y tranquilidad de nuestras cabañas frente al hermoso mar,
-                    con vista privilegiada a la playa en la costa de Dichato. Un refugio perfecto donde el
-                    descanso se encuentra con la belleza natural del océano Pacífico.
-                  </Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={4} justifyContent="center" sx={{ mb: 3 }}>
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3, duration: 0.5 }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                          <BedIcon sx={{ fontSize: 28 }} />
-                        </Avatar>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                            Diseño Moderno
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Arquitectura contemporánea
-                          </Typography>
+                    {[
+                      { icon: <BedIcon />, label: 'Diseño Moderno', sub: 'Arquitectura contemporánea', color: '#1976D2' },
+                      { icon: <HotTubIcon />, label: 'Tinajas Premium', sub: 'Experiencia única', color: '#9C27B0' },
+                      { icon: <PeopleIcon />, label: 'Para Tu Familia', sub: 'Espacios amplios', color: '#F44336' },
+                      { icon: <LocationIcon />, label: 'Frente al Mar', sub: 'Vista al Pacífico', color: '#00897B' },
+                    ].map((item, idx) => (
+                      <motion.div
+                        key={idx}
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 + idx * 0.12, duration: 0.4 }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1.5,
+                            px: 2,
+                            py: 1,
+                            borderRadius: 3,
+                            bgcolor: `${item.color}12`,
+                            border: `1.5px solid ${item.color}30`,
+                          }}
+                        >
+                          <Avatar sx={{ bgcolor: item.color, width: 38, height: 38 }}>
+                            {React.cloneElement(item.icon, { sx: { fontSize: 20 } })}
+                          </Avatar>
+                          <Box sx={{ textAlign: 'left' }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
+                              {item.label}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {item.sub}
+                            </Typography>
+                          </Box>
                         </Box>
-                      </Box>
-                    </motion.div>
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.5, duration: 0.5 }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                          <HotTubIcon sx={{ fontSize: 28 }} />
-                        </Avatar>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                            Comodidades Premium
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Tinajas y amenidades
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </motion.div>
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.7, duration: 0.5 }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                          <PeopleIcon sx={{ fontSize: 28 }} />
-                        </Avatar>
-                        <Box sx={{ textAlign: 'left' }}>
-                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976D2' }}>
-                            Para Ti y Tu Familia
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Espacios amplios
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </motion.div>
+                      </motion.div>
+                    ))}
                   </Stack>
-                  <Divider sx={{ my: 4, borderColor: '#E3F2FD' }} />
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      color: '#1976D2',
-                      fontWeight: 600,
-                      mb: 1,
-                    }}
-                  >
-                    Selecciona tu Cabaña Ideal
-                  </Typography>
-                  <Typography
-                    variant="body1"
-                    sx={{
-                      color: '#546E7A',
-                      fontWeight: 400,
-                    }}
-                  >
-                    Haz clic en cualquier cabaña del mapa para conocer más detalles y realizar tu reserva
-                  </Typography>
+
+                  <Divider sx={{ my: 2, borderColor: '#E3F2FD' }} />
+
+                  {/* Instrucción + CTA si no hay carrusel */}
+                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Box>
+                      <Typography variant="h6" sx={{ color: '#1976D2', fontWeight: 700, mb: 0.5 }}>
+                        Selecciona tu Cabaña Ideal
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#546E7A' }}>
+                        Haz clic en cualquier cabaña del mapa para reservar
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        variant="contained"
+                        size="medium"
+                        onClick={() => mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                        sx={{
+                          fontWeight: 800,
+                          background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
+                          borderRadius: 3,
+                          px: 3,
+                          boxShadow: '0 4px 16px rgba(255,107,0,0.35)',
+                          '&:hover': { background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)', boxShadow: '0 6px 20px rgba(255,107,0,0.5)' }
+                        }}
+                      >
+                        🏖️ Ver mapa
+                      </Button>
+                      <Button
+                        variant="text"
+                        size="small"
+                        onClick={resetTutorial}
+                        startIcon={<InfoIcon />}
+                        sx={{ color: '#2196F3', textTransform: 'none', fontSize: '0.8rem' }}
+                      >
+                        Tutorial
+                      </Button>
+                    </Stack>
+                  </Box>
                 </Box>
               </Paper>
             </Box>
           </motion.div>
-
-          {/* Botón RESERVA YA */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.9, duration: 0.6, type: "spring", stiffness: 100 }}
-          >
-            <Box sx={{ textAlign: 'center', py: { xs: 4, sm: 8 } }}>
-              <Button
-                  variant="contained"
-                  size="large"
-                  onClick={() => {
-                    mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                  sx={{
-                    py: { xs: 2, sm: 4 },
-                    px: { xs: 4, sm: 10 },
-                    fontSize: { xs: '1.5rem', sm: '2.5rem' },
-                    fontWeight: 900,
-                    background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
-                    color: '#FFFFFF',
-                    borderRadius: { xs: 2, sm: 4 },
-                    border: { xs: '3px solid #FF8C42', sm: '4px solid #FF8C42' },
-                    boxShadow: '0 12px 40px rgba(255, 107, 0, 0.4)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)',
-                      transform: 'scale(1.05)',
-                      boxShadow: '0 16px 50px rgba(255, 107, 0, 0.6)',
-                    },
-                    '&:active': {
-                      transform: 'scale(0.98)',
-                    }
-                  }}
-                >
-                  🏖️ RESERVA YA
-                </Button>
-                <Typography
-                  variant="h6"
-                  sx={{
-                    mt: { xs: 2, sm: 3 },
-                    color: '#546E7A',
-                    fontWeight: 500,
-                    fontSize: { xs: '0.9rem', sm: '1.25rem' },
-                  }}
-                >
-                  Haz clic para ver el mapa interactivo de cabañas
-                </Typography>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={resetTutorial}
-                  startIcon={<InfoIcon />}
-                  sx={{
-                    mt: 2,
-                    color: '#2196F3',
-                    fontSize: { xs: '0.75rem', sm: '0.9rem' },
-                    textTransform: 'none',
-                    '&:hover': {
-                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
-                    }
-                  }}
-                >
-                  ¿Primera vez? Ver tutorial
-                </Button>
-              </Box>
-            </motion.div>
 
           {/* Mapa SVG - Siempre visible abajo */}
           <Box ref={mapaRef} sx={{ mt: { xs: 4, sm: 8 }, mb: { xs: 2, sm: 4 } }}>

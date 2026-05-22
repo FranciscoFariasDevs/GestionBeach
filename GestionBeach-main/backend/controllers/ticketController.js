@@ -771,7 +771,7 @@ exports.responderTicket = async (req, res) => {
         ticket.usuario_id,
         parseInt(id),
         'respuesta',
-        `💬 Nueva respuesta en tu ticket ${ticket.numero_ticket}`,
+        `Nueva respuesta en tu ticket ${ticket.numero_ticket}`,
         `${nombre_usuario} ha respondido a tu ticket: "${ticket.asunto}"`
       );
     }
@@ -875,16 +875,16 @@ exports.cambiarEstadoTicket = async (req, res) => {
     if (ticket.usuario_id !== usuario_id) {
       let titulo, mensaje;
       if (estado === 'resuelto') {
-        titulo = `✅ Tu ticket ${ticket.numero_ticket} ha sido resuelto`;
+        titulo = `Tu ticket ${ticket.numero_ticket} ha sido resuelto`;
         mensaje = `Tu ticket "${ticket.asunto}" ha sido marcado como resuelto.`;
       } else if (estado === 'en_proceso') {
-        titulo = `🔄 Tu ticket ${ticket.numero_ticket} está en proceso`;
+        titulo = `Tu ticket ${ticket.numero_ticket} está en proceso`;
         mensaje = `Tu ticket "${ticket.asunto}" está siendo atendido.`;
       } else if (estado === 'cancelado') {
-        titulo = `❌ Tu ticket ${ticket.numero_ticket} ha sido cancelado`;
+        titulo = `Tu ticket ${ticket.numero_ticket} ha sido cancelado`;
         mensaje = `Tu ticket "${ticket.asunto}" ha sido cancelado.`;
       } else {
-        titulo = `📋 Actualización en ticket ${ticket.numero_ticket}`;
+        titulo = `Actualizacion en ticket ${ticket.numero_ticket}`;
         mensaje = `El estado de tu ticket "${ticket.asunto}" cambió a: ${estado}`;
       }
 
@@ -1415,7 +1415,7 @@ exports.crearTicketDept = async (req, res) => {
       for (const u of usuariosDept.recordset) {
         if (u.usuario_id !== usuario_id) {
           await crearNotificacion(pool, u.usuario_id, ticket_id, 'nuevo_ticket',
-            `🎫 Nuevo ticket para ${dept.nombre}: ${numero_ticket}`,
+            `Nuevo ticket para ${dept.nombre}: ${numero_ticket}`,
             `${nombre_reportante} reportó: "${asunto}"`);
         }
       }

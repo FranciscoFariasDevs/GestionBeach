@@ -142,6 +142,8 @@ const optionalRoutes = [
   { path: './routes/codigosDescuentoRoutes', route: '/api/codigos-descuento' },
   // 💳 NUEVA RUTA PARA WEBPAY (PAGO ONLINE)
   { path: './routes/webpayRoutes', route: '/api/webpay' },
+  // 💚 NUEVA RUTA PARA KHIPU (PAGO ONLINE ALTERNATIVO)
+  { path: './routes/khipuRoutes', route: '/api/khipu' },
   // 🎫 NUEVA RUTA PARA SISTEMA DE TICKETS
   { path: './routes/tickets', route: '/api/tickets' },
   // ⚙️ RUTA PARA CONFIGURACIÓN DEL SISTEMA (TEMPORADA, ETC)
@@ -664,9 +666,11 @@ const startServer = async () => {
       const { iniciarJob: iniciarPlanifJob }  = require('./jobs/planificacionNotificaciones');
       const { iniciarJob: iniciarKanbanJob }  = require('./jobs/kanbanNotificaciones');
       const { iniciarJob: iniciarFoliosJob }  = require('./jobs/foliosAlertaJob');
+      const { iniciarJob: iniciarLimpiezaNotifJob } = require('./jobs/limpiarNotificacionesJob');
       iniciarPlanifJob();
       iniciarKanbanJob();
       iniciarFoliosJob();
+      iniciarLimpiezaNotifJob();
 
       // Iniciar servidor - IMPORTANTE: escuchar en 0.0.0.0 para acceso público
       server.listen(PORT, '0.0.0.0', () => {
