@@ -36,12 +36,9 @@ const storage = multer.diskStorage({
   }
 });
 
-const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
-
 const fileFilter = (req, file, cb) => {
-  const mimeOk = file.mimetype && file.mimetype.startsWith('image/');
-  const extOk  = IMAGE_EXTENSIONS.test(path.extname(file.originalname || ''));
-  if (mimeOk || extOk) {
+  // Aceptar cualquier tipo de imagen (jpg, jpeg, png, gif, webp, heic, etc.)
+  if (file.mimetype && file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
     cb(new Error('Tipo de archivo no permitido. Solo imágenes (jpg, png, gif, webp)'), false);
@@ -54,17 +51,8 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB máximo
 });
 
-// Middleware que captura errores de multer y devuelve JSON en vez de 500
-exports.uploadMiddleware = (req, res, next) => {
-  upload.single('imagen')(req, res, (err) => {
-    if (!err) return next();
-    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-    const msg    = err.code === 'LIMIT_FILE_SIZE'
-      ? 'La imagen supera el límite de 5 MB'
-      : err.message || 'Error al procesar el archivo';
-    return res.status(status).json({ success: false, message: msg });
-  });
-};
+// Exportar middleware de upload
+exports.uploadMiddleware = upload.single('imagen');
 
 // ============================================
 // FUNCIÓN AUXILIAR: Crear notificación
@@ -164,9 +152,10 @@ const crearNotificacion = async (pool, usuario_id, ticket_id, tipo, titulo, mens
 // ============================================
 const notificarSuperAdmins = async (pool, ticket_id, titulo, mensaje, excluirUsuarioId = null) => {
   try {
-    // Obtener todos los SuperAdmins (perfil_id = 1)
+    // Obtener todos los SuperAdmins (perfil_id = 1 O superadmin = 1)
+    // Fix: Pancho y Novlui se identifican por superadmin=1, no solo por perfil_id
     const adminsResult = await pool.request().query(`
-      SELECT id FROM usuarios WHERE perfil_id = 1
+      SELECT DISTINCT id FROM usuarios WHERE perfil_id = 1 OR superadmin = 1
     `);
 
     for (const admin of adminsResult.recordset) {
@@ -343,6 +332,8 @@ exports.obtenerMisTickets = async (req, res) => {
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
+                    req.user?.superadmin === true ||
+                    req.user?.superadmin === 1 ||
                     perfilNombre.toLowerCase().includes('superadmin') ||
                     perfilNombre.toLowerCase().includes('administrador');
 
@@ -604,10 +595,10 @@ exports.obtenerDetalleTicket = async (req, res) => {
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
-                    perfilId === 11 ||   // Gerencia puede ver todos los tickets
+                    req.user?.superadmin === true ||
+                    req.user?.superadmin === 1 ||
                     perfilNombre.toLowerCase().includes('superadmin') ||
-                    perfilNombre.toLowerCase().includes('administrador') ||
-                    perfilNombre.toLowerCase().includes('gerencia');
+                    perfilNombre.toLowerCase().includes('administrador');
 
     // Verificar si el usuario pertenece a algún departamento asignado al ticket
     let tieneAccesoDepto = false;
@@ -771,7 +762,7 @@ exports.responderTicket = async (req, res) => {
         ticket.usuario_id,
         parseInt(id),
         'respuesta',
-        `Nueva respuesta en tu ticket ${ticket.numero_ticket}`,
+        `💬 Nueva respuesta en tu ticket ${ticket.numero_ticket}`,
         `${nombre_usuario} ha respondido a tu ticket: "${ticket.asunto}"`
       );
     }
@@ -875,16 +866,16 @@ exports.cambiarEstadoTicket = async (req, res) => {
     if (ticket.usuario_id !== usuario_id) {
       let titulo, mensaje;
       if (estado === 'resuelto') {
-        titulo = `Tu ticket ${ticket.numero_ticket} ha sido resuelto`;
+        titulo = `✅ Tu ticket ${ticket.numero_ticket} ha sido resuelto`;
         mensaje = `Tu ticket "${ticket.asunto}" ha sido marcado como resuelto.`;
       } else if (estado === 'en_proceso') {
-        titulo = `Tu ticket ${ticket.numero_ticket} está en proceso`;
+        titulo = `🔄 Tu ticket ${ticket.numero_ticket} está en proceso`;
         mensaje = `Tu ticket "${ticket.asunto}" está siendo atendido.`;
       } else if (estado === 'cancelado') {
-        titulo = `Tu ticket ${ticket.numero_ticket} ha sido cancelado`;
+        titulo = `❌ Tu ticket ${ticket.numero_ticket} ha sido cancelado`;
         mensaje = `Tu ticket "${ticket.asunto}" ha sido cancelado.`;
       } else {
-        titulo = `Actualizacion en ticket ${ticket.numero_ticket}`;
+        titulo = `📋 Actualización en ticket ${ticket.numero_ticket}`;
         mensaje = `El estado de tu ticket "${ticket.asunto}" cambió a: ${estado}`;
       }
 
@@ -1005,6 +996,8 @@ exports.obtenerEstadisticas = async (req, res) => {
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
+                    req.user?.superadmin === true ||
+                    req.user?.superadmin === 1 ||
                     perfilNombre.toLowerCase().includes('superadmin') ||
                     perfilNombre.toLowerCase().includes('administrador');
 
@@ -1241,6 +1234,8 @@ exports.subirImagenTicket = async (req, res) => {
     const perfilNombre = req.user?.perfil || '';
     const perfilId = req.user?.perfilId;
     const esAdmin = perfilId === 1 ||
+                    req.user?.superadmin === true ||
+                    req.user?.superadmin === 1 ||
                     perfilNombre.toLowerCase().includes('superadmin') ||
                     perfilNombre.toLowerCase().includes('administrador');
 
@@ -1301,7 +1296,10 @@ exports.obtenerDepartamentos = async (req, res) => {
 const esAdminOGerencia = (user) => {
   const perfil = (user?.perfil || '').toLowerCase();
   const perfilId = user?.perfilId;
+  // superadmin=true viene del JWT (si authController lo incluye) o de la BD
   return perfilId === 1 ||
+    user?.superadmin === true ||
+    user?.superadmin === 1 ||
     perfil.includes('superadmin') ||
     perfil.includes('administrador') ||
     perfil.includes('gerencia');
@@ -1415,7 +1413,7 @@ exports.crearTicketDept = async (req, res) => {
       for (const u of usuariosDept.recordset) {
         if (u.usuario_id !== usuario_id) {
           await crearNotificacion(pool, u.usuario_id, ticket_id, 'nuevo_ticket',
-            `Nuevo ticket para ${dept.nombre}: ${numero_ticket}`,
+            `🎫 Nuevo ticket para ${dept.nombre}: ${numero_ticket}`,
             `${nombre_reportante} reportó: "${asunto}"`);
         }
       }
@@ -1919,6 +1917,49 @@ exports.obtenerAnalyticsDept = async (req, res) => {
   }
 };
 
+// ============================================
+// ELIMINAR TICKET (Gerencia + SuperAdmin)
+// ============================================
+exports.eliminarTicket = async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const { id } = req.params;
+    const usuario_id = req.user?.id;
+
+    // Solo admins/gerencia pueden eliminar
+    if (!esAdminOGerencia(req.user)) {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para eliminar tickets' });
+    }
+
+    // Verificar que el ticket existe
+    const ticketResult = await pool.request()
+      .input('id', sql.Int, id)
+      .query('SELECT id, numero_ticket FROM tickets WHERE id = @id');
+
+    if (ticketResult.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
+    }
+
+    const ticket = ticketResult.recordset[0];
+
+    // Eliminar registros relacionados en orden (integridad referencial)
+    await pool.request().input('tid', sql.Int, id).query('DELETE FROM ticket_notificaciones    WHERE ticket_id = @tid');
+    await pool.request().input('tid', sql.Int, id).query('DELETE FROM ticket_dept_asignaciones WHERE ticket_id = @tid');
+    await pool.request().input('tid', sql.Int, id).query('DELETE FROM ticket_respuestas        WHERE ticket_id = @tid');
+    await pool.request().input('tid', sql.Int, id).query('DELETE FROM ticket_historial         WHERE ticket_id = @tid');
+
+    // Eliminar el ticket
+    await pool.request().input('id', sql.Int, id).query('DELETE FROM tickets WHERE id = @id');
+
+    console.log(`🗑️ Ticket ${ticket.numero_ticket} eliminado por usuario ${usuario_id}`);
+
+    res.json({ success: true, message: `Ticket ${ticket.numero_ticket} eliminado correctamente` });
+  } catch (error) {
+    console.error('Error al eliminar ticket:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar el ticket', error: error.message });
+  }
+};
+
 exports.obtenerMisDepartamentos = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1933,46 +1974,6 @@ exports.obtenerMisDepartamentos = async (req, res) => {
 
     res.json({ success: true, departamentos: misDepts });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error :(', error: error.message });
-  }
-};
-
-// ─── ELIMINAR TICKET (Gerencia + SuperAdmin) ──────────────────────────────────
-exports.eliminarTicket = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const usuario   = req.user;
-    const isSuperAdmin = usuario.superadmin === true || usuario.superadmin === 1;
-    const perfilId  = usuario.perfilId;
-
-    // Perfiles gerencia: 11 (Gerencia). SuperAdmin también puede.
-    const GERENCIA = [11];
-    if (!GERENCIA.includes(perfilId) && !isSuperAdmin) {
-      return res.status(403).json({ success: false, message: 'Sin permisos para eliminar tickets' });
-    }
-
-    const pool = await poolPromise;
-
-    const r = await pool.request()
-      .input('id', sql.Int, id)
-      .query('SELECT id FROM tickets WHERE id = @id');
-
-    if (r.recordset.length === 0) {
-      return res.status(404).json({ success: false, message: 'Ticket no encontrado' });
-    }
-
-    // Eliminar datos relacionados antes del ticket (FK)
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_historial          WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_respuestas         WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_notificaciones     WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM ticket_dept_asignaciones  WHERE ticket_id = @id');
-    await pool.request().input('id', sql.Int, id).query('DELETE FROM tickets                   WHERE id = @id');
-
-    console.log(`🗑️ Ticket #${id} eliminado por ${usuario.nombre || usuario.username}`);
-    res.json({ success: true, message: 'Ticket eliminado' });
-
-  } catch (error) {
-    console.error('❌ Error al eliminar ticket:', error);
-    res.status(500).json({ success: false, message: 'Error al eliminar ticket', error: error.message });
+    res.status(500).json({ success: false, message: 'Error', error: error.message });
   }
 };

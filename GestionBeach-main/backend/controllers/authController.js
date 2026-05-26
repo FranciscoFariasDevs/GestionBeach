@@ -63,7 +63,8 @@ exports.login = async (req, res) => {
           username: user.username,
           nombre: user.nombre_completo,
           perfilId: user.perfil_id,
-          perfil: user.perfil_nombre
+          perfil: user.perfil_nombre,
+          superadmin: user.superadmin === true || user.superadmin === 1,
         },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES_IN }
