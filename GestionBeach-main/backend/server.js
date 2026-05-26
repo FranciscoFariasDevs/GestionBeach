@@ -178,6 +178,8 @@ const optionalRoutes = [
   { path: './routes/planificacionRoutes', route: '/api/planificacion' },
   // 📦 MONITOR ÓRDENES DE COMPRA (MIGRADO DE SISTEMA VIEJO)
   { path: './routes/monitorOrdenesRoutes', route: '/api/monitor-ordenes' },
+  // 🔍 COMPARADOR DE PRECIOS Y STOCK (MIGRADO DE SISTEMA VIEJO)
+  { path: './routes/comparadorRoutes', route: '/api/comparador' },
   // 📦 AJUSTES DE BODEGA (MIGRADO DE SISTEMA VIEJO)
   { path: './routes/ajustesRoutes', route: '/api/ajustes' },
   // 🏭 PROVEEDORES — DIRECCIÓN DE PRODUCTO (MIGRADO DE SISTEMA VIEJO)

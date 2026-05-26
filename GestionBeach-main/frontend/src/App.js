@@ -85,6 +85,7 @@ import CotizacionesPage from './pages/CotizacionesPage'; // 📄 COTIZACIONES
 import AIConsultaPage from './pages/AIConsultaPage'; // 🤖 CONSULTA IA
 import MegafoniaEmisorPage from './pages/MegafoniaEmisorPage'; // 📢 MEGAFONÍA EMISOR
 import MegafoniaReceptorPage from './pages/MegafoniaReceptorPage'; // 📢 MEGAFONÍA RECEPTOR
+import ComparadorPage from './pages/ComparadorPage'; // 🔍 COMPARADOR DE PRECIOS Y STOCK
 
 // ========================================
 // COMPONENTS
@@ -501,6 +502,16 @@ function App() {
                     element={
                       <ProtectedRoute requiredRoute="/compras/monitor-ordenes">
                         <MonitorOrdenesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Comparador de Precios y Stock (migrado sistema viejo) */}
+                  <Route
+                    path="/productos/comparador"
+                    element={
+                      <ProtectedRoute requiredRoute="/productos/comparador">
+                        <ComparadorPage />
                       </ProtectedRoute>
                     }
                   />

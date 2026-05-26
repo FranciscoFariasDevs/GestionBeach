@@ -48,6 +48,7 @@ export const MODULES = {
   COTIZACIONES: 'cotizaciones',
   LOS_MAS_VENDIDOS: 'los-mas-vendidos',
   MEGAFONIA: 'megafonia/emisor',
+  COMPARADOR: 'productos/comparador',
 };
 
 // Definir acciones
@@ -201,6 +202,9 @@ export function canAccessRoute(ability, route) {
 
     '/dashboard/compras/monitor-ordenes': MODULES.MONITOR_ORDENES,
     '/compras/monitor-ordenes': MODULES.MONITOR_ORDENES,
+
+    '/dashboard/productos/comparador': MODULES.COMPARADOR,
+    '/productos/comparador': MODULES.COMPARADOR,
 
     '/productos/ajustes': MODULES.AJUSTES,
     '/dashboard/productos/ajustes': MODULES.AJUSTES,

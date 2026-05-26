@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Manual — Gastos Administrativos</title>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── BASE ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange:     #FF7A00;
+      --orange-lt:  #FF9F45;
+      --orange-dk:  #E05F00;
+      --orange-bg:  #FFF4EB;
+      --orange-10:  rgba(255,122,0,.10);
+      --orange-20:  rgba(255,122,0,.20);
+      --dark:       #2D3748;
+      --dark2:      #4A5568;
+      --muted:      #718096;
+      --border:     #E2E8F0;
+      --bg:         #F7FAFC;
+      --white:      #FFFFFF;
+      --green:      #38A169;
+      --green-bg:   #F0FFF4;
+      --green-bdr:  #9AE6B4;
+      --red:        #E53E3E;
+    }
+
+    body {
+      font-family: 'Quicksand', 'Century Gothic', Arial, sans-serif;
+      font-size: 12px;
+      color: var(--dark);
+      background: var(--bg);
+      line-height: 1.55;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ── PÁGINAS ── */
+    .page {
+      background: var(--white);
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 14mm 14mm 12mm;
+      position: relative;
+    }
+
+    @media screen {
+      body { background: #dde; }
+      .page { margin: 20px auto; box-shadow: 0 8px 40px rgba(0,0,0,.18); }
+    }
+
+    @media print {
+      body { background: white; }
+      .page {
+        margin: 0; padding: 12mm 13mm 10mm;
+        box-shadow: none;
+        page-break-after: always;
+      }
+    }
+
+    /* ── PORTADA ── */
+    .cover {
+      background: linear-gradient(135deg, #FF7A00 0%, #FF9F45 60%, #FFB86C 100%);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 18mm 16mm;
+      gap: 0;
+    }
+    .cover-eyebrow {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      opacity: .75;
+      margin-bottom: 10px;
+    }
+    .cover h1 {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+    .cover-sub {
+      font-size: 13px;
+      font-weight: 500;
+      opacity: .88;
+      max-width: 380px;
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+    .cover-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 36px; }
+    .cover-tag {
+      background: rgba(255,255,255,.22);
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .cover-divider {
+      width: 100%;
+      border: none;
+      border-top: 1px solid rgba(255,255,255,.3);
+      margin: 0 0 20px;
+    }
+    .cover-meta {
+      font-size: 10px;
+      opacity: .6;
+      font-weight: 500;
+    }
+
+    /* ── SECCIÓN TÍTULO ── */
+    .section-eyebrow {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--orange);
+      margin-bottom: 4px;
+    }
+    h2.page-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--dark);
+      margin-bottom: 4px;
+    }
+    .page-subtitle {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--orange-bg);
+    }
+
+    h3.block-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--dark);
+      margin: 18px 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    h3.block-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 14px;
+      background: var(--orange);
+      border-radius: 2px;
+    }
+
+    /* ── LAYOUT GRID ── */
+    .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .cols-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+
+    /* ── TARJETAS DE ROL ── */
+    .role-card {
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      gap: 10px;
+    }
+    .role-card.jefe  { background: var(--orange-bg); border: 1.5px solid var(--orange-lt); }
+    .role-card.finan { background: var(--green-bg);  border: 1.5px solid var(--green-bdr); }
+    .role-card .rc-icon {
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .role-card.jefe  .rc-icon { background: var(--orange-20); color: var(--orange-dk); }
+    .role-card.finan .rc-icon { background: rgba(56,161,105,.15); color: #276749; }
+    .role-card h4 { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+    .role-card.jefe  h4 { color: var(--orange-dk); }
+    .role-card.finan h4 { color: #276749; }
+    .role-card p { font-size: 10.5px; color: var(--dark2); line-height: 1.5; }
+
+    /* ── FLUJO DE PASOS ── */
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 12px 0;
+    }
+    .flow-step {
+      flex: 1;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+    .flow-arrow {
+      flex-shrink: 0;
+      width: 22px;
+      text-align: center;
+      font-size: 13px;
+      color: #CBD5E0;
+      font-weight: 700;
+    }
+    .flow-step .fs-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--orange);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 6px;
+    }
+    .flow-step.done .fs-num { background: var(--green); }
+    .flow-step .fs-label { font-size: 10px; font-weight: 700; color: var(--dark); margin-bottom: 2px; }
+    .flow-step .fs-desc  { font-size: 9px; color: var(--muted); }
+
+    /* ── TABLA DE PERMISOS ── */
+    .perm-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0; }
+    .perm-table th {
+      background: var(--orange);
+      color: white;
+      padding: 7px 12px;
+      text-align: left;
+      font-weight: 700;
+    }
+    .perm-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+    .perm-table tr:nth-child(even) td { background: var(--bg); }
+    .ok  { color: var(--green); font-weight: 700; font-size: 13px; }
+    .no  { color: #CBD5E0;  font-weight: 700; font-size: 13px; }
+
+    /* ── MOCKUP UI ── */
+    .ui-window {
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    .ui-bar {
+      background: var(--dark);
+      padding: 7px 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .ui-bar .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #4A5568;
+    }
+    .ui-bar .ui-title {
+      margin-left: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #A0AEC0;
+    }
+    .ui-body { padding: 12px; background: var(--bg); }
+    .ui-card { background: white; border-radius: 8px; padding: 12px; border: 1px solid var(--border); margin-bottom: 8px; }
+
+    /* filtros */
+    .filter-strip { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .filter-field {
+      flex: 1; min-width: 120px;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+    .filter-field .ff-label { font-size: 9px; color: #A0AEC0; display: block; margin-bottom: 2px; font-weight: 600; }
+    .filter-field .ff-val   { font-size: 10.5px; color: var(--dark); font-weight: 600; }
+    .btn-orange {
+      background: linear-gradient(90deg, #FF7A00, #FF9F45);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: default;
+      white-space: nowrap;
+    }
+    .btn-outline {
+      background: white;
+      color: var(--orange);
+      border: 1.5px solid var(--orange);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: default;
+    }
+    .btn-green {
+      background: linear-gradient(90deg, #38A169, #276749);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: default;
+    }
+
+    /* barra de resumen */
+    .summary-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin: 6px 0;
+    }
+    .ss-label { font-size: 10px; font-weight: 700; color: var(--muted); margin-right: 4px; }
+
+    /* chips */
+    .chip {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .chip-orange { background: var(--orange-10); color: var(--orange-dk); border: 1px solid rgba(255,122,0,.25); }
+    .chip-green  { background: rgba(56,161,105,.12); color: #276749; border: 1px solid rgba(56,161,105,.3); }
+    .chip-warn   { background: rgba(246,173,85,.15); color: #DD6B20; border: 1px solid rgba(246,173,85,.4); }
+    .chip-grey   { background: var(--bg); color: var(--dark2); border: 1px solid var(--border); }
+    .chip-blue   { background: rgba(49,130,206,.1); color: #2B6CB0; border: 1px solid rgba(49,130,206,.25); }
+
+    /* tabs mockup */
+    .ui-tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 10px; }
+    .ui-tab {
+      flex: 1; text-align: center;
+      padding: 7px 4px;
+      font-size: 10.5px; font-weight: 600;
+      color: #A0AEC0;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+    }
+    .ui-tab.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+    /* tabla de gastos */
+    .expense-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+    .expense-tbl thead tr { background: var(--orange-10); }
+    .expense-tbl th { padding: 6px 10px; font-weight: 700; color: var(--dark); border-bottom: 1px solid var(--border); text-align: left; }
+    .expense-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    .expense-tbl .right { text-align: right; font-variant-numeric: tabular-nums; }
+    .expense-tbl .center { text-align: center; }
+    .expense-tbl .total-row td { background: #FFF4EB; font-weight: 700; color: var(--orange-dk); }
+    .action-btn {
+      display: inline-block;
+      width: 20px; height: 20px;
+      border-radius: 4px;
+      text-align: center;
+      line-height: 20px;
+      font-size: 10px;
+      margin: 0 1px;
+      color: var(--dark2);
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .action-btn.del { background: #FFF5F5; border-color: #FED7D7; color: var(--red); }
+
+    /* KPI cards */
+    .kpi-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .kpi-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; font-weight: 600; }
+    .kpi-value { font-size: 14px; font-weight: 700; }
+    .kpi-sub   { font-size: 9px; color: var(--muted); }
+    .kpi-orange .kpi-value { color: var(--orange); }
+    .kpi-green  .kpi-value { color: var(--green); }
+    .kpi-warn   .kpi-value { color: #DD6B20; }
+    .kpi-dark   .kpi-value { color: var(--dark); }
+
+    /* tabla de ER */
+    .er-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .er-tbl .sec-row td { background: var(--dark); color: white; font-weight: 700; font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; padding: 6px 12px; }
+    .er-tbl td { padding: 5px 12px; border-bottom: 1px solid var(--border); }
+    .er-tbl td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+    .er-tbl td:first-child { padding-left: 20px; }
+    .er-tbl .sub-row td { background: #F7FAFC; font-weight: 700; }
+    .er-tbl .total-row td { background: #38A169; color: white; font-weight: 700; font-size: 12px; padding: 7px 12px; }
+    .er-tbl .sec-row td:last-child { text-align: right; }
+
+    /* alerta */
+    .alert {
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 10.5px;
+      margin: 8px 0;
+      border-left: 3px solid;
+    }
+    .alert.info    { background: rgba(49,130,206,.08); border-color: #3182CE; color: #2B6CB0; }
+    .alert.warn    { background: rgba(246,173,85,.1);  border-color: #F6AD55; color: #DD6B20; }
+    .alert.success { background: rgba(56,161,105,.08); border-color: #38A169; color: #276749; }
+    .alert strong  { font-weight: 700; }
+
+    /* diálogo */
+    .dialog {
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.14);
+      max-width: 220px;
+    }
+    .dialog-title { padding: 10px 14px; font-size: 11.5px; font-weight: 700; border-bottom: 1px solid var(--border); }
+    .dialog-body  { padding: 10px 14px; }
+    .dialog-field { margin-bottom: 8px; }
+    .dialog-field label { display: block; font-size: 8.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 3px; font-weight: 700; }
+    .dialog-field .fake-input {
+      border: 1.5px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 9px;
+      font-size: 10.5px;
+      color: var(--dark);
+      font-weight: 600;
+      font-family: inherit;
+    }
+    .dialog-actions { padding: 8px 14px 10px; display: flex; justify-content: flex-end; gap: 6px; }
+
+    /* lista de pasos */
+    .step-list { list-style: none; }
+    .step-list li { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start; }
+    .step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--orange); color: white;
+      font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .step-num.green { background: var(--green); }
+    .step-list li .st { }
+    .step-list li .st strong { font-size: 11px; font-weight: 700; display: block; margin-bottom: 1px; }
+    .step-list li .st p { font-size: 10.5px; color: var(--dark2); }
+
+    /* lista de gastos disponibles */
+    .gasto-list { list-style: none; font-size: 10px; color: var(--dark2); line-height: 1.8; }
+    .gasto-list li::before { content: '·  '; color: var(--orange); font-weight: 700; }
+
+    /* tabla histórico */
+    .hist-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+    .hist-tbl thead tr { background: var(--dark); }
+    .hist-tbl th { padding: 7px 10px; color: white; font-weight: 600; text-align: left; }
+    .hist-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .hist-tbl tr:hover td { background: var(--orange-10); }
+    .txt-green { color: var(--green); font-weight: 700; }
+    .txt-red   { color: var(--red);   font-weight: 700; }
+
+    /* resumen final */
+    .summary-box {
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 10px;
+    }
+    .summary-box.orange { background: var(--orange-bg); border: 1.5px solid var(--orange-lt); }
+    .summary-box.green  { background: var(--green-bg);  border: 1.5px solid var(--green-bdr); }
+    .summary-box h4 { font-size: 11px; font-weight: 700; margin-bottom: 8px; }
+    .summary-box.orange h4 { color: var(--orange-dk); }
+    .summary-box.green  h4 { color: #276749; }
+    .summary-box ol { padding-left: 16px; font-size: 10.5px; color: var(--dark2); line-height: 1.9; }
+
+    /* footer */
+    .footer {
+      position: absolute;
+      bottom: 8mm;
+      left: 14mm; right: 14mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9px;
+      color: #CBD5E0;
+      border-top: 1px solid var(--border);
+      padding-top: 5px;
+    }
+    .footer .f-brand { font-weight: 700; color: var(--orange); }
+
+    /* horizontal divider */
+    .hr { border: none; border-top: 1.5px solid var(--orange-bg); margin: 14px 0; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     PÁGINA 1 — PORTADA + INTRODUCCIÓN
+══════════════════════════════════════════ -->
+<div class="page cover">
+  <div class="cover-eyebrow">GestionBeach — Intranet</div>
+  <h1>Gastos Administrativos<br>Estado de Resultados</h1>
+  <div class="cover-sub">
+    Guía rápida para el ingreso de gastos por parte del Jefe de Local
+    y la revisión por parte del área de Finanzas.
+  </div>
+  <div class="cover-tags">
+    <span class="cover-tag">Jefe de Local</span>
+    <span class="cover-tag">Finanzas</span>
+  </div>
+  <hr class="cover-divider" />
+  <div class="cover-meta">Beach Market &nbsp;·&nbsp; Mayo 2026</div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     PÁGINA 2 — JEFE DE LOCAL
+══════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-eyebrow">Perfil: Jefe de Local</div>
+  <h2 class="page-title">Ingreso de Gastos Administrativos</h2>
+  <div class="page-subtitle">Modulo "Ingreso de Gastos" — menu lateral de la intranet</div>
+
+  <!-- PASO 1 -->
+  <h3 class="block-title">Paso 1 — Seleccionar periodo y sucursal</h3>
+  <p style="font-size:10.5px;color:var(--dark2);margin-bottom:8px;">
+    Al ingresar al modulo, aparece el panel de filtros. Seleccione el <strong>mes</strong>,
+    <strong>sucursal</strong> y <strong>razon social</strong>, luego presione <strong>"Cargar Datos"</strong>.
+    Los datos de ventas, compras y sueldos se cargan automaticamente desde el sistema.
+  </p>
+
+  <div class="ui-window">
+    <div class="ui-bar">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span class="ui-title">Ingreso de Gastos — Seleccionar Periodo y Sucursal</span>
+    </div>
+    <div class="ui-body">
+      <div class="ui-card">
+        <div style="font-size:10px;font-weight:700;color:var(--dark);margin-bottom:8px;">Seleccionar Periodo y Sucursal</div>
+        <div class="filter-strip">
+          <div class="filter-field">
+            <span class="ff-label">Periodo</span>
+            <span class="ff-val">Mayo 2026</span>
+          </div>
+          <div class="filter-field">
+            <span class="ff-label">Sucursal</span>
+            <span class="ff-val">Daniel Vera 890, Dichato</span>
+          </div>
+          <div class="filter-field">
+            <span class="ff-label">Razon Social</span>
+            <span class="ff-val">Todas las Razones Sociales</span>
+          </div>
+          <button class="btn-orange">Cargar Datos</button>
+        </div>
+      </div>
+      <div class="summary-strip">
+        <span class="ss-label">Sistema (Daniel Vera 890, Dichato):</span>
+        <span class="chip chip-green">Ventas $38.450.000</span>
+        <span class="chip chip-blue">Compras $22.780.000</span>
+        <span class="chip chip-warn">Sueldos $3.920.000</span>
+        <span style="margin-left:auto;"><span class="chip chip-warn">Borrador</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PASO 2 -->
+  <h3 class="block-title">Paso 2 — Ingresar gastos en las pestanas</h3>
+  <p style="font-size:10.5px;color:var(--dark2);margin-bottom:8px;">
+    Seleccione el tipo de gasto en el desplegable y presione <strong>"Agregar"</strong>.
+    Se abre un dialogo para ingresar el monto. Repita por cada concepto del mes.
+  </p>
+
+  <div class="cols-2" style="gap:10px;align-items:start;">
+    <div>
+      <div class="ui-window">
+        <div class="ui-bar">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+          <span class="ui-title">Gestion de Gastos e Ingresos</span>
+        </div>
+        <div class="ui-body" style="padding:10px;">
+          <div class="ui-tabs">
+            <div class="ui-tab active">Gastos Admin.</div>
+            <div class="ui-tab">Gastos Venta</div>
+            <div class="ui-tab">Otros</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <div class="filter-field" style="flex:1;min-width:0;">
+              <span class="ff-label">Tipo de gasto</span>
+              <span class="ff-val">Electricidad</span>
+            </div>
+            <button class="btn-orange" style="padding:6px 12px;font-size:10px;">+ Agregar</button>
+          </div>
+          <table class="expense-tbl">
+            <thead>
+              <tr>
+                <th>Concepto</th>
+                <th class="right">Monto</th>
+                <th class="center" style="width:50px;">Acc.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Seguros</td>
+                <td class="right">$285.000</td>
+                <td class="center"><span class="action-btn">E</span><span class="action-btn del">X</span></td>
+              </tr>
+              <tr>
+                <td>Agua</td>
+                <td class="right">$62.000</td>
+                <td class="center"><span class="action-btn">E</span><span class="action-btn del">X</span></td>
+              </tr>
+              <tr>
+                <td>Internet</td>
+                <td class="right">$38.990</td>
+                <td class="center"><span class="action-btn">E</span><span class="action-btn del">X</span></td>
+              </tr>
+              <tr>
+                <td>Alarma</td>
+                <td class="right">$32.000</td>
+                <td class="center"><span class="action-btn">E</span><span class="action-btn del">X</span></td>
+              </tr>
+              <tr class="total-row">
+                <td>Total</td>
+                <td class="right">$417.990</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="dialog" style="margin:0 auto;">
+        <div class="dialog-title">Agregar gasto</div>
+        <div class="dialog-body">
+          <div class="dialog-field">
+            <label>Concepto</label>
+            <div class="fake-input">Electricidad</div>
+          </div>
+          <div class="dialog-field">
+            <label>Monto</label>
+            <div class="fake-input">$ 118.000</div>
+          </div>
+          <div style="font-size:9px;color:#A0AEC0;margin-top:-4px;">Ingrese el valor en pesos chilenos</div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn-outline" style="padding:5px 10px;font-size:10px;">Cancelar</button>
+          <button class="btn-orange" style="padding:5px 10px;font-size:10px;">Agregar</button>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <div style="font-size:9.5px;font-weight:700;color:var(--dark2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;">Gastos disponibles por pestana</div>
+        <div class="cols-3" style="gap:8px;">
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--orange);margin-bottom:4px;">Admin.</div>
+            <ul class="gasto-list">
+              <li>Seguros</li><li>Gastos Comunes</li><li>Electricidad</li>
+              <li>Agua</li><li>Telefonia</li><li>Alarma</li>
+              <li>Internet</li><li>Facturas Net</li><li>Transbank</li>
+              <li>Patente Mun.</li><li>Contribuciones</li><li>Petroleo</li>
+              <li>Otros Gastos</li>
+            </ul>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--green);margin-bottom:4px;">Venta</div>
+            <ul class="gasto-list">
+              <li>Costo Fletes</li><li>Finiquitos</li>
+              <li>Mantenciones</li><li>Publicidad</li>
+            </ul>
+          </div>
+          <div>
+            <div style="font-size:9px;font-weight:700;color:var(--dark2);margin-bottom:4px;">Otros</div>
+            <ul class="gasto-list">
+              <li>Merma Venta</li><li>Costo Arriendo</li>
+              <li>Ingresos Fletes</li><li>Otros Ingresos</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert warn" style="margin-top:6px;">
+    <strong>Importante:</strong> Cada concepto solo puede ingresarse una vez por periodo. Si ya existe "Agua" en la tabla, no aparecera en el selector.
+  </div>
+
+  <!-- PASO 3 -->
+  <h3 class="block-title">Paso 3 — Guardar borrador o enviar al sistema</h3>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;background:white;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+    <span style="font-size:10px;color:var(--muted);flex:1;">Una vez ingresados todos los gastos del periodo:</span>
+    <button class="btn-outline">Guardar Borrador</button>
+    <button class="btn-green">Enviar al Sistema</button>
+  </div>
+
+  <div class="cols-2" style="gap:10px;">
+    <div class="alert info">
+      <strong>Guardar Borrador</strong> — Guarda el avance sin enviarlo. Puede volver a editar. Estado: <span class="chip chip-warn" style="font-size:9px;">Guardado</span>
+    </div>
+    <div class="alert success">
+      <strong>Enviar al Sistema</strong> — Envio definitivo. Una vez enviado <strong>no se puede modificar</strong>. Estado: <span class="chip chip-green" style="font-size:9px;">Enviado</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><span class="f-brand">GestionBeach</span> — Manual Gastos Administrativos</span>
+    <span>Pagina 1 de 2</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     PÁGINA 3 — FINANZAS
+══════════════════════════════════════════ -->
+<div class="page">
+  <div class="section-eyebrow">Perfil: Finanzas</div>
+  <h2 class="page-title">Revision del Estado de Resultados</h2>
+  <div class="page-subtitle">Modulo "Estado de Resultados" — visualizacion completa + historicos</div>
+
+  <!-- CONSULTAR PERIODO -->
+  <h3 class="block-title">Consultar el periodo actual</h3>
+  <p style="font-size:10.5px;color:var(--dark2);margin-bottom:8px;">
+    En la pestana <strong>"Vista del Periodo"</strong>, seleccione mes, sucursal y presione <strong>"Consultar"</strong>.
+    Si el jefe de local ya envio los gastos, el chip verde confirma que estan incluidos.
+  </p>
+
+  <div class="ui-window">
+    <div class="ui-bar">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span class="ui-title">Estado de Resultados</span>
+    </div>
+    <div class="ui-body" style="padding:10px;">
+      <div class="ui-tabs">
+        <div class="ui-tab active">Vista del Periodo</div>
+        <div class="ui-tab">Historicos</div>
+      </div>
+
+      <div class="ui-card" style="margin-bottom:8px;">
+        <div class="filter-strip">
+          <div class="filter-field">
+            <span class="ff-label">Periodo</span>
+            <span class="ff-val">Mayo 2026</span>
+          </div>
+          <div class="filter-field">
+            <span class="ff-label">Sucursal</span>
+            <span class="ff-val">Daniel Vera 890, Dichato</span>
+          </div>
+          <div class="filter-field">
+            <span class="ff-label">Razon Social</span>
+            <span class="ff-val">Todas</span>
+          </div>
+          <button class="btn-orange">Consultar</button>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div class="cols-4" style="margin-bottom:8px;">
+        <div class="kpi-card kpi-orange">
+          <div class="kpi-label">Ventas Totales</div>
+          <div class="kpi-value">$38.450.000</div>
+          <div class="kpi-sub">Ingresos del periodo</div>
+        </div>
+        <div class="kpi-card kpi-green">
+          <div class="kpi-label">Utilidad Bruta</div>
+          <div class="kpi-value">$15.670.000</div>
+          <div class="kpi-sub">Margen 40,8%</div>
+        </div>
+        <div class="kpi-card kpi-warn">
+          <div class="kpi-label">Gastos Operativos</div>
+          <div class="kpi-value">$5.114.990</div>
+          <div class="kpi-sub">13,3% de ventas</div>
+        </div>
+        <div class="kpi-card kpi-dark">
+          <div class="kpi-label">Utilidad Neta</div>
+          <div class="kpi-value" style="color:var(--green);">$10.555.010</div>
+          <div class="kpi-sub">Margen 27,4%</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <span class="chip chip-green" style="font-size:9.5px;">Gastos manuales incluidos — enviado</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETALLE ER -->
+  <h3 class="block-title">Tabla detallada del Estado de Resultados</h3>
+
+  <div class="cols-2" style="gap:10px;align-items:start;">
+    <table class="er-tbl">
+      <tbody>
+        <tr class="sec-row"><td>Ingresos</td><td></td></tr>
+        <tr><td>Ventas</td><td>$38.450.000</td></tr>
+        <tr style="background:var(--bg)"><td>Otros Ingresos</td><td>$0</td></tr>
+        <tr class="sub-row"><td>Total Ingresos</td><td>$38.450.000</td></tr>
+
+        <tr class="sec-row"><td>Costos</td><td></td></tr>
+        <tr><td>Costo de Ventas</td><td>$22.780.000</td></tr>
+        <tr style="background:var(--bg)"><td>Merma de Venta</td><td>$0</td></tr>
+        <tr class="sub-row"><td>Total Costos</td><td>$22.780.000</td></tr>
+
+        <tr class="sec-row"><td>Gastos Administrativos</td><td></td></tr>
+        <tr><td>Sueldos Admin.</td><td>$2.340.000</td></tr>
+        <tr style="background:var(--bg)"><td>Seguros</td><td>$285.000</td></tr>
+        <tr><td>Agua</td><td>$62.000</td></tr>
+        <tr style="background:var(--bg)"><td>Electricidad</td><td>$118.000</td></tr>
+        <tr><td>Internet / Alarma / Otros</td><td>$70.990</td></tr>
+        <tr class="sub-row"><td>Total Gastos Admin.</td><td>$2.875.990</td></tr>
+
+        <tr class="sec-row"><td>Gastos de Venta</td><td></td></tr>
+        <tr><td>Sueldos Venta</td><td>$1.580.000</td></tr>
+        <tr style="background:var(--bg)"><td>Publicidad / Fletes</td><td>$659.000</td></tr>
+        <tr class="sub-row"><td>Total Gastos Venta</td><td>$2.239.000</td></tr>
+
+        <tr class="sec-row"><td>Utilidades</td><td></td></tr>
+        <tr><td>Utilidad Bruta</td><td style="color:var(--green);font-weight:700;text-align:right;">$15.670.000</td></tr>
+        <tr style="background:var(--bg)"><td>Utilidad Operativa</td><td style="color:var(--green);font-weight:700;text-align:right;">$10.555.010</td></tr>
+        <tr class="total-row"><td>Utilidad Neta</td><td>$10.555.010</td></tr>
+      </tbody>
+    </table>
+
+    <div>
+      <!-- HISTORICOS -->
+      <h3 class="block-title" style="margin-top:0;">Pestana Historicos</h3>
+      <p style="font-size:10px;color:var(--dark2);margin-bottom:7px;">Filtre por año, mes, sucursal y estado para buscar periodos anteriores.</p>
+      <table class="hist-tbl">
+        <thead>
+          <tr>
+            <th>Periodo</th>
+            <th>Sucursal</th>
+            <th>Util. Neta</th>
+            <th>Estado</th>
+            <th style="text-align:center;">Ver</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="chip chip-blue" style="font-size:9px;">May 2026</span></td>
+            <td>D. Vera, Dichato</td>
+            <td class="txt-green">$10.555.010</td>
+            <td><span class="chip chip-green" style="font-size:9px;">Enviado</span></td>
+            <td style="text-align:center;"><span class="action-btn">V</span></td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-blue" style="font-size:9px;">Abr 2026</span></td>
+            <td>Lord Cochrane, Tome</td>
+            <td class="txt-green">$8.920.000</td>
+            <td><span class="chip chip-green" style="font-size:9px;">Enviado</span></td>
+            <td style="text-align:center;"><span class="action-btn">V</span></td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-blue" style="font-size:9px;">Mar 2026</span></td>
+            <td>Enrique Molina, Tome</td>
+            <td class="txt-red">-$420.000</td>
+            <td><span class="chip chip-warn" style="font-size:9px;">Borrador</span></td>
+            <td style="text-align:center;"><span class="action-btn">V</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- EXPORTAR PDF -->
+      <h3 class="block-title" style="margin-top:12px;">Exportar a PDF</h3>
+      <ul class="step-list">
+        <li>
+          <div class="step-num green">1</div>
+          <div class="st">
+            <strong>Clic en "Ver" en la lista de historicos</strong>
+            <p>Se abre el informe financiero completo del periodo.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-num green">2</div>
+          <div class="st">
+            <strong>Presione "Exportar PDF"</strong>
+            <p>Boton en la parte inferior del informe. El archivo se descarga automaticamente con nombre:</p>
+            <code style="font-size:9px;background:var(--bg);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:2px;">Estado_Resultados_DVera890Dichato_Mayo_2026.pdf</code>
+          </div>
+        </li>
+      </ul>
+
+      <div class="alert success" style="margin-top:8px;">
+        <strong>Nota:</strong> El PDF incluye resumen ejecutivo, tabla completa de ingresos, costos, gastos y utilidades, mas informacion de empleados y facturas del periodo.
+      </div>
+    </div>
+  </div>
+
+  <hr class="hr" />
+
+  <!-- RESUMEN FINAL -->
+  <div class="cols-2" style="gap:10px;margin-top:6px;">
+    <div class="summary-box orange">
+      <h4>Jefe de Local — Resumen</h4>
+      <ol>
+        <li>Ir a <strong>Ingreso de Gastos</strong> en el menu</li>
+        <li>Seleccionar mes y sucursal → <strong>Cargar Datos</strong></li>
+        <li>Agregar cada gasto en las 3 pestanas</li>
+        <li>Presionar <strong>Enviar al Sistema</strong> cuando este listo</li>
+      </ol>
+    </div>
+    <div class="summary-box green">
+      <h4>Finanzas — Resumen</h4>
+      <ol>
+        <li>Ir a <strong>Estado de Resultados</strong> en el menu</li>
+        <li>Seleccionar periodo y sucursal → <strong>Consultar</strong></li>
+        <li>Revisar KPIs y tabla completa</li>
+        <li>En <strong>Historicos</strong> → Ver detalle → <strong>Exportar PDF</strong></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><span class="f-brand">GestionBeach</span> — Manual Gastos Administrativos</span>
+    <span>Pagina 2 de 2 &nbsp;·&nbsp; Mayo 2026</span>
+  </div>
+</div>
+
+</body>
+</html>

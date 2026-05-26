@@ -66,6 +66,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Info as InfoIcon,
   Print as PrintIcon,
+  ZoomOutMap as ZoomOutMapIcon,
 } from '@mui/icons-material';
 import Carousel from 'react-material-ui-carousel';
 import api from '../api/api';
@@ -128,9 +129,6 @@ const ReservaCabanasPage = () => {
   // Hook del tutorial de Shepherd.js
   const { resetTutorial } = useCabanaTutorial(svgContainerRef, mapaRef);
 
-  // Estado para mostrar landing page o mapa
-  const [mostrarMapa, setMostrarMapa] = useState(false);
-
   // Estados principales
   const [cabanas, setCabanas] = useState([]);
   const [reservas, setReservas] = useState([]);
@@ -171,6 +169,20 @@ const ReservaCabanasPage = () => {
   const [carouselImages, setCarouselImages] = useState([]);
   // Estado para imágenes del carrusel hero
   const [heroCarouselImages, setHeroCarouselImages] = useState([]);
+  // Estado para lightbox (fullscreen)
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const handleKey = (e) => {
+      if (e.key === 'ArrowRight') setLightboxIndex(i => (i + 1) % carouselImages.length);
+      else if (e.key === 'ArrowLeft') setLightboxIndex(i => (i - 1 + carouselImages.length) % carouselImages.length);
+      else if (e.key === 'Escape') setLightboxOpen(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [lightboxOpen, carouselImages.length]);
 
   // Estados para código de descuento
   const [codigoValidado, setCodigoValidado] = useState(null);
@@ -2324,40 +2336,63 @@ const ReservaCabanasPage = () => {
             </Paper>
 
             {carouselImages.length > 0 ? (
-              <Paper elevation={3} sx={{ borderRadius: 2, overflow: 'hidden', mb: 2 }}>
+              <Paper elevation={3} sx={{ borderRadius: 2, overflow: 'hidden', mb: 2, position: 'relative' }}>
                 <Carousel
                   navButtonsAlwaysVisible
                   indicators
                   animation="slide"
                   duration={500}
+                  index={lightboxIndex}
+                  onChange={(now) => setLightboxIndex(now)}
                   NextIcon={<NavigateNext />}
                   PrevIcon={<NavigateBefore />}
+                  navButtonsProps={{
+                    style: {
+                      backgroundColor: 'rgba(0,0,0,0.5)',
+                      borderRadius: '50%',
+                    }
+                  }}
                 >
                   {carouselImages.map((img, idx) => (
                     <Box
                       key={idx}
+                      onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
                       sx={{
                         width: '100%',
-                        height: '300px',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        bgcolor: '#000',
+                        height: { xs: '320px', sm: '520px' },
+                        overflow: 'hidden',
+                        cursor: 'zoom-in',
+                        position: 'relative',
                       }}
                     >
                       <img
                         src={img}
                         alt={`${selectedCabana?.nombre} - Imagen ${idx + 1}`}
                         style={{
-                          maxWidth: '100%',
-                          maxHeight: '100%',
-                          objectFit: 'contain',
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'center',
+                          display: 'block',
                         }}
                         onError={(e) => {
                           console.error('Error cargando imagen:', img);
                           e.target.style.display = 'none';
                         }}
                       />
+                      <Box sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(0,0,0,0.5)',
+                        borderRadius: '50%',
+                        p: 0.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        <ZoomOutMapIcon sx={{ color: 'white', fontSize: 20 }} />
+                      </Box>
                     </Box>
                   ))}
                 </Carousel>
@@ -2384,6 +2419,144 @@ const ReservaCabanasPage = () => {
                 </Typography>
               </Paper>
             )}
+
+            {/* Lightbox: imagen a pantalla completa con carrusel */}
+            <Dialog
+              open={lightboxOpen}
+              onClose={() => setLightboxOpen(false)}
+              maxWidth={false}
+              PaperProps={{
+                sx: {
+                  bgcolor: 'black',
+                  m: 0,
+                  borderRadius: 0,
+                  width: '100vw',
+                  height: '100vh',
+                  maxWidth: '100vw',
+                  maxHeight: '100vh',
+                  overflow: 'hidden',
+                }
+              }}
+              sx={{ '& .MuiDialog-container': { alignItems: 'center' } }}
+            >
+              <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {/* Botón cerrar */}
+                <IconButton
+                  onClick={() => setLightboxOpen(false)}
+                  sx={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    zIndex: 10,
+                    bgcolor: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.85)' },
+                  }}
+                >
+                  <CloseIcon />
+                </IconButton>
+
+                {/* Contador de imagen */}
+                <Box sx={{
+                  position: 'absolute',
+                  top: 16,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 10,
+                  bgcolor: 'rgba(0,0,0,0.55)',
+                  color: 'white',
+                  px: 2,
+                  py: 0.5,
+                  borderRadius: 3,
+                }}>
+                  <Typography variant="body2">
+                    {lightboxIndex + 1} / {carouselImages.length}
+                  </Typography>
+                </Box>
+
+                {/* Botón anterior */}
+                <IconButton
+                  onClick={() => setLightboxIndex(i => (i - 1 + carouselImages.length) % carouselImages.length)}
+                  sx={{
+                    position: 'absolute',
+                    left: 12,
+                    zIndex: 10,
+                    bgcolor: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.85)' },
+                  }}
+                >
+                  <NavigateBefore sx={{ fontSize: 36 }} />
+                </IconButton>
+
+                {/* Imagen principal */}
+                <Box
+                  component="img"
+                  src={carouselImages[lightboxIndex]}
+                  alt={`${selectedCabana?.nombre} - Imagen ${lightboxIndex + 1}`}
+                  sx={{
+                    maxWidth: '90vw',
+                    maxHeight: '90vh',
+                    objectFit: 'contain',
+                    borderRadius: 1,
+                    userSelect: 'none',
+                  }}
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+
+                {/* Botón siguiente */}
+                <IconButton
+                  onClick={() => setLightboxIndex(i => (i + 1) % carouselImages.length)}
+                  sx={{
+                    position: 'absolute',
+                    right: 12,
+                    zIndex: 10,
+                    bgcolor: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.85)' },
+                  }}
+                >
+                  <NavigateNext sx={{ fontSize: 36 }} />
+                </IconButton>
+
+                {/* Miniaturas en la parte inferior */}
+                {carouselImages.length > 1 && (
+                  <Box sx={{
+                    position: 'absolute',
+                    bottom: 16,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    display: 'flex',
+                    gap: 1,
+                    maxWidth: '80vw',
+                    overflowX: 'auto',
+                    pb: 0.5,
+                    zIndex: 10,
+                  }}>
+                    {carouselImages.map((img, idx) => (
+                      <Box
+                        key={idx}
+                        component="img"
+                        src={img}
+                        onClick={() => setLightboxIndex(idx)}
+                        sx={{
+                          width: 64,
+                          height: 48,
+                          objectFit: 'cover',
+                          borderRadius: 1,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          border: idx === lightboxIndex ? '3px solid white' : '3px solid transparent',
+                          opacity: idx === lightboxIndex ? 1 : 0.55,
+                          transition: 'all 0.2s',
+                          '&:hover': { opacity: 1 },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            </Dialog>
 
             {/* Información detallada con iconos y colores */}
             <Grid container spacing={2}>
@@ -3492,373 +3665,294 @@ const ReservaCabanasPage = () => {
         }}
       >
         <Container maxWidth="xl">
-          {/* Hero Section - Presentación Elegante con Carrusel */}
+          {/* ═══════════════════════════════════════════════════
+               HERO — Carrusel full-bleed + CTA sobre la imagen
+          ═══════════════════════════════════════════════════ */}
           <motion.div
             ref={heroRef}
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.7 }}
           >
-            <Box sx={{ textAlign: 'center', mb: 6, position: 'relative', zIndex: 1 }}>
-              <Paper
-                elevation={8}
+            <Box
+              sx={{
+                position: 'relative',
+                mb: 5,
+                borderRadius: { xs: 3, sm: 4 },
+                overflow: 'hidden',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+                zIndex: 1,
+              }}
+            >
+              {/* ── Carrusel de fotos (full-bleed) ── */}
+              {heroCarouselImages.length > 0 ? (
+                <Carousel
+                  navButtonsAlwaysVisible
+                  indicators
+                  animation="fade"
+                  duration={800}
+                  interval={5500}
+                  NextIcon={<NavigateNext sx={{ fontSize: 32 }} />}
+                  PrevIcon={<NavigateBefore sx={{ fontSize: 32 }} />}
+                  navButtonsProps={{
+                    style: {
+                      backgroundColor: 'rgba(0,0,0,0.4)',
+                      backdropFilter: 'blur(6px)',
+                      borderRadius: '50%',
+                      padding: '10px',
+                      margin: '0 16px',
+                    }
+                  }}
+                  indicatorIconButtonProps={{
+                    style: { color: 'rgba(255,255,255,0.45)', margin: '0 4px' }
+                  }}
+                  activeIndicatorIconButtonProps={{
+                    style: { color: '#fff' }
+                  }}
+                  indicatorContainerProps={{
+                    style: { position: 'absolute', bottom: 16, zIndex: 10, margin: 0 }
+                  }}
+                >
+                  {heroCarouselImages.map((img, idx) => (
+                    <Box
+                      key={idx}
+                      sx={{
+                        width: '100%',
+                        height: { xs: '55vw', sm: '520px', md: '600px' },
+                        minHeight: { xs: 220, sm: 420 },
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <motion.img
+                        src={img}
+                        alt={`Cabañas El Mirador ${idx + 1}`}
+                        style={{
+                          width: '100%',
+                          height: '110%',
+                          objectFit: 'cover',
+                          objectPosition: 'center',
+                          display: 'block',
+                          y: parallaxY,
+                        }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                      {/* Gradiente oscuro uniforme para legibilidad del CTA centrado */}
+                      <Box sx={{
+                        position: 'absolute', inset: 0,
+                        background: 'linear-gradient(rgba(0,0,0,0.22) 0%, rgba(0,0,0,0.48) 40%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0.35) 100%)',
+                        pointerEvents: 'none',
+                      }} />
+                    </Box>
+                  ))}
+                </Carousel>
+              ) : (
+                /* Fallback sin imágenes */
+                <Box sx={{
+                  height: { xs: 300, sm: 480 },
+                  background: 'linear-gradient(135deg, #0D47A1 0%, #1976D2 50%, #42A5F5 100%)',
+                }} />
+              )}
+
+              {/* ── Chips de disponibilidad (esquina superior derecha) ── */}
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.4, type: 'spring', stiffness: 220 }}
+                style={{ position: 'absolute', top: 16, right: 16, zIndex: 20 }}
+              >
+                <Stack spacing={0.8}>
+                  {disponibilidadHoy > 0 && (
+                    <Chip
+                      icon={<CheckCircleIcon />}
+                      label={`${disponibilidadHoy} ${disponibilidadHoy === 1 ? 'cabaña libre' : 'cabañas libres'} hoy`}
+                      size="small"
+                      sx={{
+                        bgcolor: 'rgba(255,255,255,0.92)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1.5px solid #4CAF50',
+                        fontWeight: 700,
+                        color: '#2E7D32',
+                        '& .MuiChip-icon': { color: '#4CAF50' },
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                      }}
+                    />
+                  )}
+                  {disponibilidadFinSemana > 0 && (
+                    <Chip
+                      icon={<CalendarIcon />}
+                      label={`${disponibilidadFinSemana} disponibles fin de semana`}
+                      size="small"
+                      sx={{
+                        bgcolor: 'rgba(255,255,255,0.92)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1.5px solid #FF9800',
+                        fontWeight: 700,
+                        color: '#E65100',
+                        '& .MuiChip-icon': { color: '#FF9800' },
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                      }}
+                    />
+                  )}
+                </Stack>
+              </motion.div>
+
+              {/* ── CTA centrado verticalmente sobre el carrusel ── */}
+              <Box
                 sx={{
-                  background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 100%)',
-                  borderRadius: 4,
-                  border: '3px solid #2196F3',
-                  boxShadow: '0 12px 40px rgba(33, 150, 243, 0.3)',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: '6px',
-                    background: 'linear-gradient(90deg, #2196F3 0%, #64B5F6 50%, #2196F3 100%)',
-                  }
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  textAlign: 'center',
+                  zIndex: 15,
+                  width: { xs: '92%', sm: '80%', md: '60%' },
+                  pointerEvents: 'auto',
                 }}
               >
-                {/* Carrusel de Imágenes Hero */}
-                {heroCarouselImages.length > 0 ? (
-                  <Box sx={{ position: 'relative', mb: 4 }}>
-                    {/* Contador de Disponibilidad - Flotante sobre el carousel */}
-                    <motion.div
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: 0.5, duration: 0.5, type: "spring", stiffness: 200 }}
-                      style={{
-                        position: 'absolute',
-                        top: 20,
-                        right: 20,
-                        zIndex: 10,
-                      }}
-                    >
-                      <Stack spacing={1}>
-                        {disponibilidadHoy > 0 && (
-                          <Chip
-                            icon={<CheckCircleIcon sx={{ color: '#4CAF50 !important' }} />}
-                            label={`${disponibilidadHoy} ${disponibilidadHoy === 1 ? 'cabaña disponible' : 'cabañas disponibles'} hoy`}
-                            sx={{
-                              background: 'linear-gradient(135deg, #FFFFFF 0%, #E8F5E9 100%)',
-                              backdropFilter: 'blur(10px)',
-                              border: '2px solid #4CAF50',
-                              fontWeight: 700,
-                              fontSize: { xs: '0.75rem', sm: '0.9rem' },
-                              px: { xs: 1, sm: 2 },
-                              py: { xs: 2, sm: 2.5 },
-                              boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)',
-                              '& .MuiChip-icon': {
-                                color: '#4CAF50',
-                              }
-                            }}
-                          />
-                        )}
-                        {disponibilidadFinSemana > 0 && (
-                          <Chip
-                            icon={<CalendarIcon sx={{ color: '#FF9800 !important' }} />}
-                            label={`${disponibilidadFinSemana} ${disponibilidadFinSemana === 1 ? 'disponible' : 'disponibles'} fin de semana`}
-                            sx={{
-                              background: 'linear-gradient(135deg, #FFFFFF 0%, #FFF3E0 100%)',
-                              backdropFilter: 'blur(10px)',
-                              border: '2px solid #FF9800',
-                              fontWeight: 700,
-                              fontSize: { xs: '0.7rem', sm: '0.85rem' },
-                              px: { xs: 1, sm: 2 },
-                              py: { xs: 2, sm: 2.5 },
-                              boxShadow: '0 4px 15px rgba(255, 152, 0, 0.3)',
-                              '& .MuiChip-icon': {
-                                color: '#FF9800',
-                              }
-                            }}
-                          />
-                        )}
-                      </Stack>
-                    </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3, duration: 0.65, ease: 'easeOut' }}
+                >
+                  <Typography
+                    variant="h2"
+                    sx={{
+                      color: '#fff',
+                      fontWeight: 900,
+                      fontSize: { xs: '1.9rem', sm: '3.2rem', md: '4rem' },
+                      textShadow: '0 4px 18px rgba(0,0,0,0.8)',
+                      lineHeight: 1.1,
+                      mb: { xs: 1, sm: 1.5 },
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    Cabañas El Mirador
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: 'rgba(255,255,255,0.92)',
+                      fontSize: { xs: '0.95rem', sm: '1.2rem' },
+                      textShadow: '0 2px 10px rgba(0,0,0,0.7)',
+                      mb: { xs: 3, sm: 4 },
+                      fontWeight: 500,
+                      letterSpacing: '0.03em',
+                    }}
+                  >
+                    Frente al mar · Dichato · Tinajas · Pago online
+                  </Typography>
 
-                    {/* Indicador de Swipe en Móvil */}
-                    <Box
-                      sx={{
-                        display: { xs: 'flex', md: 'none' },
-                        position: 'absolute',
-                        bottom: 20,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 10,
-                        background: 'rgba(0, 0, 0, 0.6)',
-                        backdropFilter: 'blur(8px)',
-                        color: '#fff',
-                        px: 3,
-                        py: 1.5,
-                        borderRadius: 3,
-                        alignItems: 'center',
-                        gap: 1,
-                        animation: 'pulse 2s ease-in-out infinite',
-                        '@keyframes pulse': {
-                          '0%, 100%': {
-                            opacity: 0.8,
-                          },
-                          '50%': {
-                            opacity: 1,
-                          },
-                        },
-                      }}
-                    >
-                      <NavigateBefore sx={{ fontSize: 20 }} />
-                      <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                        Desliza para ver más
-                      </Typography>
-                      <NavigateNext sx={{ fontSize: 20 }} />
-                    </Box>
-                    <Carousel
-                      navButtonsAlwaysVisible
-                      indicators
-                      animation="fade"
-                      duration={700}
-                      interval={5000}
-                      NextIcon={<NavigateNext />}
-                      PrevIcon={<NavigateBefore />}
-                      navButtonsProps={{
-                        style: {
-                          backgroundColor: 'rgba(33, 150, 243, 0.8)',
-                          borderRadius: '50%',
-                          margin: '0 20px',
-                        }
-                      }}
-                      indicatorIconButtonProps={{
-                        style: {
-                          color: 'rgba(255, 255, 255, 0.5)',
-                          margin: '0 5px',
-                        }
-                      }}
-                      activeIndicatorIconButtonProps={{
-                        style: {
-                          color: '#2196F3',
-                        }
-                      }}
-                    >
-                      {heroCarouselImages.map((img, idx) => (
-                        <Box
-                          key={idx}
-                          sx={{
-                            width: '100%',
-                            height: '500px',
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            bgcolor: '#000',
-                            position: 'relative',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <motion.img
-                            src={img}
-                            alt={`Vista de cabañas ${idx + 1}`}
-                            style={{
-                              width: '100%',
-                              height: '110%',
-                              objectFit: 'cover',
-                              y: parallaxY,
-                            }}
-                            onError={(e) => {
-                              console.error('Error cargando imagen del carrusel:', img);
-                              e.target.style.display = 'none';
-                            }}
-                          />
-                          {/* Overlay con gradiente + CTA superpuesto */}
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              height: '65%',
-                              background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)',
-                              pointerEvents: 'none',
-                            }}
-                          />
-                          {/* CTA superpuesto sobre el carrusel */}
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              bottom: { xs: 24, sm: 40 },
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              textAlign: 'center',
-                              zIndex: 5,
-                              width: '90%',
-                            }}
-                          >
-                            <Typography
-                              variant="h3"
-                              sx={{
-                                color: 'white',
-                                fontWeight: 900,
-                                fontSize: { xs: '1.6rem', sm: '2.8rem' },
-                                textShadow: '0 2px 12px rgba(0,0,0,0.7)',
-                                mb: { xs: 1, sm: 2 },
-                                letterSpacing: '-0.01em',
-                              }}
-                            >
-                              Cabañas El Mirador
-                            </Typography>
-                            <Typography
-                              variant="body1"
-                              sx={{
-                                color: 'rgba(255,255,255,0.88)',
-                                fontSize: { xs: '0.85rem', sm: '1.1rem' },
-                                mb: { xs: 2, sm: 3 },
-                                textShadow: '0 1px 6px rgba(0,0,0,0.6)',
-                              }}
-                            >
-                              Frente al mar · Dichato · Tinajas · Pago online
-                            </Typography>
-                            <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.97 }}>
-                              <Button
-                                variant="contained"
-                                size="large"
-                                onClick={() => mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                                sx={{
-                                  py: { xs: 1.5, sm: 2.5 },
-                                  px: { xs: 4, sm: 8 },
-                                  fontSize: { xs: '1.1rem', sm: '1.6rem' },
-                                  fontWeight: 900,
-                                  background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
-                                  color: '#FFFFFF',
-                                  borderRadius: { xs: 2, sm: 3 },
-                                  border: '3px solid rgba(255,255,255,0.4)',
-                                  boxShadow: '0 8px 32px rgba(255, 107, 0, 0.5)',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.06em',
-                                  backdropFilter: 'blur(4px)',
-                                  pointerEvents: 'auto',
-                                  '&:hover': {
-                                    background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)',
-                                    boxShadow: '0 12px 40px rgba(255, 107, 0, 0.7)',
-                                  },
-                                }}
-                              >
-                                🏖️ RESERVA YA
-                              </Button>
-                            </motion.div>
-                          </Box>
-                        </Box>
-                      ))}
-                    </Carousel>
-                  </Box>
-                ) : null}
-
-                {/* Contenido Textual — compacto */}
-                <Box sx={{ px: { xs: 3, sm: 6 }, py: { xs: 3, sm: 4 }, pt: heroCarouselImages.length > 0 ? { xs: 2, sm: 3 } : { xs: 4, sm: 6 } }}>
-                  {/* Título solo si no hay carrusel */}
-                  {heroCarouselImages.length === 0 && (
-                    <Typography
-                      variant="h2"
-                      sx={{
-                        fontWeight: 900,
-                        background: 'linear-gradient(135deg, #1976D2 0%, #2196F3 50%, #64B5F6 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
-                        mb: 2,
-                        letterSpacing: '-0.02em',
-                      }}
-                    >
-                      Bienvenidos a Cabañas El Mirador
-                    </Typography>
-                  )}
-
-                  {/* Strip de beneficios */}
                   <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={{ xs: 1.5, sm: 3 }}
+                    direction="column"
+                    spacing={1.5}
                     justifyContent="center"
                     alignItems="center"
-                    sx={{ mb: 3, flexWrap: 'wrap', gap: { xs: 1, sm: 0 } }}
                   >
-                    {[
-                      { icon: <BedIcon />, label: 'Diseño Moderno', sub: 'Arquitectura contemporánea', color: '#1976D2' },
-                      { icon: <HotTubIcon />, label: 'Tinajas Premium', sub: 'Experiencia única', color: '#9C27B0' },
-                      { icon: <PeopleIcon />, label: 'Para Tu Familia', sub: 'Espacios amplios', color: '#F44336' },
-                      { icon: <LocationIcon />, label: 'Frente al Mar', sub: 'Vista al Pacífico', color: '#00897B' },
-                    ].map((item, idx) => (
-                      <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 + idx * 0.12, duration: 0.4 }}
-                      >
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1.5,
-                            px: 2,
-                            py: 1,
-                            borderRadius: 3,
-                            bgcolor: `${item.color}12`,
-                            border: `1.5px solid ${item.color}30`,
-                          }}
-                        >
-                          <Avatar sx={{ bgcolor: item.color, width: 38, height: 38 }}>
-                            {React.cloneElement(item.icon, { sx: { fontSize: 20 } })}
-                          </Avatar>
-                          <Box sx={{ textAlign: 'left' }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
-                              {item.label}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {item.sub}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </motion.div>
-                    ))}
-                  </Stack>
-
-                  <Divider sx={{ my: 2, borderColor: '#E3F2FD' }} />
-
-                  {/* Instrucción + CTA si no hay carrusel */}
-                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-                    <Box>
-                      <Typography variant="h6" sx={{ color: '#1976D2', fontWeight: 700, mb: 0.5 }}>
-                        Selecciona tu Cabaña Ideal
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#546E7A' }}>
-                        Haz clic en cualquier cabaña del mapa para reservar
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1}>
+                    <motion.div
+                      whileHover={{ scale: 1.07 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
                       <Button
                         variant="contained"
-                        size="medium"
+                        size="large"
                         onClick={() => mapaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                         sx={{
-                          fontWeight: 800,
-                          background: 'linear-gradient(135deg, #FF6B00 0%, #FF9900 100%)',
-                          borderRadius: 3,
-                          px: 3,
-                          boxShadow: '0 4px 16px rgba(255,107,0,0.35)',
-                          '&:hover': { background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)', boxShadow: '0 6px 20px rgba(255,107,0,0.5)' }
+                          py: { xs: 1.8, sm: 2.2 },
+                          px: { xs: 6, sm: 9 },
+                          fontSize: { xs: '1.1rem', sm: '1.45rem' },
+                          fontWeight: 900,
+                          background: 'linear-gradient(135deg, #FF6B00 0%, #FFAA00 100%)',
+                          color: '#fff',
+                          borderRadius: 50,
+                          border: '3px solid rgba(255,255,255,0.55)',
+                          boxShadow: '0 8px 28px rgba(255,100,0,0.55)',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, #FF8C00 0%, #FFB300 100%)',
+                            boxShadow: '0 14px 40px rgba(255,100,0,0.8)',
+                          },
                         }}
                       >
-                        🏖️ Ver mapa
+                        🏖️ RESERVAR AHORA
                       </Button>
-                      <Button
-                        variant="text"
-                        size="small"
-                        onClick={resetTutorial}
-                        startIcon={<InfoIcon />}
-                        sx={{ color: '#2196F3', textTransform: 'none', fontSize: '0.8rem' }}
-                      >
-                        Tutorial
-                      </Button>
-                    </Stack>
-                  </Box>
-                </Box>
-              </Paper>
+                    </motion.div>
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={resetTutorial}
+                      startIcon={<InfoIcon sx={{ fontSize: 16 }} />}
+                      sx={{
+                        color: 'rgba(255,255,255,0.75)',
+                        textTransform: 'none',
+                        fontSize: '0.8rem',
+                        '&:hover': { color: '#fff', background: 'transparent' },
+                      }}
+                    >
+                      Ver tutorial
+                    </Button>
+                  </Stack>
+                </motion.div>
+              </Box>
             </Box>
+
+            {/* ── Strip de beneficios (debajo del carrusel) ── */}
+            <Paper
+              elevation={3}
+              sx={{
+                borderRadius: 3,
+                mb: 5,
+                overflow: 'hidden',
+                background: 'linear-gradient(135deg, #fff 0%, #F8FAFE 100%)',
+                border: '1px solid #E3F0FF',
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                divider={<Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />}
+                sx={{ px: { xs: 2, sm: 4 }, py: { xs: 2, sm: 3 } }}
+                spacing={0}
+              >
+                {[
+                  { icon: <BedIcon />, label: 'Diseño Moderno', sub: 'Arquitectura contemporánea', color: '#1976D2' },
+                  { icon: <HotTubIcon />, label: 'Tinajas Premium', sub: 'Experiencia única', color: '#9C27B0' },
+                  { icon: <PeopleIcon />, label: 'Para Tu Familia', sub: 'Espacios amplios', color: '#E53935' },
+                  { icon: <LocationIcon />, label: 'Frente al Mar', sub: 'Vista al Pacífico', color: '#00897B' },
+                ].map((item, idx) => (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 + idx * 0.1, duration: 0.4 }}
+                    style={{ flex: 1 }}
+                  >
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                        px: { xs: 1, sm: 2.5 },
+                        py: { xs: 1.2, sm: 2 },
+                      }}
+                    >
+                      <Avatar sx={{ bgcolor: `${item.color}18`, width: 44, height: 44 }}>
+                        {React.cloneElement(item.icon, { sx: { fontSize: 22, color: item.color } })}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 800, color: '#1a1a2e', lineHeight: 1.2 }}>
+                          {item.label}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#78909C' }}>
+                          {item.sub}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </motion.div>
+                ))}
+              </Stack>
+            </Paper>
           </motion.div>
 
           {/* Mapa SVG - Siempre visible abajo */}

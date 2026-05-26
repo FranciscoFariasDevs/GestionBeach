@@ -41,6 +41,9 @@ module.exports = [
   { nombre: 'Planificacion Compras', claves: ['compras/planificacion'] },
   { nombre: 'MonitorOrdenes',        claves: ['compras/monitor-ordenes'] },
 
+  // Sub-módulos individuales de Productos (cont.)
+  { nombre: 'Comparador',            claves: ['productos/comparador'] },
+
   { nombre: 'Tarjeta Empleado',      claves: ['tarjeta-empleado'] },
   { nombre: 'Empleados',             claves: ['empleados'] },
 

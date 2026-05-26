@@ -73,6 +73,7 @@ import {
   Search as SearchIcon,
   Build as BuildIcon,
   Campaign as CampaignIcon,
+  CompareArrows as CompareArrowsIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -496,6 +497,7 @@ export default function DashboardLayout() {
         { text: 'Ajustes', path: '/productos/ajustes', icon: <TrendingUpIcon /> },
         { text: 'Proveedores Producto', path: '/productos/proveedores', icon: <TrendingUpIcon /> },
         { text: 'Anulaciones', path: '/productos/anulaciones', icon: <PointOfSaleIcon /> },
+        { text: 'Comparador', path: '/productos/comparador', icon: <CompareArrowsIcon /> },
       ],
     },
     { text: 'Los Más Vendidos', icon: <TrendingUpIcon />, path: '/los-mas-vendidos', orangeType: 'light' },
@@ -576,6 +578,7 @@ export default function DashboardLayout() {
         '/compras/facturas-xml': 'Gestión de Facturas XML',
         '/compras/planificacion': 'Planificación Compras-Pagos',
         '/compras/monitor-ordenes': 'Monitor Ordenes de Compra',
+        '/productos/comparador': 'Comparador de Precios y Stock',
         '/tarjeta-empleado': 'Tarjeta de Empleado',
         '/empleados': 'Gestión de Empleados',
         '/admin/cabanas': 'Gestión de Cabañas y Reservas',

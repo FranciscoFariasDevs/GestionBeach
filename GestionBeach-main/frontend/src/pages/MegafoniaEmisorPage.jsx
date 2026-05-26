@@ -288,19 +288,44 @@ export default function MegafoniaEmisorPage() {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+        // autoGainControl desactivado: lo manejamos nosotros con el GainNode
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false, channelCount: 1 },
       });
       streamRef.current = stream;
 
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = ctx;
       const src = ctx.createMediaStreamSource(stream);
+
+      // ── Amplificación: +9.5 dB (gain 3.0 × señal original) ──────────────────
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = 3.0;
+
+      // ── Compresor dinámico: evita recorte (clipping) al amplificar ───────────
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -24;  // actúa desde -24 dB
+      compressor.knee.value      = 30;   // transición suave
+      compressor.ratio.value     = 12;   // compresión fuerte en picos
+      compressor.attack.value    = 0.003;
+      compressor.release.value   = 0.25;
+
+      // ── Analyser para VU meter (ve señal ya amplificada) ─────────────────────
       const anl = ctx.createAnalyser(); anl.fftSize = 256;
-      src.connect(anl);
+
+      // ── Destino de grabación: stream procesado (con gain aplicado) ───────────
+      const dest = ctx.createMediaStreamDestination();
+
+      // Cadena: mic → gain → compressor → analyser
+      //                              └──────────────→ dest (grabación)
+      src.connect(gainNode);
+      gainNode.connect(compressor);
+      compressor.connect(anl);
+      compressor.connect(dest);
       analyserRef.current = anl;
 
       const mime = getMimeType();
-      const rec  = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 });
+      // Graba desde dest.stream (señal amplificada) — bitrate subido a 64 kbps
+      const rec  = new MediaRecorder(dest.stream, { mimeType: mime, audioBitsPerSecond: 64000 });
       recorderRef.current = rec;
 
       let first = true;

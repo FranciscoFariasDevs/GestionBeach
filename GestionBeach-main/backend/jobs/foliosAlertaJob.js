@@ -13,13 +13,13 @@ const CONN_OPTS = {
 
 // Umbral de folios por tipo de documento (notifica cuando queden MENOS de este valor)
 const UMBRAL_POR_TIPO = {
-  '39': 1000,  // Boleta Electrónica
-  '33': 40,    // Factura Electrónica
-  '52': 20,    // Guía de Despacho
-  '61': 20,    // Nota de Crédito
-  '56': 20,    // Nota de Débito
-  '34': 20,    // Factura No Afecta
-  '41': 20,    // Boleta No Afecta
+  '39': 50,   // Boleta Electrónica
+  '41': 50,   // Boleta No Afecta
+  '33': 5,    // Factura Electrónica
+  '34': 5,    // Factura No Afecta
+  '52': 5,    // Guía de Despacho
+  '61': 5,    // Nota de Crédito
+  '56': 5,    // Nota de Débito
 };
 
 const UMBRAL_CRITICO_DIAS = 7;

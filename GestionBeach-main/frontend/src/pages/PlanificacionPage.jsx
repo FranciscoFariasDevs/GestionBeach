@@ -4170,10 +4170,22 @@ const PlanificacionPage = () => {
   const fileInputRef       = useRef(null);
   const facturaInputRef    = useRef(null);
   const ocSucursalInputRef = useRef(null);
+  // Timers para progreso simulado (fase "procesando" del servidor)
+  const uploadTimerRef   = useRef(null);
+  const facturaTimerRef  = useRef(null);
+  const sucursalTimerRef = useRef(null);
+
   const [facturaLoading,    setFacturaLoading]    = useState(false);
   const [ocSucursalOpen,    setOcSucursalOpen]    = useState(false);
   const [ocSucursalNombre,  setOcSucursalNombre]  = useState('');
   const [ocSucursalLoading, setOcSucursalLoading] = useState(false);
+  // Progreso y errores de carga (0-100 o null)
+  const [uploadProgress,     setUploadProgress]     = useState(0);
+  const [uploadError,        setUploadError]         = useState(null);
+  const [ocSucursalProgress, setOcSucursalProgress] = useState(0);
+  const [ocSucursalError,    setOcSucursalError]     = useState(null);
+  const [facturaProgress,    setFacturaProgress]     = useState(0);
+  const [facturaError,       setFacturaError]        = useState(null);
 
   const [year, setYear]             = useState(new Date().getFullYear());
   const [week, setWeek]             = useState(getCurrentWeek());
@@ -4589,11 +4601,30 @@ const PlanificacionPage = () => {
   const handleExcelUpload = async (e) => {
     const file = e.target.files[0]; if(!file) return;
     setUploadLoading(true);
+    setUploadProgress(0);
+    setUploadError(null);
+    clearInterval(uploadTimerRef.current);
     const fd = new FormData(); fd.append('excel', file);
     try {
       const r = await api.post('/planificacion/upload-excel', fd, {
-        headers: { 'Content-Type': undefined },
+        timeout: 40000,
+        onUploadProgress: (ev) => {
+          if (ev.total) {
+            const pct = Math.round((ev.loaded / ev.total) * 65);
+            setUploadProgress(pct);
+            if (ev.loaded >= ev.total) {
+              clearInterval(uploadTimerRef.current);
+              let p = 65;
+              uploadTimerRef.current = setInterval(() => {
+                p = p + (95 - p) * 0.12;
+                setUploadProgress(Math.min(Math.round(p), 95));
+              }, 400);
+            }
+          }
+        },
       });
+      clearInterval(uploadTimerRef.current);
+      setUploadProgress(100);
       const d = r.data;
       enqueueSnackbar(
         d.message || `Excel cargado: ${d.insertados||0} nuevos` +
@@ -4602,22 +4633,51 @@ const PlanificacionPage = () => {
         { variant: 'success' }
       );
       loadWeeks(); loadCompras();
-    } catch(err) { enqueueSnackbar(err.response?.data?.message||'Error al cargar', { variant:'error' }); }
+      setTimeout(() => setUploadProgress(0), 2000);
+    } catch(err) {
+      clearInterval(uploadTimerRef.current);
+      setUploadProgress(0);
+      const msg = err.response?.data?.message || err.message || 'Error al cargar el archivo';
+      setUploadError(msg);
+    }
     finally { setUploadLoading(false); e.target.value=''; }
   };
   const handleFacturasUpload = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     setFacturaLoading(true);
+    setFacturaProgress(0);
+    setFacturaError(null);
+    clearInterval(facturaTimerRef.current);
     const fd = new FormData(); fd.append('facturas', file);
     try {
       const r = await api.post('/planificacion/upload-facturas', fd, {
-        headers: { 'Content-Type': undefined },
+        timeout: 40000,
+        onUploadProgress: (ev) => {
+          if (ev.total) {
+            const pct = Math.round((ev.loaded / ev.total) * 65);
+            setFacturaProgress(pct);
+            if (ev.loaded >= ev.total) {
+              clearInterval(facturaTimerRef.current);
+              let p = 65;
+              facturaTimerRef.current = setInterval(() => {
+                p = p + (95 - p) * 0.12;
+                setFacturaProgress(Math.min(Math.round(p), 95));
+              }, 400);
+            }
+          }
+        },
       });
+      clearInterval(facturaTimerRef.current);
+      setFacturaProgress(100);
       const d = r.data;
       enqueueSnackbar(d.message || 'Facturas procesadas', { variant: 'success' });
       loadWeeks(); loadCompras();
+      setTimeout(() => setFacturaProgress(0), 2000);
     } catch (err) {
-      enqueueSnackbar(err.response?.data?.message || 'Error al cargar facturas', { variant: 'error' });
+      clearInterval(facturaTimerRef.current);
+      setFacturaProgress(0);
+      const msg = err.response?.data?.message || err.message || 'Error al cargar facturas';
+      setFacturaError(msg);
     } finally { setFacturaLoading(false); e.target.value = ''; }
   };
 
@@ -4714,20 +4774,45 @@ const PlanificacionPage = () => {
     const file = ocSucursalInputRef._pendingFile;
     if (!file || !ocSucursalNombre.trim()) return;
     setOcSucursalLoading(true);
+    setOcSucursalProgress(0);
+    setOcSucursalError(null);
+    clearInterval(sucursalTimerRef.current);
     const fd = new FormData();
     fd.append('excel', file);
     fd.append('sucursal', ocSucursalNombre.trim());
     try {
       const r = await api.post('/planificacion/upload-excel-sucursal', fd, {
-        headers: { 'Content-Type': undefined },
+        timeout: 40000,
+        onUploadProgress: (ev) => {
+          if (ev.total) {
+            const pct = Math.round((ev.loaded / ev.total) * 65);
+            setOcSucursalProgress(pct);
+            if (ev.loaded >= ev.total) {
+              clearInterval(sucursalTimerRef.current);
+              let p = 65;
+              sucursalTimerRef.current = setInterval(() => {
+                p = p + (95 - p) * 0.12;
+                setOcSucursalProgress(Math.min(Math.round(p), 95));
+              }, 400);
+            }
+          }
+        },
       });
+      clearInterval(sucursalTimerRef.current);
+      setOcSucursalProgress(100);
       const d = r.data;
       enqueueSnackbar(d.message || `OC Sucursal cargado: ${d.insertados||0} nuevos`, { variant: 'success' });
-      setOcSucursalOpen(false);
+      setTimeout(() => {
+        setOcSucursalOpen(false);
+        setOcSucursalProgress(0);
+      }, 800);
       ocSucursalInputRef._pendingFile = null;
       loadWeeks(); loadCompras();
     } catch (err) {
-      enqueueSnackbar(err.response?.data?.message || 'Error al cargar', { variant: 'error' });
+      clearInterval(sucursalTimerRef.current);
+      setOcSucursalProgress(0);
+      const msg = err.response?.data?.message || err.message || 'Error al cargar';
+      setOcSucursalError(msg);
     } finally { setOcSucursalLoading(false); }
   };
 
@@ -4754,11 +4839,22 @@ const PlanificacionPage = () => {
   };
   const handleAddCompra = async () => {
     try {
-      await api.post('/planificacion/compras', { ...newCompra, semana:week, año:year, tipo:addTipo });
+      await api.post('/planificacion/compras', {
+        proveedor:      newCompra.proveedor,
+        fecha_compra:   newCompra.fecha,
+        monto_neto:     newCompra.neto,
+        plazo_dias:     newCompra.plazo || 30,
+        tipo_proveedor: addTipo,
+        sucursal:       newCompra.sucursal_id || '',
+        semana:         week,
+        año:            year,
+      });
       enqueueSnackbar('Registro agregado',{variant:'success'}); setAddOpen(false);
       setNewCompra({proveedor:'',fecha:'',neto:'',plazo:30,sucursal_id:''});
       loadCompras(); loadWeeks();
-    } catch { enqueueSnackbar('Error al agregar',{variant:'error'}); }
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Error al agregar',{variant:'error'});
+    }
   };
 
   if (loadingWeeks) return (
@@ -5681,10 +5777,45 @@ const PlanificacionPage = () => {
                 )}
                 <Button fullWidth variant="contained" size="large"
                   startIcon={uploadLoading ? <CircularProgress size={16} sx={{color:'white'}}/> : <UploadIcon/>}
-                  disabled={uploadLoading} onClick={()=>fileInputRef.current?.click()}
+                  disabled={uploadLoading} onClick={()=>{ setUploadError(null); fileInputRef.current?.click(); }}
                   sx={{borderRadius:2,bgcolor:ENC_MID,'&:hover':{bgcolor:ENC_DARK},fontWeight:700}}>
                   {uploadLoading ? 'Cargando…' : 'Seleccionar Excel'}
                 </Button>
+                {/* Barra de progreso */}
+                {uploadLoading && (
+                  <Box sx={{ width:'100%', mt:1.5 }}>
+                    <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.5 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {uploadProgress < 68 ? 'Subiendo archivo…' : 'Procesando en servidor…'}
+                      </Typography>
+                      <Typography variant="caption" fontWeight={800} color={ENC_MID}>{uploadProgress}%</Typography>
+                    </Box>
+                    <LinearProgress variant="determinate" value={uploadProgress}
+                      sx={{ borderRadius:1, height:7, bgcolor:alpha(ENC_MID,.15),
+                            '& .MuiLinearProgress-bar':{ bgcolor:ENC_MID, borderRadius:1 } }}/>
+                  </Box>
+                )}
+                {/* Error en pantalla */}
+                {uploadError && !uploadLoading && (
+                  <Box sx={{ mt:1.5, p:1.5, borderRadius:2, width:'100%', textAlign:'left',
+                             bgcolor:'rgba(183,28,28,0.06)', border:'1px solid rgba(183,28,28,0.22)' }}>
+                    <Box sx={{ display:'flex', alignItems:'flex-start', gap:1 }}>
+                      <ErrorOutlineIcon sx={{ color:'#b71c1c', fontSize:17, mt:'1px', flexShrink:0 }}/>
+                      <Box sx={{ flex:1 }}>
+                        <Typography variant="caption" fontWeight={700} color="#b71c1c" display="block">
+                          Error al cargar
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ wordBreak:'break-word' }}>
+                          {uploadError}
+                        </Typography>
+                      </Box>
+                      <IconButton size="small" onClick={()=>setUploadError(null)}
+                        sx={{ p:0.3, color:'text.disabled', flexShrink:0 }}>
+                        <CloseIcon sx={{ fontSize:13 }}/>
+                      </IconButton>
+                    </Box>
+                  </Box>
+                )}
               </Paper>
             </Grid>
 
@@ -5704,10 +5835,31 @@ const PlanificacionPage = () => {
                 </Typography>
                 <Button fullWidth variant="contained" size="large"
                   startIcon={ocSucursalLoading ? <CircularProgress size={16} sx={{color:'white'}}/> : <SucursalIcon/>}
-                  disabled={ocSucursalLoading} onClick={()=>ocSucursalInputRef.current?.click()}
+                  disabled={ocSucursalLoading} onClick={()=>{ setOcSucursalError(null); ocSucursalInputRef.current?.click(); }}
                   sx={{borderRadius:2,bgcolor:'#1565c0','&:hover':{bgcolor:'#0d47a1'},fontWeight:700}}>
                   {ocSucursalLoading ? 'Cargando…' : 'Seleccionar Excel'}
                 </Button>
+                {/* Error en pantalla (la barra de progreso está en el dialog) */}
+                {ocSucursalError && !ocSucursalLoading && (
+                  <Box sx={{ mt:1.5, p:1.5, borderRadius:2, width:'100%', textAlign:'left',
+                             bgcolor:'rgba(183,28,28,0.06)', border:'1px solid rgba(183,28,28,0.22)' }}>
+                    <Box sx={{ display:'flex', alignItems:'flex-start', gap:1 }}>
+                      <ErrorOutlineIcon sx={{ color:'#b71c1c', fontSize:17, mt:'1px', flexShrink:0 }}/>
+                      <Box sx={{ flex:1 }}>
+                        <Typography variant="caption" fontWeight={700} color="#b71c1c" display="block">
+                          Error al cargar
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ wordBreak:'break-word' }}>
+                          {ocSucursalError}
+                        </Typography>
+                      </Box>
+                      <IconButton size="small" onClick={()=>setOcSucursalError(null)}
+                        sx={{ p:0.3, color:'text.disabled', flexShrink:0 }}>
+                        <CloseIcon sx={{ fontSize:13 }}/>
+                      </IconButton>
+                    </Box>
+                  </Box>
+                )}
               </Paper>
             </Grid>
 
@@ -5741,10 +5893,45 @@ const PlanificacionPage = () => {
                 </Button>
                 <Button fullWidth variant="outlined" size="medium"
                   startIcon={facturaLoading ? <CircularProgress size={14}/> : <UploadIcon sx={{fontSize:16}}/>}
-                  disabled={facturaLoading} onClick={()=>facturaInputRef.current?.click()}
+                  disabled={facturaLoading} onClick={()=>{ setFacturaError(null); facturaInputRef.current?.click(); }}
                   sx={{borderRadius:2,borderColor:'#6a1b9a',color:'#6a1b9a','&:hover':{bgcolor:'rgba(106,27,154,0.06)'},fontWeight:600,fontSize:'0.75rem'}}>
                   {facturaLoading ? 'Procesando…' : 'O subir Excel manualmente'}
                 </Button>
+                {/* Barra de progreso facturas */}
+                {facturaLoading && (
+                  <Box sx={{ width:'100%', mt:1.5 }}>
+                    <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.5 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {facturaProgress < 68 ? 'Subiendo archivo…' : 'Procesando facturas…'}
+                      </Typography>
+                      <Typography variant="caption" fontWeight={800} color="#6a1b9a">{facturaProgress}%</Typography>
+                    </Box>
+                    <LinearProgress variant="determinate" value={facturaProgress}
+                      sx={{ borderRadius:1, height:7, bgcolor:'rgba(106,27,154,0.12)',
+                            '& .MuiLinearProgress-bar':{ bgcolor:'#6a1b9a', borderRadius:1 } }}/>
+                  </Box>
+                )}
+                {/* Error en pantalla */}
+                {facturaError && !facturaLoading && (
+                  <Box sx={{ mt:1.5, p:1.5, borderRadius:2, width:'100%', textAlign:'left',
+                             bgcolor:'rgba(183,28,28,0.06)', border:'1px solid rgba(183,28,28,0.22)' }}>
+                    <Box sx={{ display:'flex', alignItems:'flex-start', gap:1 }}>
+                      <ErrorOutlineIcon sx={{ color:'#b71c1c', fontSize:17, mt:'1px', flexShrink:0 }}/>
+                      <Box sx={{ flex:1 }}>
+                        <Typography variant="caption" fontWeight={700} color="#b71c1c" display="block">
+                          Error al cargar
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ wordBreak:'break-word' }}>
+                          {facturaError}
+                        </Typography>
+                      </Box>
+                      <IconButton size="small" onClick={()=>setFacturaError(null)}
+                        sx={{ p:0.3, color:'text.disabled', flexShrink:0 }}>
+                        <CloseIcon sx={{ fontSize:13 }}/>
+                      </IconButton>
+                    </Box>
+                  </Box>
+                )}
               </Paper>
             </Grid>
             {/* ─ Sincronizar No Encadenados ERP ─ */}
@@ -6168,8 +6355,43 @@ const PlanificacionPage = () => {
               placeholder="Ej: Chillán, Quirihue…"/>
           )}
         </DialogContent>
+        {/* Progreso dentro del dialog */}
+        {ocSucursalLoading && (
+          <Box sx={{ px:3, pb:1 }}>
+            <Box sx={{ display:'flex', justifyContent:'space-between', mb:0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                {ocSucursalProgress < 68 ? 'Subiendo archivo…' : 'Procesando en servidor…'}
+              </Typography>
+              <Typography variant="caption" fontWeight={800} color="#1565c0">{ocSucursalProgress}%</Typography>
+            </Box>
+            <LinearProgress variant="determinate" value={ocSucursalProgress}
+              sx={{ borderRadius:1, height:7, bgcolor:'rgba(21,101,192,0.12)',
+                    '& .MuiLinearProgress-bar':{ bgcolor:'#1565c0', borderRadius:1 } }}/>
+          </Box>
+        )}
+        {/* Error dentro del dialog */}
+        {ocSucursalError && !ocSucursalLoading && (
+          <Box sx={{ mx:3, mb:1.5, p:1.5, borderRadius:2,
+                     bgcolor:'rgba(183,28,28,0.06)', border:'1px solid rgba(183,28,28,0.22)' }}>
+            <Box sx={{ display:'flex', alignItems:'flex-start', gap:1 }}>
+              <ErrorOutlineIcon sx={{ color:'#b71c1c', fontSize:17, mt:'1px', flexShrink:0 }}/>
+              <Box sx={{ flex:1 }}>
+                <Typography variant="caption" fontWeight={700} color="#b71c1c" display="block">
+                  Error al cargar
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ wordBreak:'break-word' }}>
+                  {ocSucursalError}
+                </Typography>
+              </Box>
+              <IconButton size="small" onClick={()=>setOcSucursalError(null)}
+                sx={{ p:0.3, color:'text.disabled', flexShrink:0 }}>
+                <CloseIcon sx={{ fontSize:13 }}/>
+              </IconButton>
+            </Box>
+          </Box>
+        )}
         <DialogActions sx={{px:3,pb:2}}>
-          <Button onClick={()=>setOcSucursalOpen(false)} disabled={ocSucursalLoading} sx={{borderRadius:2}}>
+          <Button onClick={()=>{setOcSucursalOpen(false);setOcSucursalError(null);}} disabled={ocSucursalLoading} sx={{borderRadius:2}}>
             Cancelar
           </Button>
           <Button onClick={confirmarOcSucursal} variant="contained" disabled={!ocSucursalNombre.trim()||ocSucursalLoading}
